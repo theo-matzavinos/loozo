@@ -71,7 +71,7 @@ export class AppToggle {
 - Give separate Angular applications on one page distinct `APP_ID`s.
 - Server-rendered hidden inputs submit the server's values before hydration. A control inside `<fieldset disabled>` gets `aria-disabled` and `data-disabled` only when it binds; style it by `:disabled` too.
 - Select `multiple` isn't supported, nor a Select trigger (or any other component's part) on a `uiToolbarButton`'s element, nor Menubar.
-- Core settles some group attributes when parts bind: a grouped checkbox's made `id`, a parent's `aria-controls` (and its checked state without `allValues`), a Select group's `hidden` and `aria-labelledby`. Don't "fix" them; give checkboxes static ids if the server HTML needs them.
+- Core settles some group attributes when parts bind: a grouped checkbox's made `id`, a parent's `aria-controls` (and its checked state without `allValues`), a Select group's `aria-labelledby`. Don't "fix" them; give checkboxes static ids if the server HTML needs them.
 
 ## Signal forms
 

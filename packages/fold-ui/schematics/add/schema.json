@@ -17,6 +17,8 @@
           "checkbox",
           "cn",
           "combobox",
+          "date-field",
+          "date-picker",
           "dialog",
           "field",
           "file-field",

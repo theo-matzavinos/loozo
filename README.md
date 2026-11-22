@@ -55,3 +55,5 @@ Pull requests into `main` run the **CI** workflow: every package's build, check,
 Every Friday the **Angular canary** workflow pins the workspace to Angular's `latest` release in one job and its `next` release in another, rebuilds the router's builder schemas and runs the router's and Launch's tests. It isn't a required check; its `latest` run stays red from the day Angular ships a minor the router doesn't cover until the router is released against it.
 
 The workspace and example applications remain private. Packages are [MIT-licensed](LICENSE).
+
+Report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes.

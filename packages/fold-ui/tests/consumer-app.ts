@@ -1,5 +1,6 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
+import { DatePipe } from "@angular/common";
 import { Component, LOCALE_ID, computed, inject, signal } from "@angular/core";
 import {
   FormField,
@@ -27,6 +28,14 @@ import {
 } from "#ui/calendar";
 import { Checkbox } from "#ui/checkbox";
 import { ComboboxParts } from "#ui/combobox";
+import {
+  DateField,
+  DateFieldInput,
+  DateTimeField,
+  TimeField,
+  provideDateFieldPlaceholders,
+} from "#ui/date-field";
+import { DatePickerParts } from "#ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -438,6 +447,427 @@ export class Calendars {
   }
 }
 
+// Date entry: the date, time and date-time fields and the single date picker in its field and
+// button shapes. Every Calendar pins today and the Monday week start. Greek tokens come from a
+// component-level provider, so they stay in this subtree.
+@Component({
+  selector: "app-greek-date-field",
+  imports: [DateField, DateFieldInput],
+  providers: [
+    provideDateFieldPlaceholders({
+      year: "εεεε",
+      month: "μμ",
+      day: "ηη",
+      hour: "ωω",
+      minute: "λλ",
+      second: "δδ",
+      dayPeriod: "π.μ./μ.μ.",
+    }),
+  ],
+  template: `
+    <div zzDateField locale="el" id="df-el">
+      <div zzDateFieldInput aria-label="Ημερομηνία γέννησης"></div>
+    </div>
+  `,
+})
+export class GreekDateField {}
+
+@Component({
+  selector: "app-date-entries",
+  imports: [
+    Button,
+    DateField,
+    DateFieldInput,
+    DatePickerParts,
+    DatePipe,
+    DateTimeField,
+    DialogParts,
+    Field,
+    FieldError,
+    FieldLabel,
+    FormField,
+    GreekDateField,
+    TimeField,
+  ],
+  template: `
+    <section id="date-entries" class="grid max-w-3xl grid-cols-2 items-start gap-5 p-5">
+      <div zzField #birthField="zzField" id="df-birth-field">
+        <span zzFieldLabel id="df-birth-label">Date of birth</span>
+        <div zzDateField [formField]="dates.birth" locale="en-GB" id="df-birth">
+          <div zzDateFieldInput id="df-birth-input"></div>
+        </div>
+        @if (birthField.state.errorsShown()) {
+          @switch (birthField.state.errors()[0]?.kind) {
+            @case ("dateIncomplete") {
+              <p zzFieldError id="df-birth-error">Enter a complete date</p>
+            }
+            @case ("dateInvalid") {
+              <p zzFieldError id="df-birth-error">This date doesn't exist</p>
+            }
+            @default {
+              <p zzFieldError id="df-birth-error">{{ birthField.state.errors()[0]?.message }}</p>
+            }
+          }
+        }
+      </div>
+      <div zzDateField [(value)]="usDate" locale="en-US" id="df-en-us">
+        <div zzDateFieldInput aria-label="Start date"></div>
+      </div>
+      <app-greek-date-field />
+      <div zzField id="df-readonly-field">
+        <span zzFieldLabel>Issued on</span>
+        <div zzDateField [formField]="dates.issued" locale="en-GB" id="df-readonly">
+          <div zzDateFieldInput></div>
+        </div>
+      </div>
+      <div zzField id="df-disabled-field">
+        <span zzFieldLabel>Locked on</span>
+        <div zzDateField [formField]="dates.locked" locale="en-GB" id="df-disabled">
+          <div zzDateFieldInput></div>
+        </div>
+      </div>
+      <div zzField #invalidField="zzField" id="df-invalid-field">
+        <span zzFieldLabel>Registered on</span>
+        <div zzDateField [formField]="dates.registered" locale="en-GB" id="df-invalid">
+          <div zzDateFieldInput></div>
+        </div>
+        @if (invalidField.state.errorsShown()) {
+          <p zzFieldError id="df-invalid-error">{{ invalidField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzTimeField [(value)]="opensAt" locale="en-US" hourCycle="12" id="tf-12">
+        <div zzDateFieldInput aria-label="Opens at"></div>
+      </div>
+      <output id="tf-12-value">{{ opensAt() }}</output>
+      <div
+        zzTimeField
+        value="17:45:30"
+        locale="en-GB"
+        hourCycle="24"
+        precision="second"
+        id="tf-24s"
+      >
+        <div zzDateFieldInput aria-label="Closes at"></div>
+      </div>
+      <div zzField id="dtf-field">
+        <span zzFieldLabel>Starts at</span>
+        <div zzDateTimeField [formField]="dates.startsAt" locale="en-GB" id="dtf">
+          <div zzDateFieldInput></div>
+        </div>
+      </div>
+      <div class="grid gap-2">
+        <div
+          zzDateField
+          [(value)]="clearDate"
+          locale="en-GB"
+          #clearField="zzDateField"
+          id="df-clear"
+        >
+          <div zzDateFieldInput aria-label="Reminder date"></div>
+        </div>
+        <button zzButton (click)="clearField.clear()" id="df-clear-button">Clear</button>
+      </div>
+
+      <div zzField #dueField="zzField" id="dp-field-field">
+        <span zzFieldLabel id="dp-field-label">Due date</span>
+        <div zzDatePicker [formField]="dates.due" locale="en-GB" id="dp-field">
+          <div zzDateFieldInput id="dp-field-input">
+            <button zzDatePickerTrigger aria-label="Choose due date" id="dp-field-trigger"></button>
+          </div>
+          <div
+            zzDatePickerContent
+            align="end"
+            #dueContent="zzDatePickerContent"
+            id="dp-field-content"
+          >
+            @if (dueContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+                id="dp-field-calendar"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (dueField.state.errorsShown()) {
+          <p zzFieldError id="dp-field-error">{{ dueField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzDatePicker readonly value="2026-10-14" locale="en-GB" id="dp-field-readonly">
+        <div zzDateFieldInput aria-label="Signed on">
+          <button zzDatePickerTrigger aria-label="Choose signing date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #signedContent="zzDatePickerContent">
+          @if (signedContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDatePicker disabled value="2026-10-14" locale="en-GB" id="dp-field-disabled">
+        <div zzDateFieldInput aria-label="Closed on">
+          <button zzDatePickerTrigger aria-label="Choose closing date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #closedContent="zzDatePickerContent">
+          @if (closedContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDatePicker disabled value="2026-10-14" locale="en-GB" id="dp-field-disabled-focusable">
+        <div zzDateFieldInput aria-label="Archived on">
+          <button
+            zzDatePickerTrigger
+            focusableWhenDisabled
+            aria-label="Choose archiving date"
+          ></button>
+        </div>
+        <div zzDatePickerContent align="end" #archivedContent="zzDatePickerContent">
+          @if (archivedContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDatePicker value="2026-10-14" locale="en-GB" id="dp-field-trigger-disabled">
+        <div zzDateFieldInput aria-label="Reviewed on">
+          <button zzDatePickerTrigger disabled aria-label="Choose review date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #reviewedContent="zzDatePickerContent">
+          @if (reviewedContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+
+      <div zzField id="dp-button-field">
+        <span zzFieldLabel id="dp-button-label">Valid until</span>
+        <div zzDatePicker [formField]="dates.validUntil" #validUntil="zzDatePicker" id="dp-button">
+          <button zzDatePickerTrigger id="dp-button-trigger">
+            {{ (validUntil.state.value() | date: "d MMM y") ?? "Choose a date" }}
+          </button>
+          <div zzDatePickerContent #validUntilContent="zzDatePickerContent" id="dp-button-content">
+            @if (validUntilContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+                id="dp-button-calendar"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzDatePicker [(value)]="emptyDate" #empty="zzDatePicker" id="dp-button-empty">
+        <button zzDatePickerTrigger id="dp-button-empty-trigger">
+          {{ (empty.state.value() | date: "d MMM y") ?? "Choose a date" }}
+        </button>
+        <div zzDatePickerContent #emptyContent="zzDatePickerContent">
+          @if (emptyContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      @for (specimen of buttonSpecimens; track specimen.id) {
+        <div
+          zzDatePicker
+          [readonly]="specimen.readonly"
+          [disabled]="specimen.disabled"
+          value="2026-10-14"
+          (valueChange)="policyWrites.set(policyWrites() + 1)"
+          [id]="specimen.id"
+        >
+          <button zzDatePickerTrigger [focusableWhenDisabled]="specimen.focusable">
+            14 Oct 2026
+          </button>
+          <div zzDatePickerContent #policyContent="zzDatePickerContent">
+            @if (policyContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      }
+      <output id="dp-policy-writes">{{ policyWrites() }}</output>
+      <div zzField id="dp-button-readonly-schema-field">
+        <span zzFieldLabel>Valid from</span>
+        <div
+          zzDatePicker
+          [formField]="dates.validFrom"
+          #validFrom="zzDatePicker"
+          id="dp-button-readonly-schema"
+        >
+          <button zzDatePickerTrigger>
+            {{ (validFrom.state.value() | date: "d MMM y") ?? "Choose a date" }}
+          </button>
+          <div zzDatePickerContent #validFromContent="zzDatePickerContent">
+            @if (validFromContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div zzDialog>
+        <button zzDialogTrigger id="dp-dialog-trigger">Edit appointment</button>
+        <dialog zzDialogContent id="dp-dialog-content">
+          <div zzDialogHeader>
+            <h2 zzDialogTitle>Edit appointment</h2>
+          </div>
+          <div zzDialogBody>
+            <div class="grid gap-4">
+              <div zzField>
+                <span zzFieldLabel>Appointment date</span>
+                <div zzDatePicker [(value)]="appointment" locale="en-GB" id="dp-dialog">
+                  <div zzDateFieldInput>
+                    <button zzDatePickerTrigger aria-label="Choose appointment date"></button>
+                  </div>
+                  <div zzDatePickerContent align="end" #appointmentContent="zzDatePickerContent">
+                    @if (appointmentContent.state.open()) {
+                      <div
+                        zzCalendar
+                        today="2026-10-27"
+                        [weekStart]="1"
+                        selectedDescription="selected"
+                      ></div>
+                    }
+                  </div>
+                </div>
+              </div>
+              <div zzField>
+                <span zzFieldLabel>Search from</span>
+                <div zzDatePicker [(value)]="searchFrom" #from="zzDatePicker" id="dp-dialog-button">
+                  <button zzDatePickerTrigger>
+                    {{ (from.state.value() | date: "d MMM y") ?? "Choose a date" }}
+                  </button>
+                  <div zzDatePickerContent #fromContent="zzDatePickerContent">
+                    @if (fromContent.state.open()) {
+                      <div
+                        zzCalendar
+                        today="2026-10-27"
+                        [weekStart]="1"
+                        selectedDescription="selected"
+                      ></div>
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </dialog>
+      </div>
+
+      <div dir="rtl">
+        <div zzDatePicker value="2026-10-27" locale="en-GB" id="dp-rtl">
+          <div zzDateFieldInput aria-label="Delivery date">
+            <button zzDatePickerTrigger aria-label="Choose delivery date"></button>
+          </div>
+          <div zzDatePickerContent align="end" #deliveryContent="zzDatePickerContent">
+            @if (deliveryContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div class="light grid gap-2 bg-background p-2">
+        <div zzDatePicker value="2026-10-27" locale="en-GB" id="dp-light">
+          <div zzDateFieldInput aria-label="Shipping date">
+            <button zzDatePickerTrigger aria-label="Choose shipping date"></button>
+          </div>
+          <div zzDatePickerContent align="end" #shippingContent="zzDatePickerContent">
+            @if (shippingContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        <div zzDatePicker #lightButton="zzDatePicker" id="dp-light-button">
+          <button zzDatePickerTrigger>
+            {{ (lightButton.state.value() | date: "d MMM y") ?? "Choose a date" }}
+          </button>
+          <div zzDatePickerContent #lightContent="zzDatePickerContent">
+            @if (lightContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+    </section>
+  `,
+})
+export class DateEntries {
+  protected readonly usDate = signal<string | null>(null);
+  protected readonly opensAt = signal<string | null>(null);
+  protected readonly clearDate = signal<string | null>("2026-10-14");
+  protected readonly emptyDate = signal<string | null>(null);
+  protected readonly appointment = signal<string | null>(null);
+  protected readonly searchFrom = signal<string | null>(null);
+  protected readonly policyWrites = signal(0);
+  protected readonly buttonSpecimens = [
+    { id: "dp-button-readonly-direct", readonly: true, disabled: false, focusable: false },
+    { id: "dp-button-disabled", readonly: false, disabled: true, focusable: false },
+    { id: "dp-button-readonly-disabled", readonly: true, disabled: true, focusable: false },
+    {
+      id: "dp-button-readonly-disabled-focusable",
+      readonly: true,
+      disabled: true,
+      focusable: true,
+    },
+  ];
+  protected readonly dates = form(
+    signal({
+      birth: null as string | null,
+      issued: "2026-10-14" as string | null,
+      locked: "2026-10-14" as string | null,
+      registered: "1899-12-31" as string | null,
+      startsAt: null as string | null,
+      due: "2026-10-27" as string | null,
+      validUntil: "2026-10-27" as string | null,
+      validFrom: "2026-10-14" as string | null,
+    }),
+    (path) => {
+      required(path.birth, { message: "Enter your date of birth." });
+      readonly(path.issued);
+      disabled(path.locked);
+      validate(path.registered, ({ value }) => {
+        const date = value();
+
+        if (date !== null && date < "1900-01-01") {
+          return { kind: "tooEarly", message: "Enter a date from 1900." };
+        }
+
+        return undefined;
+      });
+      required(path.due, { message: "Choose a due date." });
+      readonly(path.validFrom);
+    },
+  );
+}
+
 // The FileField's size in Greek: the value part formats it in its injector's LOCALE_ID.
 @Component({
   selector: "app-greek-file",
@@ -655,6 +1085,7 @@ export class FileFields {
     AlertDialogParts,
     AvatarParts,
     Calendars,
+    DateEntries,
     Checkbox,
     ComboboxParts,
     DialogParts,
@@ -2303,6 +2734,7 @@ export class FileFields {
       </div>
       <button zzButton id="after-country-search">After the country search</button>
     </section>
+    <app-date-entries />
   `,
 })
 export class App {

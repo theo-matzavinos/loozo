@@ -106,6 +106,20 @@ manifest.dependencies["@loozo/origami-ui"] = `file:${origamiTarball}`;
 manifest.devDependencies["@loozo/fold-ui"] = `file:${foldTarball}`;
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
+// The app holds every component's fixtures in one initial bundle, past `ng new`'s 1 MB error
+// budget since the date pickers; that budget is a real app's default, not a limit of fold's.
+const workspacePath = join(app, "angular.json");
+const workspace = JSON.parse(await readFile(workspacePath, "utf8"));
+const production = workspace.projects.consumer.architect.build.configurations.production;
+
+for (const budget of production.budgets) {
+  if (budget.type === "initial") {
+    budget.maximumError = "1.5MB";
+  }
+}
+
+await writeFile(workspacePath, `${JSON.stringify(workspace, null, 2)}\n`);
+
 run("npm", ["install", "--no-audit", "--no-fund"], app);
 ng(["add", "@loozo/fold-ui", "--skip-confirmation", "--prefix", "zz"]);
 ng([
@@ -116,6 +130,8 @@ ng([
   "alert-dialog",
   "checkbox",
   "combobox",
+  "date-field",
+  "date-picker",
   "dialog",
   "field",
   "file-field",
@@ -151,6 +167,8 @@ assert.deepEqual(folders.sort(), [
   "checkbox",
   "cn",
   "combobox",
+  "date-field",
+  "date-picker",
   "dialog",
   "field",
   "file-field",

@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { createServer, request as httpRequest } from "node:http";
 import { Duplex } from "node:stream";
 import { test } from "node:test";
-import { WebSocketServer } from "ws";
+import { WebSocket as NodeWebSocket, WebSocketServer } from "ws";
 import { createEnvironmentInjector, PLATFORM_ID, runInInjectionContext } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { forbidden, middleware, notFound, redirect } from "../dist/server/index.js";
@@ -109,6 +109,22 @@ class FakeSocket extends EventTarget {
 
   frames() {
     return this.sent.map((frame) => JSON.parse(frame));
+  }
+}
+
+// A browser socket that opens when the test says, for the client's own queue.
+class BrowserSocket extends FakeSocket {
+  static created = [];
+  readyState = 0;
+
+  constructor() {
+    super();
+    BrowserSocket.created.push(this);
+  }
+
+  open() {
+    this.readyState = 1;
+    this.dispatchEvent(new Event("open"));
   }
 }
 
@@ -651,6 +667,85 @@ test("credit windows: the server holds at most 32 unread messages and grants 16 
   assert.deepEqual(over.socket.frames().at(-1), malformed);
 });
 
+test("credit windows: a message grant waits while the socket buffers 1 MiB, then grants every read at once", async () => {
+  const read = [];
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        // Reads messages and never yields, so only grants go out.
+        listen: channel({
+          message: anySchema,
+          handler: async function* ({ messages }) {
+            for await (const message of messages) {
+              read.push(message);
+            }
+          },
+        }),
+      }),
+    },
+  };
+  const { socket } = await accepted(namespaces, upgradeRequest("/_rpc/chat/listen"));
+
+  try {
+    // Once the handler waits for messages, the caller stops reading: its unsent frames reach
+    // the mark.
+    await settle();
+    socket.bufferedAmount = 1024 * 1024;
+
+    for (let index = 0; index < 32; index += 1) {
+      socket.receive({ message: index });
+    }
+
+    await until(() => read.length === 32, "the reads");
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.deepEqual(socket.sent, []);
+
+    socket.bufferedAmount = 0;
+    await until(() => socket.sent.length === 1, "the held grant");
+    assert.deepEqual(socket.frames(), [{ ready: 32 }]);
+
+    // Under the mark, grants go out as the handler reads again.
+    for (let index = 32; index < 64; index += 1) {
+      socket.receive({ message: index });
+    }
+
+    await until(() => read.length === 64, "the second window");
+    assert.deepEqual(socket.frames(), [{ ready: 32 }, { ready: 16 }, { ready: 16 }]);
+    assert.equal(socket.closedWith, undefined);
+  } finally {
+    // A failed assertion leaves the channel open; its held grant would keep polling.
+    if (socket.readyState !== 3) {
+      socket.leave();
+    }
+  }
+
+  // A caller that keeps sending without reading its grants runs out of credit and is refused,
+  // even once the handler read its whole window: a held grant restores no credit.
+  const { socket: blindSocket } = await accepted(namespaces, upgradeRequest("/_rpc/chat/listen"));
+
+  try {
+    await settle();
+    blindSocket.bufferedAmount = 1024 * 1024;
+
+    for (let index = 0; index < 32; index += 1) {
+      blindSocket.receive({ message: index });
+    }
+
+    await until(() => read.length === 96, "the blind sender's reads");
+    // Past several checks of the buffer, which stays at the mark.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.deepEqual(blindSocket.sent, []);
+    blindSocket.receive({ message: 32 });
+    await until(() => blindSocket.closedWith !== undefined, "the over-credit refusal");
+    assert.deepEqual(blindSocket.frames(), [malformed]);
+  } finally {
+    // A failed assertion leaves the channel open; its held grant would keep polling.
+    if (blindSocket.readyState !== 3) {
+      blindSocket.leave();
+    }
+  }
+});
+
 test("credit windows: the server sends at most 256 unread values and pauses at the buffered mark", async () => {
   let pulled = 0;
   const namespaces = {
@@ -805,6 +900,86 @@ test("closing after the handler ended, while middleware still settles, aborts th
   await until(() => seen.includes("cleanup cancelled"), "the middleware's signal to abort");
   await settle();
   assert.deepEqual(call.socket.frames(), [{ value: "only" }]);
+});
+
+test("after accept, the request aborting leaves the call's signals live; the socket closing aborts them", async () => {
+  const calls = [];
+  const description = {
+    id: "launch-channel-accepted-signal-test-app",
+    context: ({ request, signal }) => {
+      const call = { stage: signal, stageRequest: request.signal };
+
+      calls.push(call);
+
+      return { call };
+    },
+  };
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        echo: channel({
+          message: anySchema,
+          handler: async function* ({ context, messages, request, signal }) {
+            context.call.handler = signal;
+            context.call.request = request.signal;
+            yield "ready";
+
+            for await (const message of messages) {
+              yield message;
+            }
+          },
+        }),
+      }),
+    },
+  };
+  const signals = (call) => ({
+    stage: call.stage.aborted,
+    stageRequest: call.stageRequest.aborted,
+    handler: call.handler.aborted,
+    request: call.request.aborted,
+  });
+  const live = { stage: false, stageRequest: false, handler: false, request: false };
+  const aborted = { stage: true, stageRequest: true, handler: true, request: true };
+
+  // Some hosts abort the request once the 101 goes out; others hand the socket over before.
+  for (const state of ["open", "connecting"]) {
+    const departure = new AbortController();
+    const upgrade = await handleChannelUpgrade(
+      bound(description, namespaces),
+      upgradeRequest("/_rpc/chat/echo", null, { signal: departure.signal }),
+      { allowedHosts: ["test"] },
+    );
+
+    assert.ok(upgrade !== null && !(upgrade instanceof Response), state);
+
+    const socket = new FakeSocket();
+
+    if (state === "connecting") {
+      socket.readyState = 0;
+      upgrade.accept(socket);
+      departure.abort();
+      socket.readyState = 1;
+      socket.dispatchEvent(new Event("open"));
+    } else {
+      upgrade.accept(socket);
+      departure.abort();
+    }
+
+    await until(() => socket.sent.length === 1, `the first value (${state})`);
+
+    const call = calls.at(-1);
+
+    assert.deepEqual(signals(call), live, state);
+    socket.receive({ message: "hi" });
+    await until(() => socket.sent.length === 2, `the echo (${state})`);
+    assert.deepEqual(socket.frames(), [{ value: "ready" }, { value: "hi" }], state);
+    assert.deepEqual(signals(call), live, state);
+    assert.equal(socket.closedWith, undefined, state);
+
+    socket.leave();
+    await until(() => call.handler.aborted, `the handler's signal (${state})`);
+    assert.deepEqual(signals(call), aborted, state);
+  }
 });
 
 test("a client that leaves before accept: the handler doesn't run and next() resolves", async () => {
@@ -1023,8 +1198,11 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
 
 // A real Node server with the upgrade handler, and Node's WebSocket standing in for the
 // browser's: it resolves the client's relative URL against the server and sends what a
-// browser sends by itself.
-async function serve(namespaces, { maxPayload, origin, description = application } = {}) {
+// browser sends by itself. With `stall`, the server never reads what its clients send.
+async function serve(
+  namespaces,
+  { maxPayload, origin, description = application, stall = false } = {},
+) {
   const server = createServer(async (incoming, outgoing) => {
     const chunks = [];
 
@@ -1046,6 +1224,7 @@ async function serve(namespaces, { maxPayload, origin, description = application
     outgoing.end(Buffer.from(await response.arrayBuffer()));
   });
   const upgrades = [];
+  const stalled = [];
   const listener = createUpgradeHandler(
     (request) =>
       handleChannelUpgrade(bound(description, namespaces), request, {
@@ -1056,6 +1235,13 @@ async function serve(namespaces, { maxPayload, origin, description = application
 
   server.on("upgrade", (incoming, socket, head) => {
     upgrades.push(incoming.url);
+
+    // Paused before ws takes it: ws resumes a socket only once its receiver drains data.
+    if (stall) {
+      socket.pause();
+      stalled.push(socket);
+    }
+
     listener(incoming, socket, head);
   });
   server.listen(0, "127.0.0.1");
@@ -1063,6 +1249,7 @@ async function serve(namespaces, { maxPayload, origin, description = application
 
   const base = `http://127.0.0.1:${server.address().port}`;
   const RealWebSocket = globalThis.WebSocket;
+  const clients = [];
   let sockets = 0;
 
   globalThis.WebSocket = class extends RealWebSocket {
@@ -1071,17 +1258,25 @@ async function serve(namespaces, { maxPayload, origin, description = application
       super(new URL(url, base.replace("http", "ws")), {
         headers: { origin: origin ?? base, cookie: "alice" },
       });
+      clients.push(this);
     }
   };
 
   return {
     base,
     upgrades,
+    clients,
     get sockets() {
       return sockets;
     },
     close() {
       globalThis.WebSocket = RealWebSocket;
+
+      // A paused socket never reads the client's close: drop it so the client's close completes.
+      for (const socket of stalled) {
+        socket.destroy();
+      }
+
       server.closeAllConnections();
       server.close();
     },
@@ -1269,6 +1464,258 @@ test("a socket left before accept that fails while it's destroyed doesn't take t
   assert.equal(socket.listenerCount("error"), 0);
 });
 
+test("a channel's stages and requests see the call's signal: the request's until accept, then the socket's", async () => {
+  const calls = [];
+  let gate;
+  const description = {
+    id: "launch-channel-signal-test-app",
+    context: async ({ request, signal }) => {
+      const call = { stage: signal, stageRequest: request.signal };
+
+      calls.push(call);
+      await gate?.promise;
+
+      return { call };
+    },
+  };
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        talk: channel({
+          message: anySchema,
+          handler: async function* ({ context, messages, request, signal }) {
+            context.call.handler = signal;
+            context.call.request = request.signal;
+            yield "ready";
+
+            for await (const message of messages) {
+              yield message;
+            }
+          },
+        }),
+      }),
+    },
+  };
+  const server = await serve(namespaces, { description });
+  const url = `${server.base.replace("http", "ws")}/_rpc/chat/talk?input=null`;
+
+  try {
+    for (const [how, leave] of [
+      ["closes", (client) => client.close(1000)],
+      ["disconnects", (client) => client.terminate()],
+    ]) {
+      const client = new NodeWebSocket(url, { origin: server.base });
+
+      await once(client, "message");
+
+      const call = calls.at(-1);
+
+      assert.equal(call.stage.aborted, false, how);
+      leave(client);
+      await until(() => call.handler.aborted, `the handler's signal when the client ${how}`);
+      assert.equal(call.stage.aborted, true, how);
+      assert.equal(call.stageRequest.aborted, true, how);
+      assert.equal(call.request.aborted, true, how);
+    }
+
+    // The client leaves while the stage still runs: the socket is never accepted.
+    gate = Promise.withResolvers();
+
+    const early = new NodeWebSocket(url, { origin: server.base });
+
+    early.on("error", () => undefined);
+    await until(() => calls.length === 3, "the third call's stage");
+    early.terminate();
+    await until(() => calls[2].stage.aborted, "the stage's signal before accept");
+    assert.equal(calls[2].stageRequest.aborted, true);
+    gate.resolve();
+  } finally {
+    server.close();
+  }
+});
+
+// A real Node server and a raw `ws` caller on one echo channel. `ping(count, payload)` sends
+// pings and waits until the server saw them; `fill()` stops reading and pings until the server
+// socket buffers 1 MiB.
+async function pingingCaller() {
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        listen: channel({
+          message: anySchema,
+          handler: async function* ({ messages }) {
+            for await (const message of messages) {
+              yield message;
+            }
+          },
+        }),
+      }),
+    },
+  };
+  const accepted = Promise.withResolvers();
+  const listener = createUpgradeHandler(async (request) => {
+    const upgrade = await handleChannelUpgrade(bound(application, namespaces), request, {
+      allowedHosts: ["127.0.0.1"],
+    });
+
+    return {
+      headers: upgrade.headers,
+      accept(socket) {
+        accepted.resolve(socket);
+        upgrade.accept(socket);
+      },
+    };
+  });
+  const server = createServer();
+
+  server.on("upgrade", listener);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const client = new NodeWebSocket(`${base.replace("http", "ws")}/_rpc/chat/listen?input=null`, {
+    origin: base,
+  });
+  let socket;
+  let pings = 0;
+
+  // Waits for the server's socket and the server to close, so no handle outlives the test.
+  async function close() {
+    const closed = [new Promise((resolve) => server.close(resolve))];
+
+    if (socket !== undefined && socket.readyState !== socket.CLOSED) {
+      closed.push(once(socket, "close"));
+    }
+
+    client.terminate();
+    socket?.terminate();
+    await Promise.all(closed);
+  }
+
+  try {
+    await once(client, "open");
+    socket = await accepted.promise;
+  } catch (error) {
+    await close();
+    throw error;
+  }
+
+  socket.on("ping", () => {
+    pings += 1;
+  });
+
+  async function ping(count, payload = Buffer.alloc(125)) {
+    const target = pings + count;
+
+    for (let index = 0; index < count; index += 1) {
+      client.ping(payload);
+    }
+
+    await until(() => pings === target, `${count} pings`);
+  }
+
+  // The caller stops reading: the server's answers fill the kernel's buffers, then the socket's.
+  async function fill() {
+    client.pause();
+
+    for (let sent = 0; socket.bufferedAmount < pingMark; sent += 1) {
+      assert.ok(sent < 1000, "the socket's buffer never reached the mark");
+      await ping(1000);
+    }
+  }
+
+  return { client, socket, ping, fill, close };
+}
+
+const pingMark = 1024 * 1024;
+
+test("the Node listener answers a caller's pings only while the socket buffers less than 1 MiB", async () => {
+  const { client, socket, ping, fill, close } = await pingingCaller();
+
+  try {
+    // A caller that reads gets its pong.
+    const pong = once(client, "pong");
+
+    client.ping("hello");
+    assert.equal(String((await pong)[0]), "hello");
+
+    await fill();
+
+    // About 2 MiB more pings add no more than one answer.
+    await ping(16_000);
+    assert.ok(socket.bufferedAmount < pingMark + 256, `buffered ${socket.bufferedAmount}`);
+    assert.equal(socket.readyState, socket.OPEN);
+  } finally {
+    await close();
+  }
+});
+
+test("the Node listener answers the latest ping sent over 1 MiB once the caller reads", async () => {
+  const { client, socket, ping, fill, close } = await pingingCaller();
+  const late = [];
+
+  client.on("pong", (data) => {
+    if (String(data).startsWith("late")) {
+      late.push(String(data));
+    }
+  });
+
+  try {
+    await fill();
+
+    for (let index = 0; index < 10; index += 1) {
+      await ping(1, `late ${index}`);
+    }
+
+    assert.ok(socket.bufferedAmount >= pingMark, `buffered ${socket.bufferedAmount}`);
+    client.resume();
+    await until(() => late.length > 0, "the latest ping's pong");
+    // Several more 50 ms checks: no other answer follows.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(late, ["late 9"]);
+    assert.ok(socket.bufferedAmount < pingMark, `buffered ${socket.bufferedAmount}`);
+
+    // Under the mark again, a ping is answered at once.
+    const pong = once(client, "pong");
+
+    client.ping("hello");
+    assert.equal(String((await pong)[0]), "hello");
+  } finally {
+    await close();
+  }
+});
+
+test("the Node listener stops waiting to answer a ping when the socket closes", async () => {
+  function timers() {
+    let count = 0;
+
+    for (const resource of process.getActiveResourcesInfo()) {
+      if (resource === "Timeout") {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  const before = timers();
+  const { client, socket, ping, fill, close } = await pingingCaller();
+
+  try {
+    await fill();
+    await ping(1, "late");
+    assert.ok(socket.bufferedAmount >= pingMark, `buffered ${socket.bufferedAmount}`);
+
+    const closed = once(socket, "close");
+
+    client.terminate();
+    await closed;
+    assert.equal(timers(), before);
+  } finally {
+    await close();
+  }
+});
+
 function client(platform = "browser", translate) {
   const parent = createEnvironmentInjector([]);
   const injector = createEnvironmentInjector(
@@ -1300,6 +1747,7 @@ function client(platform = "browser", translate) {
             errors: [{ code: "GONE", status: 410, message: "Gone" }],
           },
           { name: "quiet", input: false, kind: "channel", errors: [] },
+          { name: "held", input: false, kind: "channel", errors: [] },
         ],
       },
     }),
@@ -1603,6 +2051,18 @@ const iterationRegistry = (seen) => ({
           await new Promise((resolve) => signal.addEventListener("abort", resolve));
         },
       }),
+      // Reads nothing until the test opens its gate, then records every message.
+      held: channel({
+        message: anySchema,
+        handler: async function* ({ messages }) {
+          yield "ready";
+          await seen.gate.promise;
+
+          for await (const message of messages) {
+            seen.read.push(message);
+          }
+        },
+      }),
     }),
   },
 });
@@ -1619,6 +2079,9 @@ function within(promise, what) {
 function range(length) {
   return Array.from({ length }, (_, index) => index);
 }
+
+// The string length a message's frame counts toward the send queue's limit.
+const frameLength = (message) => JSON.stringify({ message }).length;
 
 test("a real client crosses both credit windows: its reads grant values, the handler's reads grant sends", async () => {
   const seen = { log: [], gate: Promise.withResolvers() };
@@ -1678,6 +2141,197 @@ test("a real client crosses both credit windows: its reads grant values, the han
     }
 
     assert.deepEqual(await within(echoes, "the echoes"), range(150));
+  } finally {
+    controller.abort();
+    destroy();
+    server.close();
+  }
+});
+
+const queueFull = { name: "RangeError", message: "Launch channel send queue is full" };
+const queueLimit = 1024 * 1024;
+
+// Marks each send that resolves, by index. A rejection stays the test's to assert, and isn't
+// an unhandled rejection meanwhile, which would end the test before its cleanup runs.
+function tracked(sends) {
+  const resolved = sends.map(() => false);
+
+  for (const [index, send] of sends.entries()) {
+    void send.then(
+      () => {
+        resolved[index] = true;
+      },
+      () => undefined,
+    );
+  }
+
+  return resolved;
+}
+
+test("the browser channel lets 1,024 sends and 1 MiB wait: one more rejects with a RangeError and the channel carries on", async () => {
+  const RealWebSocket = globalThis.WebSocket;
+  const controller = new AbortController();
+  const { rpc, destroy } = client();
+
+  BrowserSocket.created = [];
+  globalThis.WebSocket = BrowserSocket;
+
+  try {
+    // Count: 1,024 tiny sends wait before open, the 1,025th is refused.
+    const chat = rpc.chat.deaf({ signal: controller.signal });
+    const socket = BrowserSocket.created[0];
+    const iterator = chat[Symbol.asyncIterator]();
+    const sends = range(1024).map((index) => chat.send(index));
+    const resolved = tracked(sends);
+
+    await within(assert.rejects(chat.send(1024), queueFull), "the 1,025th send's refusal");
+
+    // Open: the first 32 go out on the message credit, the rest still wait.
+    socket.open();
+    await within(Promise.all(sends.slice(0, 32)), "the first window");
+    assert.deepEqual(
+      socket.frames(),
+      range(32).map((message) => ({ message })),
+    );
+    await settle();
+    assert.equal(resolved.indexOf(true, 32), -1);
+
+    // 992 wait now, so one more fits; a grant hands them all, in order, without the refused one.
+    const later = chat.send("later");
+
+    socket.receive({ ready: 993 });
+    await within(Promise.all([...sends, later]), "the granted sends");
+    assert.deepEqual(
+      socket.frames(),
+      [...range(1024), "later"].map((message) => ({ message })),
+    );
+
+    // The channel is still open.
+    socket.receive({ value: "v" });
+    assert.deepEqual(await within(iterator.next(), "a value"), { done: false, value: "v" });
+    await iterator.return();
+
+    // Bytes: the bound is inclusive, and a later send that fits is accepted after a refusal.
+    const bytes = rpc.chat.deaf({ signal: controller.signal });
+    const bytesSocket = BrowserSocket.created[1];
+    const a = "a".repeat(queueLimit / 2 - frameLength(""));
+    const b = "b".repeat(queueLimit / 2 - 13 - frameLength(""));
+
+    assert.equal(frameLength(a) + frameLength(b), queueLimit - 13);
+    assert.equal(frameLength(""), 14);
+    assert.equal(frameLength(0), 13);
+
+    const accepted = [bytes.send(a), bytes.send(b)];
+
+    tracked(accepted);
+    // One code unit over the limit.
+    await within(assert.rejects(bytes.send(""), queueFull), "the refusal at limit + 1");
+    // Exactly the limit.
+    accepted.push(bytes.send(0));
+    tracked(accepted.slice(2));
+    await within(assert.rejects(bytes.send(1), queueFull), "the refusal past a full queue");
+
+    bytesSocket.open();
+    await within(Promise.all(accepted), "the accepted sends");
+    assert.deepEqual(bytesSocket.frames(), [{ message: a }, { message: b }, { message: 0 }]);
+
+    // An empty queue takes one frame of any size; the queue frees as sends are handed.
+    const large = rpc.chat.deaf({ signal: controller.signal });
+    const largeSocket = BrowserSocket.created[2];
+    const big = large.send("x".repeat(3 * queueLimit));
+
+    tracked([big]);
+    await within(assert.rejects(large.send(0), queueFull), "the refusal behind a large send");
+    largeSocket.open();
+    await within(big, "the large send");
+    await within(large.send(0), "a send after the large one");
+  } finally {
+    controller.abort();
+    globalThis.WebSocket = RealWebSocket;
+    destroy();
+  }
+});
+
+test("a handler that doesn't read: 32 sends go out, 1,024 more wait, the next is refused, and reading delivers them in order", async () => {
+  const seen = { log: [], gate: Promise.withResolvers(), read: [] };
+  const server = await serve(iterationRegistry(seen));
+  const { rpc, destroy } = client();
+  // Upgraded sockets outlive the HTTP server's connections: close the channel on failure.
+  const controller = new AbortController();
+
+  try {
+    const chat = rpc.chat.held({ signal: controller.signal });
+    const iterator = chat[Symbol.asyncIterator]();
+
+    assert.deepEqual(await within(iterator.next(), "the first value"), {
+      done: false,
+      value: "ready",
+    });
+
+    const first = range(32).map((index) => chat.send(index));
+
+    await within(Promise.all(first), "the first window");
+
+    const queued = range(1024).map((index) => chat.send(index + 32));
+    const resolved = tracked(queued);
+
+    await within(assert.rejects(chat.send(1056), queueFull), "the refusal");
+    await settle();
+    assert.equal(resolved.indexOf(true), -1);
+
+    seen.gate.resolve();
+    await within(Promise.all(queued), "the queued sends");
+    await within(chat.send("after"), "a send after the refusal");
+    await until(() => seen.read.length === 1057, "the reads");
+    assert.deepEqual(seen.read, [...range(1056), "after"]);
+  } finally {
+    controller.abort();
+    destroy();
+    server.close();
+  }
+});
+
+test("over a stalled network the socket holds at most 32 sends and the queue stays bounded", async () => {
+  const seen = { log: [], gate: Promise.withResolvers() };
+  const server = await serve(iterationRegistry(seen), { stall: true });
+  const { rpc, destroy } = client();
+  const controller = new AbortController();
+
+  try {
+    const chat = rpc.chat.quiet({ signal: controller.signal });
+    const iterator = chat[Symbol.asyncIterator]();
+
+    // The server still sends; it only stops reading.
+    assert.deepEqual(await within(iterator.next(), "the first value"), {
+      done: false,
+      value: "ready",
+    });
+
+    const payload = "x".repeat(500_000);
+    const handed = range(32).map(() => chat.send(payload));
+
+    await within(Promise.all(handed), "the credit window");
+
+    // Two frames fit the 1 MiB queue, a third doesn't.
+    assert.ok(2 * frameLength(payload) <= queueLimit);
+    assert.ok(3 * frameLength(payload) > queueLimit);
+
+    const waiting = [chat.send(payload), chat.send(payload)];
+    const resolved = tracked(waiting);
+
+    await within(assert.rejects(chat.send(payload), queueFull), "the third queued send's refusal");
+    await settle();
+    await settle();
+
+    // How much of it sits in kernel buffers instead depends on the OS: only the bound holds.
+    assert.ok(server.clients[0].bufferedAmount <= 32 * frameLength(payload));
+    assert.deepEqual(resolved, [false, false]);
+
+    controller.abort();
+
+    for (const send of waiting) {
+      await within(assert.rejects(send, { name: "AbortError" }), "the waiting sends' abort");
+    }
   } finally {
     controller.abort();
     destroy();

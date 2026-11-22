@@ -74,7 +74,7 @@
     "@angular/ssr": "22.3.0",
     "@playwright/test": "1.63.0",
     "@types/node": "24.13.3",
-    "@ui-sdk/core": "0.1.0-beta.13",
+    "@ui-sdk/core": "0.1.0-beta.14",
     "ng-packagr": "22.3.0",
     "playwright": "1.63.0",
     "rxjs": "7.8.2",
@@ -85,6 +85,6 @@
   "peerDependencies": {
     "@angular/common": "~22.3.0",
     "@angular/core": "~22.3.0",
-    "@ui-sdk/core": "0.1.0-beta.13"
+    "@ui-sdk/core": "0.1.0-beta.14"
   }
 }

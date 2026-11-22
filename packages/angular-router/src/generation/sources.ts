@@ -702,6 +702,29 @@ function analyzeSteps(
   return steps;
 }
 
+// Explicitly authored local params are present exactly when the path declares placeholders.
+function checkLocalParams({
+  root,
+  config,
+  steps,
+  segments,
+}: Pick<Declaration, "root" | "config" | "steps" | "segments">): void {
+  const needsParams = segments.some((segment) => segment.kind !== "static");
+
+  if (needsParams !== config.has("params")) {
+    fail(
+      root.arguments[1],
+      "Local params must be present exactly when the path declares placeholders",
+    );
+  }
+
+  if (!needsParams && config.has("onInvalidParams")) {
+    const handler = steps.find((step) => step.name === "onInvalidParams")!;
+
+    fail(handler.call, "onInvalidParams requires local path placeholders");
+  }
+}
+
 export function isPackageRoot(specifier: string): boolean {
   if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("#")) {
     return false;
@@ -814,6 +837,8 @@ export async function discover(
   const declarations: Declaration[] = [];
   const pages = new Map<string, string>();
   const syntaxHost = overlayHost(parsed.options, authored);
+  // A candidate skipped as unreadable, which only the auto pass tolerates.
+  let unread = false;
   let syntaxProgram: ts.Program;
   // Built only when an extension factory's manifest must be read.
   let checker: ts.TypeChecker | undefined;
@@ -834,6 +859,8 @@ export async function discover(
     if (bytes === undefined) {
       if (auto) {
         // An explicit tsconfig files entry may name a not-yet-seeded definition.
+        unread = true;
+
         continue;
       }
 
@@ -984,7 +1011,6 @@ export async function discover(
       fail(path, String(error));
     }
 
-    const needsParams = segments.some((segment) => segment.kind !== "static");
     const outletNode = config.get("outlet");
     let outlet: string | undefined;
 
@@ -1012,14 +1038,8 @@ export async function discover(
 
     const ignored = filesystem && transparent(roots[0], dirname(file));
 
-    if (!auto && !ignored && needsParams !== config.has("params")) {
-      fail(configNode, "Local params must be present exactly when the path declares placeholders");
-    }
-
-    if (!auto && !ignored && !needsParams && config.has("onInvalidParams")) {
-      const handler = steps.find((step) => step.name === "onInvalidParams")!;
-
-      fail(handler.call, "onInvalidParams requires local path placeholders");
+    if (!auto && !ignored) {
+      checkLocalParams({ root: call, config, steps, segments });
     }
 
     const id = relative(configDirectory, file).split(sep).join("/");
@@ -1062,7 +1082,17 @@ export async function discover(
       syntaxProgram.getTypeChecker(),
     );
 
-    return discover(workspace, config, scans, out, undefined, edits, true, launch, compiler);
+    // Without edits, rediscovery would read these same sources and only add the explicit-mode
+    // local params checks, in candidate order. An unread candidate still needs its error.
+    if (edits.size > 0 || unread) {
+      return discover(workspace, config, scans, out, undefined, edits, true, launch, compiler);
+    }
+
+    for (const declaration of declarations) {
+      if (!transparent(roots[0], dirname(declaration.file))) {
+        checkLocalParams(declaration);
+      }
+    }
   }
 
   if (filesystem) {

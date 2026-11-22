@@ -710,8 +710,8 @@ importers:
         specifier: 24.13.3
         version: 24.13.3
       '@ui-sdk/core':
-        specifier: 0.1.0-beta.13
-        version: 0.1.0-beta.13
+        specifier: 0.1.0-beta.14
+        version: 0.1.0-beta.14
       ng-packagr:
         specifier: 22.3.0
         version: 22.3.0(@angular/compiler-cli@22.3.0(@angular/compiler@22.3.0)(typescript@6.0.3))(supports-color@8.1.1)(tailwindcss@4.3.3)(tslib@2.8.1)(typescript@6.0.3)
@@ -2821,8 +2821,8 @@ packages:
   '@types/ws@8.18.1':
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
-  '@ui-sdk/core@0.1.0-beta.13':
-    resolution: {integrity: sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg==}
+  '@ui-sdk/core@0.1.0-beta.14':
+    resolution: {integrity: sha512-SHm5qLYBqxT5+d3svaBeP5uoBMIQbETKBqcZ/6b+WhhXlz6YoeNqjtMfpmq4yGA329DFwzu+y7+xGJjw4fnTPQ==}
 
   '@ungap/structured-clone@1.4.0':
     resolution: {integrity: sha512-1mEZtMKPM09vDmQt5y7YvmN2+DFTP7Tg0EWXdic8/C6VRnpb33e4ghisCIE3WZjsE2N8mf+QV1Zqh7ZFYLWInQ==}
@@ -6930,7 +6930,7 @@ snapshots:
     dependencies:
       '@types/node': 24.13.3
 
-  '@ui-sdk/core@0.1.0-beta.13': {}
+  '@ui-sdk/core@0.1.0-beta.14': {}
 
   '@ungap/structured-clone@1.4.0': {}
 

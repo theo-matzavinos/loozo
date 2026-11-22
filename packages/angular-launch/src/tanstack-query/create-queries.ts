@@ -5,6 +5,7 @@ import { RpcError } from "../client.js";
 import { RpcNotFound, RpcRedirect } from "../outcomes.js";
 import type { CreateQueries } from "../launch-queries.js";
 import { hydrationWindow } from "./hydration-window.js";
+import { replaceEqualDeep } from "./replace-equal-deep.js";
 
 type Callable = (...args: unknown[]) => Promise<unknown>;
 
@@ -72,6 +73,29 @@ export const createQueries: CreateQueries = (rpc, namespaces) => {
     };
   }
 
+  // Resolved per call like `retry`, so the client's default still decides: `false` shares
+  // nothing and a function is the consumer's own sharing. Otherwise TanStack's default
+  // sharing, through the copy above that keeps a "__proto__" key as data.
+  function structuralSharingFor(queryKey: readonly unknown[]) {
+    return (old: unknown, data: unknown): unknown => {
+      const defaults = {
+        ...client.getDefaultOptions().queries,
+        ...client.getQueryDefaults(queryKey),
+      };
+      const fallback = defaults.structuralSharing;
+
+      if (fallback === false) {
+        return data;
+      }
+
+      if (typeof fallback === "function") {
+        return fallback(old, data);
+      }
+
+      return replaceEqualDeep(old, data);
+    };
+  }
+
   const result: Record<string, Record<string, unknown>> = Object.create(null);
 
   for (const [namespace, methods] of Object.entries(namespaces)) {
@@ -113,6 +137,7 @@ export const createQueries: CreateQueries = (rpc, namespaces) => {
             return {
               retry: retryFor(queryKey),
               refetchOnMount,
+              structuralSharing: structuralSharingFor(queryKey),
               ...overrides,
               queryKey,
               queryFn: ({ signal }: QueryFunctionContext) =>
@@ -139,6 +164,7 @@ export const createQueries: CreateQueries = (rpc, namespaces) => {
             return {
               retry: retryFor(queryKey),
               refetchOnMount,
+              structuralSharing: structuralSharingFor(queryKey),
               ...overrides,
               queryKey,
               queryFn: skipToken,
@@ -150,6 +176,7 @@ export const createQueries: CreateQueries = (rpc, namespaces) => {
           return {
             retry: retryFor(queryKey),
             refetchOnMount,
+            structuralSharing: structuralSharingFor(queryKey),
             ...overrides,
             queryKey,
             queryFn: ({ signal }: QueryFunctionContext) =>

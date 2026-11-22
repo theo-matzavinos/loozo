@@ -560,6 +560,58 @@ test("an idle stream sends a keep-alive comment every 15 s", async () => {
   }
 });
 
+test("a stream skips keep-alive comments while its reader is behind", async () => {
+  mock.timers.enable({ apis: ["setInterval"] });
+
+  try {
+    const gate = Promise.withResolvers();
+    const namespaces = {
+      live: {
+        build: ({ stream }) => ({
+          idle: stream({
+            handler: async function* () {
+              await gate.promise;
+              yield 1;
+            },
+          }),
+        }),
+      },
+    };
+    const response = await handle(namespaces, post("/_rpc/live/idle", null));
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    // A reader waiting for data gets a comment at every interval.
+    for (let tick = 0; tick < 2; tick += 1) {
+      const next = reader.read();
+
+      mock.timers.tick(15_000);
+      assert.equal(decoder.decode((await next).value), ": keep-alive\n\n");
+    }
+
+    // A reader that stops reading finds one comment waiting, however long it was away.
+    for (let tick = 0; tick < 10; tick += 1) {
+      mock.timers.tick(15_000);
+    }
+
+    gate.resolve();
+
+    const rest = [];
+
+    for (let step = await reader.read(); !step.done; step = await reader.read()) {
+      rest.push(decoder.decode(step.value));
+    }
+
+    assert.deepEqual(rest, [
+      ": keep-alive\n\n",
+      "event: value\ndata: 1\n\n",
+      "event: end\ndata: null\n\n",
+    ]);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test("streams are refused during server rendering before any middleware runs", async () => {
   let ran = false;
   const namespaces = {
@@ -764,6 +816,7 @@ test("the browser client yields values, ends, reconnects by iterating again and 
           errors: { GONE: { status: 410, message: "Gone", data: nullSchema } },
           handler: async function* ({ errors }) {
             yield "first";
+
             throw errors.GONE(null);
           },
         }),

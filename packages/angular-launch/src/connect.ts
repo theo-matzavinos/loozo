@@ -72,7 +72,9 @@ export interface Connection<State, Sent> extends StreamConnection<State> {
    *
    * @param message - The message, as strict JSON.
    * @returns A promise that resolves once the message was handed to the socket: messages
-   * wait while connecting and for the server's room while open. It rejects with the error
+   * wait while connecting and for the server's room while open. It rejects with a
+   * `RangeError`, leaving the connection open, when queuing it would pass 1,024 waiting
+   * messages or 1 MiB of their JSON (string length), unless none wait; with the error
    * `error()` then shows when the connection fails first, also when `reduce` throws; with an
    * `AbortError` when Launch closes the connection first, for a new input, `reconnect()` or
    * the injection context's destruction; and with a `TypeError` while idle, ended or failed.
@@ -386,9 +388,11 @@ export function connect(
         return Promise.reject(new TypeError("Launch connection isn't open"));
       }
 
-      // A failing `reduce` closes the channel; its sends then reject with what it threw.
+      // A failing `reduce` closes the channel; its sends then reject with what it threw. A send
+      // the full queue refused was never queued, so it keeps its `RangeError`, even when
+      // `reduce` fails before this handler runs.
       return call.connection.send(message).catch((rejection: unknown) => {
-        if (call.failure !== undefined) {
+        if (call.failure !== undefined && !(rejection instanceof RangeError)) {
           return Promise.reject(call.failure.error);
         }
 

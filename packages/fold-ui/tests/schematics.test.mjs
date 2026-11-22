@@ -432,6 +432,8 @@ describe("add", () => {
       calendar: ["button", "calendar", "cn"],
       checkbox: ["checkbox", "cn"],
       combobox: ["cn", "combobox", "input", "popup", "scroll-area"],
+      "date-field": ["cn", "date-field"],
+      "date-picker": ["button", "calendar", "cn", "date-field", "date-picker", "popup"],
       dialog: ["button", "cn", "dialog", "scroll-area"],
       field: ["cn", "field"],
       "file-field": ["button", "cn", "file-field"],
@@ -636,6 +638,25 @@ describe("add", () => {
       /selector: "table\[zzCalendarGrid\]"/,
     );
     assert.match(readText(tree, "src/ui/calendar/calendar.ts"), /<table zzCalendarGrid>/);
+  });
+
+  test("renames the date fields' and DatePicker's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["date-picker"] }, await setUp(runner));
+
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker.ts"),
+      /selector: "\[zzDatePicker\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-trigger.ts"),
+      /selector: "button\[zzDatePickerTrigger\]"/,
+    );
+    assert.match(readText(tree, "src/ui/date-field/date-field.ts"), /exportAs: "zzDateField"/);
+    assert.match(
+      readText(tree, "src/ui/date-field/date-field-input.ts"),
+      /selector: "\[zzDateFieldInput\]"/,
+    );
   });
 
   test("skips an existing named component by default, with a warning", async () => {

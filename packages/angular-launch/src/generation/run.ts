@@ -490,8 +490,17 @@ function emitServer(
 
   const binding = translateSegments ? ", { translateSegments: true }" : "";
 
+  // Each entry is checked against bindApplication's entry type on its own, so the array's
+  // elements share that one type. Inline, the array literal's element type would be the
+  // subtype-reduced union of every route's own type: quadratic in server-step routes. With no
+  // entries, the type would be an unused local.
+  if (routes.length > 0) {
+    lines.push(`type Entry = Parameters<typeof bindApplication>[1][number];`);
+    lines.push(...routes.map((entry, index) => `const entry${index}: Entry = ${entry};`));
+  }
+
   lines.push(
-    `const application = bindApplication(${JSON.stringify(appId)}, [${routes.join(", ")}]${binding});`,
+    `const application = bindApplication(${JSON.stringify(appId)}, [${routes.map((_, index) => `entry${index}`).join(", ")}]${binding});`,
     `export const createRequestScope = (request: Request) => scopeFor(application, request);`,
     `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(application, request, options);`,
     `export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(application, request, options);`,

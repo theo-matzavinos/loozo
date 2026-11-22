@@ -1,6 +1,6 @@
 // Group context: Toolbar, ToggleGroup, SelectLabel/SelectGroup and CheckboxGroup find their
 // parent through DI. Hydration keeps every server attribute until the first input except core's
-// disclosed bind-time changes (K1–K8), and each group's flows work.
+// disclosed bind-time changes (K1–K7), and each group's flows work.
 import { type Page, expect, test } from "@playwright/test";
 import {
   captureMessages,
@@ -37,17 +37,15 @@ async function walk(page: Page, start: string, key: string, count: number): Prom
 /**
  * Core's bind-time changes the readmes disclose, by owner, slot and attribute: K1 a grouped
  * checkbox's made `id`, K2 a parent's `aria-controls`, K3 a parent without `allValues` settling
- * its checked state, K4 a Select group's server `hidden`, K5 a group's `aria-labelledby` once its
- * label binds, K6 the content's name moving to the SelectLabel, K7 a labeled trigger that also
- * has an `aria-label`, K8 the tab stop of a toolbar whose items are all disabled.
+ * its checked state, K4 a Select group's `aria-labelledby` once its label binds, K5 the content's
+ * name moving to the SelectLabel, K6 a labeled trigger that also has an `aria-label`, K7 the tab
+ * stop of a toolbar whose items are all disabled.
  */
 const disclosed = [
   "all checkbox aria-controls",
   "berries select-group aria-labelledby",
-  "berries select-group hidden",
   "cheese checkbox id",
   "citrus select-group aria-labelledby",
-  "citrus select-group hidden",
   "fruit select-content aria-labelledby",
   "ham checkbox id",
   "loose-a checkbox id",

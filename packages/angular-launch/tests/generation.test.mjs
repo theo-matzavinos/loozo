@@ -260,7 +260,12 @@ void result; void session; void resolved; void length; void context; void remote
       'import route1 from "../src/routes/left/route.js";',
       'import route2 from "../src/routes/right/route.js";',
       'import route3 from "../src/routes/route.js";',
-      `const application = bindApplication("${id}", [[route0, "src/routes/+auth/route.ts"], [route1, "src/routes/left/route.ts"], [route2, "src/routes/right/route.ts"], [route3, "src/routes/route.ts"]]);`,
+      "type Entry = Parameters<typeof bindApplication>[1][number];",
+      'const entry0: Entry = [route0, "src/routes/+auth/route.ts"];',
+      'const entry1: Entry = [route1, "src/routes/left/route.ts"];',
+      'const entry2: Entry = [route2, "src/routes/right/route.ts"];',
+      'const entry3: Entry = [route3, "src/routes/route.ts"];',
+      `const application = bindApplication("${id}", [entry0, entry1, entry2, entry3]);`,
       "export const createRequestScope = (request: Request) => scopeFor(application, request);",
       "export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(application, request, options);",
       "export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(application, request, options);",
@@ -293,6 +298,90 @@ void result; void session; void resolved; void length; void context; void remote
 
   await assert.rejects(generate(root, { ...options, check: true }), /Generated artifacts changed/);
   assert.deepEqual(await snapshot(root), drift);
+});
+
+// The binding checks each entry on its own line, not one array literal of every route's own
+// type, so no entry's route escapes bindApplication's route contract.
+test("each server binding entry is checked against bindApplication's route contract", async () => {
+  const root = await fixture();
+
+  await generate(root, options);
+
+  const file = resolve(root, "generated/server.generated.ts");
+  const native = ts.readConfigFile(resolve(root, "tsconfig.json"), ts.sys.readFile);
+  const parsed = ts.parseJsonConfigFileContent(native.config, ts.sys, root);
+  const check = () => {
+    const program = ts.createProgram(parsed.fileNames, parsed.options);
+    const source = program.getSourceFile(file);
+
+    return ts.getPreEmitDiagnostics(program, source).map((diagnostic) => ({
+      line: source.text.split("\n")[source.getLineAndCharacterOfPosition(diagnostic.start).line],
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+    }));
+  };
+
+  assert.deepEqual(check(), []);
+
+  const server = await readFile(file, "utf8");
+
+  // route1 (left) bound to a default export that isn't a route.
+  await put(root, "generated/not-a-route.ts", "export default { notARoute: true };");
+  await writeFile(
+    file,
+    server.replace(/^import route1 from .*$/m, 'import route1 from "./not-a-route.js";'),
+  );
+
+  const [only, ...rest] = check();
+
+  assert.deepEqual(rest, []);
+  assert.equal(only.line, 'const entry1: Entry = [route1, "src/routes/left/route.ts"];');
+  assert.match(only.message, /\{ notARoute: boolean; \}.*Route<string,/);
+});
+
+test("an application whose last server-only step goes away binds no entries and declares no unused entry type", async () => {
+  const root = await fixture();
+  const file = resolve(root, "generated/server.generated.ts");
+  // Only the server binding: it's what this file's emitter owns. Parsed after each generation,
+  // so the program's roots hold the binding.
+  const unused = () => {
+    const native = ts.readConfigFile(resolve(root, "tsconfig.json"), ts.sys.readFile);
+    const parsed = ts.parseJsonConfigFileContent(native.config, ts.sys, root);
+    const program = ts.createProgram(parsed.fileNames, { ...parsed.options, noUnusedLocals: true });
+    const source = program.getSourceFile(file);
+
+    assert.ok(source);
+
+    return ts
+      .getPreEmitDiagnostics(program, source)
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+  };
+
+  await generate(root, options);
+  assert.match(await readFile(file, "utf8"), /^const entry0: Entry = /m);
+  assert.deepEqual(unused(), []);
+
+  await put(root, "src/routes/route.ts", `${launch} export default defineRoute('', {});`);
+  await put(
+    root,
+    "src/routes/+auth/route.ts",
+    `${launch} import parent from '../route'; export default defineRoute('', {parent});`,
+  );
+
+  for (const name of ["left", "right"]) {
+    await put(
+      root,
+      `src/routes/${name}/route.ts`,
+      `${launch} import parent from '../+auth/route'; export default defineRoute('${name}', {parent});`,
+    );
+  }
+
+  await generate(root, options);
+
+  const server = await readFile(file, "utf8");
+
+  assert.doesNotMatch(server, /Entry|entry\d/);
+  assert.match(server, /^const application = bindApplication\("[a-f0-9]{64}", \[\]\);$/m);
+  assert.deepEqual(unused(), []);
 });
 
 test("the app identity is stable across route edits, relocation and a workspace move, and follows the package name", async () => {

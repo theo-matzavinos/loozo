@@ -29,12 +29,18 @@ export interface Channel<Received, Sent> extends AsyncIterable<Received> {
    *
    * @remarks
    * Messages wait here, in order, until the socket is open and the server has room for
-   * them.
+   * them. At most 1,024 messages wait at once, together at most 1 MiB of serialized JSON
+   * (string length). A message that would pass either limit is refused, and the channel and
+   * the messages already waiting carry on; a later one that fits is accepted. When none
+   * wait, one message of any size is accepted, so awaiting each send never reaches the
+   * limit. Handed to the socket, at most 32 messages the handler hasn't read are in flight,
+   * so the socket's own buffer stays within 32 messages.
    *
    * @param message - The message, as strict JSON.
-   * @returns A promise that resolves once the message was handed to the socket. It rejects
-   * with the channel's closing error when the channel closes first, and with a `TypeError`
-   * when the channel is already closed or `message` isn't strict JSON.
+   * @returns A promise that resolves once the message was handed to the socket, not once the
+   * handler has it. It rejects with the channel's closing error when the channel closes
+   * first; with a `TypeError` when the channel is already closed or `message` isn't strict
+   * JSON; and with a `RangeError` when queuing it would pass either limit.
    */
   send(message: Sent): Promise<void>;
 }
@@ -43,6 +49,10 @@ export interface Channel<Received, Sent> extends AsyncIterable<Received> {
 const valueWindow = 256;
 /** How many messages this side sends before the server must grant more. */
 const messageWindow = 32;
+/** How many sends may wait at once for the socket to open or for credit. */
+const sendQueueCount = 1024;
+/** How much serialized text, in string length, the waiting sends may hold at once. */
+const sendQueueLength = 1024 * 1024;
 
 /**
  * Opens one channel call over the browser `WebSocket`.
@@ -76,6 +86,8 @@ export function openChannel(
     readonly resolve: () => void;
     readonly reject: (error: unknown) => void;
   }[] = [];
+  // The string length of the frames in `sends`.
+  let queuedLength = 0;
   let socket: WebSocket | undefined;
   let sendCredit = messageWindow;
   let readSinceGrant = 0;
@@ -102,6 +114,8 @@ export function openChannel(
     for (const pending of sends.splice(0)) {
       pending.reject(reason);
     }
+
+    queuedLength = 0;
 
     // Closing again after the server's own close is harmless.
     socket?.close(1000);
@@ -138,6 +152,7 @@ export function openChannel(
     while (socket?.readyState === 1 && !closed && sendCredit > 0 && sends.length > 0) {
       const pending = sends.shift()!;
 
+      queuedLength -= pending.frame.length;
       socket.send(pending.frame);
       sendCredit -= 1;
       pending.resolve();
@@ -278,8 +293,16 @@ export function openChannel(
         return Promise.reject(error);
       }
 
+      const full = sends.length >= sendQueueCount || queuedLength + frame.length > sendQueueLength;
+
+      // An empty queue takes one frame of any size, so a lone large message is never refused.
+      if (sends.length > 0 && full) {
+        return Promise.reject(new RangeError("Launch channel send queue is full"));
+      }
+
       return new Promise((resolve, reject) => {
         sends.push({ frame, resolve, reject });
+        queuedLength += frame.length;
         flush();
       });
     },
