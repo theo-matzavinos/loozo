@@ -1,6 +1,6 @@
 {
   "name": "@loozo/ui-sdk-angular",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Angular directives for ui-sdk.dev's headless core: Toggle, ToggleGroup, Toolbar, Select, Checkbox, CheckboxGroup, Switch and RadioGroup, with SSR, hydration and native forms.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
