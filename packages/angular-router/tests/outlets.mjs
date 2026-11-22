@@ -557,6 +557,9 @@ try {
 
     view.release();
     await view.page.waitForFunction(() => window.proofFirstClient !== undefined);
+    // The first render doesn't wait for the initial navigation to reach list's resolver, which
+    // holds it; only from then is there a hold to release.
+    await view.page.waitForFunction(() => window.proofProbe?.held === true);
 
     const first = await view.page.evaluate(() => window.proofFirstClient);
 
@@ -598,6 +601,10 @@ try {
     );
     view.release();
     await view.page.waitForFunction(() => window.proofFirstClient !== undefined);
+    // The click waits for the hold on the initial navigation: a click that supersedes it
+    // before list's resolver runs would make the click's own navigation the first with
+    // hold=1, which the probe then holds for good.
+    await view.page.waitForFunction(() => window.proofProbe?.held === true);
     await view.page.click("#" + id);
     await view.page.waitForFunction((url) => window.proofApp.router.url === url, url);
 
