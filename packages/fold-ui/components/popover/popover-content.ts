@@ -36,7 +36,7 @@ import { ScrollArea } from "../scroll-area";
     <div
       fold__ScrollArea
       [viewportTabIndex]="tabindex()"
-      class="min-h-0 max-h-[calc(var(--og-available-height)_-_10px)] [&>[data-slot=scroll-area-viewport]]:scroll-py-4"
+      class="min-h-0 [&>[data-slot=scroll-area-viewport]]:scroll-py-4"
     >
       <div class="p-3"><ng-content /></div>
     </div>

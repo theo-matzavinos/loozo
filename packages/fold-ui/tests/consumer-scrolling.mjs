@@ -303,6 +303,17 @@ function armProbe(call) {
     };
   };
 
+  // The expected target's state and, while it holds, its geometry, for an opening key's wait.
+  probe.check = () => {
+    const state = holds();
+
+    if (!state) {
+      return { state };
+    }
+
+    return { state, ...measure() };
+  };
+
   // After the viewport's scrollend, or 500ms after the key without one: the same target again.
   probe.settled = async () => {
     if (!probe.scrollEnded) {
@@ -340,18 +351,22 @@ function armProbe(call) {
   return { vacuous: false, preTarget: probe.preTarget };
 }
 
-function classify(call, result) {
-  const evidence = { ...result };
-
+function checkObservations(call, result) {
   if (result.error) {
-    throw new RevealFailure(result.error, call, evidence);
+    throw new RevealFailure(result.error, call, { ...result });
   }
 
   for (const observation of result.observations) {
     if (observation.elapsed < 0) {
-      throw new RevealFailure("negative-elapsed", call, evidence);
+      throw new RevealFailure("negative-elapsed", call, { ...result });
     }
   }
+}
+
+function classify(call, result) {
+  const evidence = { ...result };
+
+  checkObservations(call, result);
 
   const reached = result.observations.find(
     (observation) => observation.state && observation.inside,
@@ -396,7 +411,28 @@ async function revealSteps(page, call) {
 
   const result = await page.evaluate(() => window.__foldRevealProbe.result());
 
-  classify(call, result);
+  if (call.opens) {
+    // An opening key: the list opens and is placed first, so the 100ms bound doesn't apply; the
+    // expected option must be inside the placed list within 2s.
+    checkObservations(call, result);
+    await page
+      .waitForFunction(
+        () => {
+          const check = window.__foldRevealProbe.check();
+
+          return check.state && check.inside;
+        },
+        null,
+        { timeout: 2000 },
+      )
+      .catch(async () => {
+        const check = await page.evaluate(() => window.__foldRevealProbe.check());
+
+        throw new RevealFailure("open-not-revealed", call, { ...result, check });
+      });
+  } else {
+    classify(call, result);
+  }
 
   const settled = await page.evaluate(() => window.__foldRevealProbe.settled());
 
@@ -418,9 +454,10 @@ async function revealSteps(page, call) {
 /**
  * Presses `call.key` once and requires the target it names (`expect.active`, the surface's only
  * active option, or `expect.focus`, the focused element) inside `call.viewport`, grown by its
- * focus ring with `ring`, within 100ms of the keydown, then again once scrolling settles. Every
- * failure throws with its label and observations; nothing is retried. A page that doesn't answer
- * within 5s throws `Stalled`.
+ * focus ring with `ring`, within 100ms of the keydown, then again once scrolling settles. With
+ * `opens`, the key opens the list, which is placed before it reveals: the target must be inside
+ * within 2s instead of 100ms. Every failure throws with its label and observations; nothing is
+ * retried. A page that doesn't answer within 5s throws `Stalled`.
  */
 export async function revealAfter(page, call) {
   let timer;
@@ -615,9 +652,22 @@ async function run(browser, base, engine) {
     const root = viewport.replace(/ > \[data-slot=scroll-area-viewport\]$/, "");
 
     // Origami marks the overflow once it has measured the opened surface.
-    await page
-      .waitForSelector(`${root}[data-overflow-y]`, { timeout: 2000 })
-      .catch(() => assert.fail(`${label} overflows`));
+    await page.waitForSelector(`${root}[data-overflow-y]`, { timeout: 2000 }).catch(async () => {
+      const seen = await page.evaluate((root) => {
+        const area = document.querySelector(root);
+        const viewport = area?.querySelector(":scope > [data-slot=scroll-area-viewport]");
+
+        return {
+          attributes: area && [...area.attributes].map((a) => a.name),
+          scrollHeight: viewport?.scrollHeight,
+          clientHeight: viewport?.clientHeight,
+          display: viewport && getComputedStyle(viewport).display,
+          overflowY: viewport && getComputedStyle(viewport).overflowY,
+        };
+      }, root);
+
+      assert.fail(`${label} overflows: ${JSON.stringify(seen)}`);
+    });
     await page.hover(viewport, { position: { x: 20, y: 20 } });
     await page.waitForFunction(
       (root) =>
@@ -883,11 +933,13 @@ async function run(browser, base, engine) {
   });
 
   // 5. List reveal: each key's expected option is the list's only active option and inside its
-  // viewport within 100ms, crossing both edges.
+  // viewport, crossing both edges: within 100ms in the open list, and once placed for the key that
+  // opens it.
   await scenario("list reveal", { width: 1280, height: 720 }, async (page) => {
-    const select = (index, key) =>
+    const select = (index, key, { opens = false } = {}) =>
       revealAfter(page, {
         key,
+        opens,
         expect: { active: `#country-${countryIds[index]}` },
         surface: "#country-content",
         viewport: contentViewport("country-content"),
@@ -895,7 +947,7 @@ async function run(browser, base, engine) {
 
     await intoView(page, "country-trigger", "center");
     await page.focus("#country-trigger");
-    await select(14, "ArrowDown");
+    await select(14, "ArrowDown", { opens: true });
 
     for (let index = 15; index <= 26; index += 1) {
       await select(index, "ArrowDown");
@@ -909,9 +961,10 @@ async function run(browser, base, engine) {
     await select(0, "Home");
     await close(page, "country-content");
 
-    const search = (index, key) =>
+    const search = (index, key, { opens = false } = {}) =>
       revealAfter(page, {
         key,
+        opens,
         expect: { active: `#country-search-${countryIds[index]}` },
         surface: "#country-search-content",
         viewport: contentViewport("country-search-content"),
@@ -919,7 +972,7 @@ async function run(browser, base, engine) {
 
     await intoView(page, "country-search-input", "center");
     await page.focus("#country-search-input");
-    await search(38, "ArrowDown");
+    await search(38, "ArrowDown", { opens: true });
 
     for (const index of [28, 18, 8]) {
       await search(index, "PageUp");
@@ -1011,7 +1064,7 @@ async function run(browser, base, engine) {
 
     await intoView(page, "menu-long-trigger", "center");
     await page.focus("#menu-long-trigger");
-    await revealAfter(page, call("ArrowDown", "menu-long-0"));
+    await revealAfter(page, { ...call("ArrowDown", "menu-long-0"), opens: true });
     await revealAfter(page, call("End", "menu-long-39"));
     await revealAfter(page, call("Home", "menu-long-0"));
     await close(page, "menu-long-content");
@@ -1114,6 +1167,21 @@ async function run(browser, base, engine) {
       `notes height ${notes.height} of ${notes.available}`,
     );
     await close(page, "notes-content");
+
+    // The host's own class caps the panel, and the scroller fills it: no second cap inside.
+    await scrollToTop(page, "capped-notes-trigger");
+    await page.click("#capped-notes-trigger");
+    await shown(page, "capped-notes-content");
+
+    const capped = await listLook("capped-notes-content");
+
+    assert.ok(capped.scrolls, "the capped notes scroll");
+    assert.ok(Math.abs(capped.height - 192) <= 0.5, `capped notes height ${capped.height}`);
+    assert.ok(
+      Math.abs(capped.client.height - capped.padding.height) <= 0.5,
+      `capped notes scroller ${capped.client.height} fills ${capped.padding.height}`,
+    );
+    await close(page, "capped-notes-content");
   });
 
   // 8. Modal page lock: wheels over a long Body's rail at its end leave the page where it was.
@@ -1167,6 +1235,68 @@ async function run(browser, base, engine) {
     await wheelOverRail("long-sheet-trigger", "long-sheet", "top", -650);
   });
 
+  // Wide content in a panel: its own horizontal ScrollArea scrolls sideways under a sideways wheel
+  // to the table's right edge, while the panel's text still wraps to the panel's width.
+  await scenario("wide content", { width: 1280, height: 720 }, async (page) => {
+    await scrollToTop(page, "wide-trigger");
+    await page.click("#wide-trigger");
+    await shown(page, "wide-content");
+
+    const horizontal = "#wide-area > [data-slot=scroll-area-viewport]";
+    const look = () =>
+      page.evaluate((selector) => {
+        const viewport = document.querySelector(selector);
+        const box = viewport.getBoundingClientRect();
+        const table = document.getElementById("wide-table").getBoundingClientRect();
+        const text = document.getElementById("wide-text");
+        const panel = document.querySelector(
+          "#wide-content > [data-slot=scroll-area] > [data-slot=scroll-area-viewport]",
+        );
+
+        return {
+          scrollLeft: viewport.scrollLeft,
+          maxScrollLeft: viewport.scrollWidth - viewport.clientWidth,
+          tableRight: table.right,
+          clientRight: box.left + viewport.clientLeft + viewport.clientWidth,
+          textWidth: text.getBoundingClientRect().width,
+          textScrollWidth: text.scrollWidth,
+          panelWidth: panel.clientWidth,
+          panelScrollWidth: panel.scrollWidth,
+        };
+      }, horizontal);
+
+    const before = await look();
+
+    assert.ok(before.maxScrollLeft > 0, `the table overflows sideways: ${JSON.stringify(before)}`);
+    assert.ok(before.textScrollWidth <= Math.ceil(before.textWidth), "the text wraps");
+    assert.ok(
+      before.panelScrollWidth <= before.panelWidth,
+      "the panel itself doesn't scroll sideways",
+    );
+
+    await page.hover(horizontal, { position: { x: 40, y: 10 } });
+
+    for (let step = 0; step < 20; step += 1) {
+      const now = await look();
+
+      if (now.maxScrollLeft - now.scrollLeft <= 0.5) {
+        break;
+      }
+
+      await page.mouse.wheel(200, 0);
+      await rendered(page);
+    }
+
+    const after = await look();
+
+    assert.ok(
+      after.maxScrollLeft - after.scrollLeft <= 0.5,
+      `the wheel reaches the end: ${JSON.stringify(after)}`,
+    );
+    assert.ok(after.tableRight <= after.clientRight + 0.5, "the table's right edge is in view");
+    await close(page, "wide-content");
+  });
+
   // 9. Closed surfaces keep the browser's display: none.
   await scenario("closed surfaces", { width: 1280, height: 720 }, async (page) => {
     const displays = await page.evaluate(() => {
@@ -1183,6 +1313,7 @@ async function run(browser, base, engine) {
         "menu-long-sub-content",
         "notes-content",
         "scrollform-content",
+        "wide-content",
         "filters-content",
         "long-dialog",
         "long-sheet",

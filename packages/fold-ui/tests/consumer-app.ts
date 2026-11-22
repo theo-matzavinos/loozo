@@ -1796,6 +1796,53 @@ export class FileFields {
           </div>
         </div>
 
+        <div zzPopover id="capped-notes-popover">
+          <button zzPopoverTrigger variant="ghost" id="capped-notes-trigger">Capped notes</button>
+          <div
+            zzPopoverContent
+            aria-label="Capped notes"
+            tabindex="0"
+            id="capped-notes-content"
+            class="max-h-48"
+          >
+            @for (note of releaseNotes; track $index) {
+              <p class="mb-2">{{ note }}</p>
+            }
+          </div>
+        </div>
+
+        <div zzPopover id="wide-popover">
+          <button zzPopoverTrigger variant="ghost" id="wide-trigger">Usage</button>
+          <div zzPopoverContent aria-label="Usage" id="wide-content">
+            <p id="wide-text">
+              Each row is one month of usage, metered per seat and per gigabyte of storage, billed
+              at the end of the period.
+            </p>
+            <div zzScrollArea orientation="horizontal" aria-label="Usage table" id="wide-area">
+              <table id="wide-table" class="w-160 text-start">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Seats</th>
+                    <th>Storage</th>
+                    <th>Transfer</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>October</td>
+                    <td>12</td>
+                    <td>340 GB</td>
+                    <td>1.2 TB</td>
+                    <td>€1,240</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div zzPopover id="scrollform-popover">
           <button zzPopoverTrigger id="scrollform-trigger">Address</button>
           <div zzPopoverContent aria-label="Address" id="scrollform-content">
