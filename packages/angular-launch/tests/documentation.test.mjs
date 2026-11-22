@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -13,7 +14,7 @@ for (const [entry, target] of Object.entries(manifest.exports)) {
     continue;
   }
 
-  entries.push({ entry, file: new URL(`../${target.types}`, import.meta.url).pathname });
+  entries.push({ entry, file: fileURLToPath(new URL(`../${target.types}`, import.meta.url)) });
 }
 
 // A summary containing {@link} is a node array, not a string.

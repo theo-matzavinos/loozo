@@ -34,6 +34,7 @@ import { OrigamiNumberField, OrigamiNumberFieldInput } from "@loozo/origami-ui/n
 import { OrigamiOtpField, OrigamiOtpFieldInput } from "@loozo/origami-ui/otp-field";
 import {
   OrigamiFileField,
+  OrigamiFileFieldClear,
   OrigamiFileFieldDropZone,
   OrigamiFileFieldInput,
 } from "@loozo/origami-ui/file-field";
@@ -83,6 +84,7 @@ import {
     OrigamiFileField,
     OrigamiFileFieldInput,
     OrigamiFileFieldDropZone,
+    OrigamiFileFieldClear,
     OrigamiAvatar,
     OrigamiAvatarImage,
     OrigamiAvatarFallback,
@@ -135,6 +137,7 @@ import {
         <option value="file-field-input">Duplicate file field Input</option>
         <option value="orphan-file-field-input">Orphan file field Input</option>
         <option value="orphan-file-field-drop-zone">Orphan file field drop zone</option>
+        <option value="orphan-file-field-clear">Orphan file field Clear</option>
         <option value="avatar-image">Duplicate avatar Image</option>
         <option value="orphan-avatar-image">Orphan avatar Image</option>
         <option value="orphan-avatar-fallback">Orphan avatar Fallback</option>
@@ -243,6 +246,9 @@ import {
     }
     @if (mounted() && selected() === "orphan-file-field-drop-zone") {
       <div ogFileFieldDropZone>Orphan drop zone</div>
+    }
+    @if (mounted() && selected() === "orphan-file-field-clear") {
+      <button ogFileFieldClear>Orphan Clear</button>
     }
     <span ogAvatar>
       <img ogAvatarImage alt="" />

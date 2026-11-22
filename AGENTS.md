@@ -2,11 +2,12 @@
 
 ## breaking changes
 
-these packages publish pre-1.0 versions: origami-ui, fold-ui and ui-sdk-angular on `0.0.x`, the router and Launch on `0.x` since 0.1.0. none owes compatibility before 1.0.
+origami-ui, fold-ui and ui-sdk-angular publish `0.0.x` versions and Launch `0.x` versions since 0.1.0; none of them owes compatibility before 1.0. the router follows semantic versioning from 1.0.0: its `SPEC.md` "Stability" section is the public contract.
 
-- change any public API, contract or behavior when it improves the design. don't seek approval or flag a change as risky merely because it breaks. the design itself still needs loozo's approval before implementation, like any interface change.
-- don't add deprecations, compatibility shims, aliases, fallbacks for old shapes or migration notes. update every in-repo caller, example, doc and spec in the same change.
-- changes don't bump versions; Publish picks the bump. a break in a `0.0.x` package ships in its next `0.0.x`; a break in the router or Launch ships in their next minor, which Publish enforces from `!` commit subjects. keep marking breaks with `!`.
+- change any public API, contract or behavior when it improves the design, the router's after 1.0 included. don't seek approval or flag a change as risky merely because it breaks. the design itself still needs loozo's approval before implementation, like any interface change.
+- don't add deprecations, compatibility shims, aliases, fallbacks for old shapes or migration notes, in the router after 1.0 too. update every in-repo caller, example, doc and spec in the same change.
+- changes don't bump versions; Publish picks the bump. a break in a `0.0.x` package ships in its next `0.0.x`, a break in Launch in its next minor, and a break in the router from 1.0.0 in its next major. mark every break with `!`. Publish refuses a bump below what the commit subjects since the last release need: from 1.0, `!` needs a major and `feat` a minor; on `0.x`, `!` needs a minor.
+- while Launch is on `0.x`, a router minor or major makes Launch's next release a minor, which Publish enforces.
 
 ## origami composition
 

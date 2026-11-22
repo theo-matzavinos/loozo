@@ -397,7 +397,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/progress"].length, 3);
   assert.equal(names["@loozo/origami-ui/number-field"].length, 6);
   assert.equal(names["@loozo/origami-ui/otp-field"].length, 5);
-  assert.equal(names["@loozo/origami-ui/file-field"].length, 5);
+  assert.equal(names["@loozo/origami-ui/file-field"].length, 6);
   assert.equal(names["@loozo/origami-ui/avatar"].length, 6);
   assert.equal(names["@loozo/origami-ui/scroll-area"].length, 9);
   assert.equal(names["@loozo/origami-ui/meter"].length, 3);

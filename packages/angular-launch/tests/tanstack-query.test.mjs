@@ -1,6 +1,7 @@
 import "@angular/compiler";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import {
   Component,
@@ -457,11 +458,15 @@ test("the hydration window stays open through initial navigation and closes afte
   const require = createRequire(
     new URL("../../../examples/angular-launch/package.json", import.meta.url),
   );
-  const { bootstrapApplication } = await import(require.resolve("@angular/platform-browser"));
-  const { renderApplication, provideServerRendering } = await import(
-    require.resolve("@angular/platform-server")
+  const { bootstrapApplication } = await import(
+    pathToFileURL(require.resolve("@angular/platform-browser")).href
   );
-  const { provideRouter, RouterOutlet } = await import(require.resolve("@angular/router"));
+  const { renderApplication, provideServerRendering } = await import(
+    pathToFileURL(require.resolve("@angular/platform-server")).href
+  );
+  const { provideRouter, RouterOutlet } = await import(
+    pathToFileURL(require.resolve("@angular/router")).href
+  );
   const timeline = [];
   let options;
   let stable = Promise.resolve();
