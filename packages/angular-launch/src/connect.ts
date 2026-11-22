@@ -388,9 +388,11 @@ export function connect(
         return Promise.reject(new TypeError("Launch connection isn't open"));
       }
 
-      // A failing `reduce` closes the channel; its sends then reject with what it threw.
+      // A failing `reduce` closes the channel; its sends then reject with what it threw. A send
+      // the full queue refused was never queued, so it keeps its `RangeError`, even when
+      // `reduce` fails before this handler runs.
       return call.connection.send(message).catch((rejection: unknown) => {
-        if (call.failure !== undefined) {
+        if (call.failure !== undefined && !(rejection instanceof RangeError)) {
           return Promise.reject(call.failure.error);
         }
 

@@ -536,6 +536,66 @@ test("connect() passes a full channel queue's RangeError through and stays open"
   }
 });
 
+test("connect() keeps a full queue's RangeError when reduce fails before the refusal settles", async () => {
+  const server = await serve();
+  const boom = new Error("bad fold");
+  let refused;
+
+  foldGate = Promise.withResolvers();
+
+  class Refuser {
+    rpc = injectClient(metadata);
+    fold = this.rpc.live.fold.connect({
+      initial: () => [],
+      reduce: (values, value) => {
+        if (value === "boom") {
+          // Refused while still open, and its rejection settles only after this throw.
+          refused = this.fold.send("late");
+          void refused.catch(() => undefined);
+
+          throw boom;
+        }
+
+        return [...values, value];
+      },
+    });
+  }
+
+  Component({ selector: "connect-refuser", template: "" })(Refuser);
+
+  const { app, root } = await bootstrap(server, Refuser, "connect-refuser");
+  const { fold } = root;
+
+  try {
+    await until(() => fold.value().length === 1, "the fold's first value");
+
+    // The fold never reads: 32 go out on the message credit and 1,024 wait.
+    const sends = range(1056).map((index) => fold.send(index));
+    const waiting = Promise.allSettled(sends.slice(32));
+
+    await within(Promise.all(sends.slice(0, 32)), "the first window");
+    foldGate.resolve();
+
+    const rest = await within(waiting, "the waiting sends");
+
+    assert.equal(fold.error(), boom);
+    await within(
+      assert.rejects(refused, { name: "RangeError", message: "Launch channel send queue is full" }),
+      "the refused send",
+    );
+
+    // The sends that were waiting still carry what reduce threw.
+    for (const outcome of rest) {
+      assert.equal(outcome.status, "rejected");
+      assert.equal(outcome.reason, boom);
+    }
+  } finally {
+    foldGate = Promise.withResolvers();
+    app.destroy();
+    server.close();
+  }
+});
+
 test("connect() follows a stream: the latest value without reduce, input changes, ended", async () => {
   const server = await serve();
 
