@@ -42,12 +42,21 @@ function formatSize(bytes: number, format: Intl.NumberFormat): string {
  * truncates before its extension, with the full name in `title`; a name in a script other than
  * Latin, Greek or Cyrillic truncates as a whole, in its own direction. The size is in 1024-based units,
  * formatted in your app's `LOCALE_ID`: `1.5 KB`, or `1,5 KB` in Greek. Write it inside the
- * FileField.
+ * FileField, with an optional FileFieldClear inside it, which ends the row 12px after the size. It
+ * is at least 160px wide, so beside a button look in a narrow row it wraps under the button with
+ * its Clear instead of squeezing the name; a FileField narrower than that overflows.
  */
 @Component({
   selector: "[fold__FileFieldValue]",
   imports: [LucideFile],
-  host: { "data-slot": "file-field-value", "[class]": "classes()" },
+  host: {
+    "data-slot": "file-field-value",
+    "[class]": "classes()",
+    // The Clear's slot sits outside the @if, so the Clear keeps its element while the field is
+    // empty and the host is never `:empty`: the native attribute hides it, which preflight makes
+    // `!important`.
+    "[attr.hidden]": "state.value() === null ? '' : null",
+  },
   template: `
     @if (state.value(); as file) {
       <svg lucideFile aria-hidden="true" data-slot="file-field-value-icon"></svg>
@@ -65,6 +74,9 @@ function formatSize(bytes: number, format: Intl.NumberFormat): string {
         size()
       }}</span>
     }
+    <span data-slot="file-field-clear-slot" class="ms-auto flex ps-1.5 empty:hidden"
+      ><ng-content select="[fold__FileFieldClear]"
+    /></span>
   `,
 })
 export class FileFieldValue {
@@ -99,8 +111,11 @@ export class FileFieldValue {
 
   protected readonly classes = computed(() =>
     cn(
-      "flex min-w-0 flex-1 items-center gap-1.5 text-body text-foreground empty:hidden",
-      "group-has-[input:disabled]/file-field:opacity-50",
+      // The 6px gap plus the slot's 6px padding put the Clear 12px after the size; `ms-auto` ends
+      // the row with it.
+      "flex min-w-40 flex-1 items-center gap-1.5 text-body text-foreground",
+      // Not on the host, which would dim a disabled Clear twice.
+      "group-has-[input:disabled]/file-field:[&>:not([data-slot=file-field-clear-slot])]:opacity-50",
       "[&>[data-slot=file-field-value-icon]]:size-4 [&>[data-slot=file-field-value-icon]]:shrink-0 [&>[data-slot=file-field-value-icon]]:text-muted-foreground",
       this.class(),
     ),

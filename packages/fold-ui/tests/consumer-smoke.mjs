@@ -3794,14 +3794,14 @@ try {
     "the zone's icon is hidden",
   );
   assert.match(fileButtonValue, /\bdata-slot="file-field-value"/);
-  assert.equal(
-    fileButtonValue
-      .slice(openingTag(html, "file-button-value").length)
-      .replace(/<!--[^]*?-->/g, "")
-      .trim(),
-    "",
-    "no file on the server",
+  // No file on the server: the value is hidden and holds only its Clear's slot, with the Clear.
+  assert.match(openingTag(html, "file-button-value"), /\shidden(="")?[\s>]/);
+  assert.doesNotMatch(fileButtonValue, /data-slot="file-field-(value-icon|name|size)"/);
+  assert.deepEqual(
+    tagsIn(fileButtonValue, "span").map((tag) => /\bdata-slot="([^"]+)"/.exec(tag)?.[1]),
+    ["file-field-clear-slot"],
   );
+  assert.match(fileButtonValue, /\bid="file-button-clear"/, "the Clear is inside the value");
 
   // Each FileFieldClear is a native named button, hidden while its field is empty, with a hidden
   // icon; the disabled field's is natively disabled.
@@ -3810,13 +3810,14 @@ try {
     "file-zone-clear",
     "file-locked-button-clear",
     "file-primary-clear",
+    "file-narrow-clear",
   ]) {
     const clear = openingTag(html, id);
 
     assert.match(clear, /\btype="button"/, id);
     assert.match(clear, /\bdata-slot="file-field-clear"/, id);
     assert.match(clear, /\baria-label="Remove the [^"]+"/, id);
-    assert.match(clear, /\bclass="[^"]*\bhidden\b/, `${id} is hidden while empty`);
+    assert.match(clear, /\shidden(="")?[\s>]/, `${id} is hidden while empty`);
     assert.ok(
       tagsIn(element(html, id), "svg").some((tag) => tag.includes('aria-hidden="true"')),
       `${id}'s icon is hidden`,
@@ -3959,6 +3960,15 @@ try {
   });
   assert.deepEqual(fileGeometry.input, { size: "1x1", clip: "inset(50%)", focused: true });
 
+  // An empty field's FileFieldClear stays hidden even under a responsive display class
+  // (`md:inline-flex` on the button look's ×): the native attribute wins.
+  assert.equal(
+    await page.evaluate(
+      () => getComputedStyle(document.getElementById("file-button-clear")).display,
+    ),
+    "none",
+  );
+
   // Picks: the button look, the zone and the Field's label each open the picker for their
   // Input; the value shows the name and the size, in 1024-based units with a no-break space.
   assert.deepEqual(
@@ -4023,9 +4033,10 @@ try {
   assert.equal(valueLayout.name, `13px ${foreground}`);
   assert.equal(valueLayout.size, "rgb(163, 163, 160) tabular-nums");
 
-  // FileFieldClear ends each row: a 32px ghost × with a 16px muted icon, 12px after the value and
-  // centered on the button look or, under the zone, on the value. Its negative margins leave the
-  // value 8px under the zone (above) with the × shown, and keep its box clear of the zone's edge.
+  // FileFieldClear ends each row inside its value: a 32px ghost × with a 16px muted icon, at least
+  // 12px after the size (exactly 12 once the name truncates, below) and centered on the button look
+  // or, under the zone, on the value. Its negative margins leave the value 8px under the zone
+  // (above) with the × shown, and keep its box clear of the zone's edge.
   const clearLayout = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
     const style = (selector) => getComputedStyle(document.querySelector(selector));
@@ -4037,10 +4048,14 @@ try {
       zoneSize: size("#file-zone-clear"),
       ground: style("#file-button-clear").backgroundColor,
       icon: `${rect("#file-button-clear svg").width} ${style("#file-button-clear svg").color}`,
-      afterValue: rect("#file-button-clear").left - rect("#file-button-value").right,
+      afterSize:
+        rect("#file-button-clear").left -
+        rect("#file-button-value [data-slot=file-field-size]").right,
       rowEnd: rect("#file-button-root").right - rect("#file-button-clear").right,
       buttonOffset: middle(rect("#file-button-clear")) - middle(rect("#file-button")),
-      zoneAfterValue: rect("#file-zone-clear").left - rect("#file-zone-value").right,
+      zoneAfterSize:
+        rect("#file-zone-clear").left - rect("#file-zone-value [data-slot=file-field-size]").right,
+      zoneRowEnd: rect("#file-zone-root").right - rect("#file-zone-clear").right,
       zoneOffset: middle(rect("#file-zone-clear")) - middle(rect("#file-zone-value")),
       underZone: rect("#file-zone-clear").top - rect("#file-zone").bottom,
     };
@@ -4050,13 +4065,11 @@ try {
   assert.equal(clearLayout.zoneSize, "32x32");
   assert.equal(clearLayout.ground, "rgba(0, 0, 0, 0)");
   assert.equal(clearLayout.icon, "16 rgb(163, 163, 160)");
-  assert.ok(Math.abs(clearLayout.afterValue - 12) <= 0.5, `× after ${clearLayout.afterValue}`);
+  assert.ok(clearLayout.afterSize >= 11.5, `× after ${clearLayout.afterSize}`);
   assert.ok(Math.abs(clearLayout.rowEnd) <= 0.5, `× to the row's end ${clearLayout.rowEnd}`);
   assert.ok(Math.abs(clearLayout.buttonOffset) <= 0.5, `× offset ${clearLayout.buttonOffset}`);
-  assert.ok(
-    Math.abs(clearLayout.zoneAfterValue - 12) <= 0.5,
-    `zone × ${clearLayout.zoneAfterValue}`,
-  );
+  assert.ok(clearLayout.zoneAfterSize >= 11.5, `zone × ${clearLayout.zoneAfterSize}`);
+  assert.ok(Math.abs(clearLayout.zoneRowEnd) <= 0.5, `zone × to the end ${clearLayout.zoneRowEnd}`);
   assert.ok(Math.abs(clearLayout.zoneOffset) <= 0.5, `zone × offset ${clearLayout.zoneOffset}`);
   assert.ok(clearLayout.underZone >= 0, `zone × ${clearLayout.underZone} under the zone`);
 
@@ -4115,6 +4128,47 @@ try {
     extensionClipped: false,
     sameRow: true,
     title: longName,
+  });
+
+  // With a FileFieldClear, a 220px root wraps the value under the default button look instead of
+  // squeezing the name: the stem stays visible, and the × shares the value's line, 12px after the
+  // size at the row's end.
+  await pick("file-narrow-clear-input", longName, 25 * MB);
+  await untilFileSize("file-narrow-clear-value", "25\u00a0MB");
+
+  const narrowClear = await page.evaluate(() => {
+    const rect = (id) => document.getElementById(id).getBoundingClientRect();
+    const middle = (box) => box.top + box.height / 2;
+    const root = document.getElementById("file-narrow-clear-root");
+    const value = document.getElementById("file-narrow-clear-value");
+    const [stem, extension] = value.querySelector("[data-slot=file-field-name]").children;
+
+    return {
+      root: rect("file-narrow-clear-root").width,
+      rootOverflow: root.scrollWidth - root.clientWidth,
+      stem: stem.getBoundingClientRect().width,
+      extensionClipped: extension.scrollWidth > extension.clientWidth,
+      underButton: rect("file-narrow-clear-value").top >= rect("file-narrow-clear-button").bottom,
+      sameLine:
+        Math.abs(middle(rect("file-narrow-clear")) - middle(rect("file-narrow-clear-value"))) <=
+        0.5,
+      afterSize:
+        rect("file-narrow-clear").left -
+        value.querySelector("[data-slot=file-field-size]").getBoundingClientRect().right,
+      rowEnd: rect("file-narrow-clear-root").right - rect("file-narrow-clear").right,
+    };
+  });
+  const { stem: narrowStem, afterSize, rowEnd, ...narrowRest } = narrowClear;
+
+  assert.ok(narrowStem >= 24, `the stem shows ${narrowStem}px beside the ×`);
+  assert.ok(Math.abs(afterSize - 12) <= 0.5, `× ${afterSize}px after the size`);
+  assert.ok(Math.abs(rowEnd) <= 0.5, `× ${rowEnd}px from the row's end`);
+  assert.deepEqual(narrowRest, {
+    root: 220,
+    rootOverflow: 0,
+    extensionClipped: false,
+    underButton: true,
+    sameLine: true,
   });
 
   // What follows the last dot is kept visible only when it's a short extension: a long unbroken
@@ -4269,8 +4323,8 @@ try {
   await rendered();
   assert.equal(await attribute("file-locked-zone", "data-drag-over"), null);
   assert.equal(
-    await page.evaluate(() => document.getElementById("file-locked-zone-value").childElementCount),
-    0,
+    await page.evaluate(() => document.getElementById("file-locked-zone-value").hidden),
+    true,
     "a disabled zone takes no drop",
   );
 
@@ -4336,9 +4390,7 @@ try {
       () => false,
     );
   const cleared = async (how, picker) => {
-    await page.waitForFunction(
-      () => document.getElementById("file-primary-value").childElementCount === 0,
-    );
+    await page.waitForFunction(() => document.getElementById("file-primary-value").hidden);
     await rendered();
     assert.deepEqual(
       await page.evaluate(() => ({
@@ -4424,7 +4476,21 @@ try {
 
   await page.click("#file-locked-fill");
   await untilFileSize("file-locked-button-value", "1.5 KB");
-  assert.equal((await styleOf("#file-locked-button-value", ["opacity"])).opacity, "0.5");
+  // The value dims its icon, name and size, not its Clear's slot, so the × is dimmed once: 50%.
+  assert.deepEqual(
+    await page.evaluate(() =>
+      [...document.getElementById("file-locked-button-value").children].map(
+        (child) => `${child.dataset.slot} ${getComputedStyle(child).opacity}`,
+      ),
+    ),
+    [
+      "file-field-value-icon 0.5",
+      "file-field-name 0.5",
+      "file-field-size 0.5",
+      "file-field-clear-slot 1",
+    ],
+  );
+  assert.equal((await styleOf("#file-locked-button-value", ["opacity"])).opacity, "1");
   assert.deepEqual(
     await page.evaluate(() => {
       const clear = document.getElementById("file-locked-button-clear");

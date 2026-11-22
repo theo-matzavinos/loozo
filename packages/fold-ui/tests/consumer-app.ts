@@ -481,8 +481,14 @@ const MB = 1024 * 1024;
             <svg lucideUpload></svg> Choose file
             <input zzFileFieldInput accept=".pdf,.jpg,.jpeg,.png" id="file-button-input" />
           </label>
-          <p zzFileFieldValue id="file-button-value"></p>
-          <button zzFileFieldClear aria-label="Remove the invoice" id="file-button-clear"></button>
+          <p zzFileFieldValue id="file-button-value">
+            <button
+              zzFileFieldClear
+              aria-label="Remove the invoice"
+              class="md:inline-flex"
+              id="file-button-clear"
+            ></button>
+          </p>
         </div>
         <p zzFieldDescription>PDF, JPG or PNG, up to 25 MB</p>
         @if (invoiceField.state.errorsShown()) {
@@ -503,8 +509,13 @@ const MB = 1024 * 1024;
             >
             <input zzFileFieldInput id="file-zone-input" />
           </label>
-          <p zzFileFieldValue id="file-zone-value"></p>
-          <button zzFileFieldClear aria-label="Remove the attachment" id="file-zone-clear"></button>
+          <p zzFileFieldValue id="file-zone-value">
+            <button
+              zzFileFieldClear
+              aria-label="Remove the attachment"
+              id="file-zone-clear"
+            ></button>
+          </p>
         </div>
         @if (attachmentField.state.errorsShown()) {
           <p zzFieldError id="file-zone-error">{{ attachmentField.state.errors()[0]?.message }}</p>
@@ -528,12 +539,13 @@ const MB = 1024 * 1024;
         <label zzFileFieldButton id="file-locked-button">
           Choose file <input zzFileFieldInput id="file-locked-button-input" />
         </label>
-        <p zzFileFieldValue id="file-locked-button-value"></p>
-        <button
-          zzFileFieldClear
-          aria-label="Remove the locked file"
-          id="file-locked-button-clear"
-        ></button>
+        <p zzFileFieldValue id="file-locked-button-value">
+          <button
+            zzFileFieldClear
+            aria-label="Remove the locked file"
+            id="file-locked-button-clear"
+          ></button>
+        </p>
       </div>
       <button zzButton type="button" (click)="fillLocked()" id="file-locked-fill">
         Fill the locked field
@@ -544,8 +556,9 @@ const MB = 1024 * 1024;
           <label zzFileFieldButton variant="primary" size="sm" id="file-primary">
             Upload logo <input zzFileFieldInput accept="image/*" id="file-primary-input" />
           </label>
-          <p zzFileFieldValue id="file-primary-value"></p>
-          <button zzFileFieldClear aria-label="Remove the logo" id="file-primary-clear"></button>
+          <p zzFileFieldValue id="file-primary-value">
+            <button zzFileFieldClear aria-label="Remove the logo" id="file-primary-clear"></button>
+          </p>
         </div>
       </div>
 
@@ -554,6 +567,20 @@ const MB = 1024 * 1024;
           Choose <input zzFileFieldInput id="file-narrow-input" />
         </label>
         <p zzFileFieldValue id="file-narrow-value"></p>
+      </div>
+
+      <div zzFileField [(value)]="narrowStatement" class="w-55" id="file-narrow-clear-root">
+        <label zzFileFieldButton id="file-narrow-clear-button">
+          <svg lucideUpload></svg> Choose file
+          <input zzFileFieldInput id="file-narrow-clear-input" />
+        </label>
+        <p zzFileFieldValue id="file-narrow-clear-value">
+          <button
+            zzFileFieldClear
+            aria-label="Remove the statement"
+            id="file-narrow-clear"
+          ></button>
+        </p>
       </div>
 
       <app-greek-file />
@@ -578,6 +605,7 @@ export class FileFields {
   protected readonly lockedFile = signal<File | null>(null);
   protected readonly logo = signal<File | null>(null);
   protected readonly statement = signal<File | null>(null);
+  protected readonly narrowStatement = signal<File | null>(null);
   protected readonly lightFile = signal<File | null>(null);
   protected readonly files = form(
     signal({
