@@ -49,7 +49,20 @@ export function overlayHost(options: ts.CompilerOptions, authored: ReadonlyMap<s
 
     return raw;
   };
-  host.fileExists = (file) => byName.has(host.getCanonicalFileName(resolve(file))) || exists(file);
+  // The host lives for one pass, which writes nothing before it ends, so each spelling's
+  // answer holds for the whole pass; resolution probes the same paths many times.
+  const existence = new Map<string, boolean>();
+
+  host.fileExists = (file) => {
+    let found = existence.get(file);
+
+    if (found === undefined) {
+      found = byName.has(host.getCanonicalFileName(resolve(file))) || exists(file);
+      existence.set(file, found);
+    }
+
+    return found;
+  };
 
   const holdsAuthored = holdsAny(authored.keys());
 

@@ -358,6 +358,19 @@ export function emit(
     return `{ ${parts.join(",\n")} }`;
   }
 
+  // Each table sorts only its own imports by these positions instead of scanning every
+  // declaration.
+  const idOrder = new Map<Declaration, number>();
+  const recordOrder = new Map<Declaration, number>();
+
+  for (let index = 0; index < byId.length; index += 1) {
+    idOrder.set(byId[index], index);
+  }
+
+  for (let index = 0; index < records.length; index += 1) {
+    recordOrder.set(records[index], index);
+  }
+
   // The helper import and the value imports a table's own records read, in today's order:
   // copies in declaration order, then destinations (each record's own and its `..` winner's)
   // in id order.
@@ -397,11 +410,13 @@ export function emit(
 
     const read: Declaration[] = [];
 
-    for (const declaration of records) {
-      if (members.has(declaration) && readsCopy(declaration)) {
+    for (const declaration of members) {
+      if (recordOrder.has(declaration) && readsCopy(declaration)) {
         read.push(declaration);
       }
     }
+
+    read.sort((a, b) => recordOrder.get(a)! - recordOrder.get(b)!);
 
     const destinations = new Set<Declaration>(list);
 
@@ -459,10 +474,10 @@ export function emit(
       lines.push(copyImport(file, declaration, false));
     }
 
-    for (const declaration of byId) {
-      if (destinations.has(declaration)) {
-        lines.push(destinationImport(file, declaration, false));
-      }
+    const ordered = [...destinations].sort((a, b) => idOrder.get(a)! - idOrder.get(b)!);
+
+    for (const declaration of ordered) {
+      lines.push(destinationImport(file, declaration, false));
     }
 
     lines.push(`

@@ -1210,6 +1210,18 @@ test("local path params get the generated matching guard; misplaced onInvalidPar
   }
 });
 
+test("filesystem mode: misplaced onInvalidParams fails whether or not synchronization edits the declaration", async () => {
+  for (const path of ["items", "wrong"]) {
+    const project = await filesystemProject();
+
+    await project.page("items");
+    await project.write(
+      "src/routes/items/route.ts",
+      `${project.header}\nexport default defineRoute("${path}", {}).onInvalidParams(() => false);\n`,
+    );
+    await assert.rejects(project.generate(), /onInvalidParams requires local path placeholders/);
+  }
+});
 test("effective search gets the generated matching guard; redirect replacements use the write type", async () => {
   const root = await fixture();
   const packageDirectory = resolve(import.meta.dirname, "..");
@@ -3580,6 +3592,42 @@ test("route copies: runtime files the program doesn't hold are bound by the impo
       return true;
     });
   }
+});
+
+test("route copies: an import of a deleted route's generated destination is refused", async () => {
+  const project = await filesystemProject();
+
+  await project.page("a");
+  await project.page("b");
+  await project.generate();
+  await rm(resolve(project.root, "src/routes/a"), { recursive: true });
+  await project.write(
+    "src/app.ts",
+    'export { destination } from "./routes/a/destination.generated.js";\n',
+  );
+  await assert.rejects(
+    project.generate(),
+    /Generated import is not a retained owned target: \.\/routes\/a\/destination\.generated\.js/,
+  );
+});
+
+test("route copies: a resolved runtime file reached through a preserved symbolic link is refused", async () => {
+  const project = await filesystemProject();
+  const tsconfig = JSON.parse(await project.read("tsconfig.json"));
+
+  tsconfig.compilerOptions.preserveSymlinks = true;
+  await project.write("tsconfig.json", JSON.stringify(tsconfig));
+  await project.write("real/helper.js", "export const helper = 1;\n");
+  await mkdir(resolve(project.root, "lib"), { recursive: true });
+  await symlink(resolve(project.root, "real/helper.js"), resolve(project.root, "lib/helper.js"));
+  await project.write(
+    "src/routes/items/page.ts",
+    'import { Component } from "@angular/core";\nimport "../../../lib/helper.js";\n\n@Component({ template: "items" })\nexport default class Page {}\n',
+  );
+  await assert.rejects(
+    project.generate(),
+    /Unsafe source\/output symbolic link: .*lib[\\/]helper\.js$/,
+  );
 });
 
 test("route copies: URL fact modules reach no generated file; copies import no server module", async () => {
