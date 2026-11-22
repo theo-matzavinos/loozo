@@ -139,6 +139,14 @@ mock.module("node:fs/promises", {
       scenario.inspections++;
       await scenario.inspectionGate;
 
+      // An error other than ENOENT, which no path gives on every platform: Windows reports ENOENT
+      // where Linux and macOS report ENOTDIR.
+      const code = scenario.inspectionErrors.get(path);
+
+      if (code !== undefined) {
+        throw Object.assign(new Error(`${code}: ${path}`), { code });
+      }
+
       return lstatSync(path);
     },
   },
@@ -230,6 +238,7 @@ function createScenario() {
     overlaps: 0,
     executions: 0,
     inspections: 0,
+    inspectionErrors: new Map(),
   };
 }
 
@@ -1192,6 +1201,7 @@ test("every event serve can't prove inert runs a pass", async () => {
   await writeFile(regular, "p {}\n");
   await symlink(target, resolve(directory, "linked.svg"));
   await symlink(resolve(directory, "missing.svg"), resolve(directory, "dangling.svg"));
+  state.inspectionErrors.set(resolve(directory, "unreadable.css"), "EACCES");
 
   const cases = [
     ["a route", "change", "src/routes/teams/route.ts"],
@@ -1204,7 +1214,7 @@ test("every event serve can't prove inert runs a pass", async () => {
     ["a removed directory whose path now holds an asset", "unlinkDir", regular],
     ["a symlinked asset", "add", resolve(directory, "linked.svg")],
     ["a removal with a dangling symlink at its path", "unlink", resolve(directory, "dangling.svg")],
-    ["an asset path lstat fails on", "unlink", resolve(regular, "nested.css")],
+    ["an asset path lstat fails on", "unlink", resolve(directory, "unreadable.css")],
     ["an asset that isn't there on a change", "change", resolve(directory, "gone.css")],
   ];
 
