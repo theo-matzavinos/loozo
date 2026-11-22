@@ -18,8 +18,8 @@ const events = [] as const;
 const classes = { internal: ["id"], fixed: [], excluded: [] } as const;
 
 /**
- * A group of items inside the select's content, named by its `uiSelectGroupLabel` and hidden
- * while none of its items shows.
+ * A group of items inside the select's content, named by its `uiSelectGroupLabel`. Core never
+ * hides it, even with no items.
  *
  * @example
  * ```html
