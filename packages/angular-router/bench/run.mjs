@@ -69,7 +69,7 @@ const workloads = {
       firstGeneration:
         "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited internal generate() without persistent compiler state.",
       serve:
-        "The router serve target in-process through Architect, development configuration (optimization off, outputHashing none); title toggles on src/routes/g0000/static/l0/route.ts.",
+        "The router serve target in-process through Architect, development configuration (optimization off, outputHashing none); title toggles on src/routes/g0000/static/l0/route.ts, then edits of that route page's template moved to page.html, which must start no generation pass.",
       serveCache: cachePolicy.serve,
       build:
         "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
@@ -417,6 +417,14 @@ async function measure(scenario, run, workload) {
       record("serve.startupMs", [serve.startupMs]);
       record("serve.generatedMs", generatedMs);
       record("serve.servedMs", servedMs);
+
+      const templateMs = [];
+
+      for (const edit of serve.templateEdits) {
+        templateMs.push(edit.builtMs);
+      }
+
+      record("serve.templateMs", templateMs);
       result.serve = serve;
       progress(`  edit → generated ${duration(result.metrics["serve.generatedMs"])} (median)`);
       // Later phases measure the first-generation fixture again; the build's preflight republishes.

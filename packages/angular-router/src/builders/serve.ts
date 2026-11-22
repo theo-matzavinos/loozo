@@ -17,11 +17,16 @@ import {
   type LocaleTable,
 } from "./locale-table.js";
 import { buildTargetOptions, message, projectI18n, type JsonObject } from "./options.js";
+import { isInertFileEvent } from "./serve-events.js";
 
 // Polling catches what Angular 22.2's native watcher (@parcel/watcher) misses: edits to files
 // inside a renamed directory, which otherwise leave the dev server serving stale output.
 const defaultPoll = 1000;
 const devServerBuilder = "@angular/build:dev-server";
+// One change can reach the watcher as a burst of events: a save of several files, or a directory
+// rename, whose unlinks chokidar holds back 100 ms to pair them with re-adds. A pass waits for the
+// burst to go quiet, so it runs once and reads the finished change.
+const settleDelay = 150;
 
 export default createBuilder<JsonObject & { buildTarget: string; poll?: number | false }>(
   (options, context) =>
@@ -38,8 +43,14 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       // clears.
       const releases: (() => Promise<unknown>)[] = [];
       let cleanup: Promise<void> | undefined;
+      let settling: NodeJS.Timeout | undefined;
+      // Whether the latest completed pass, the initial one included, succeeded. An event for a
+      // file no pass reads is skipped only after a success: a failed pass may have read it.
+      let succeeded = false;
       // Resolved from the build target before anything reads it.
       let router: GenerationOptions;
+      // The watched locale catalogs, whose events always regenerate.
+      const catalogs: string[] = [];
       // The locale table of a pass, from the build target's options and that pass's words.
       let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
       // The table the dev server started with: its define is read once, at its start.
@@ -79,14 +90,15 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         }
 
         stopped = true;
+        clearTimeout(settling);
 
-        const settling = [pass.catch(() => undefined)];
+        const closing = [pass.catch(() => undefined)];
 
         for (let index = releases.length - 1; index >= 0; index--) {
-          settling.push(releases[index]());
+          closing.push(releases[index]());
         }
 
-        cleanup = Promise.all(settling).then(() => clear());
+        cleanup = Promise.all(closing).then(() => clear());
 
         return cleanup;
       }
@@ -115,7 +127,16 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       // Later passes log their failures and keep serving.
       function startPass(): void {
         regeneration = "running";
-        pass = regenerate().then(compareTable, (error) => context.logger.error(message(error)));
+        pass = regenerate().then(
+          (words) => {
+            succeeded = true;
+            compareTable(words);
+          },
+          (error) => {
+            succeeded = false;
+            context.logger.error(message(error));
+          },
+        );
         void pass.then(passEnded);
       }
 
@@ -137,10 +158,14 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         }
       }
 
-      async function changed(path: string): Promise<void> {
+      async function changed(event: string, path: string): Promise<void> {
         if (stopped) {
           return;
         }
+
+        // A pass that was running or queued when the event arrived may have read the file before
+        // or after it changed, so only an event that arrived while idle can be skipped.
+        const idleOnArrival = regeneration === "idle";
 
         if (colocatedFiles.has(basename(path))) {
           try {
@@ -156,11 +181,23 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           }
         }
 
+        const inert = idleOnArrival && (await isInertFileEvent(event, path, catalogs));
+
         if (stopped) {
           return;
         }
 
-        edited();
+        // Checked again once the file was inspected: a pass that started or failed meanwhile needs
+        // this event's pass. A settling burst doesn't block the skip: it regenerates anyway.
+        if (inert && regeneration === "idle" && succeeded) {
+          return;
+        }
+
+        clearTimeout(settling);
+        settling = setTimeout(() => {
+          settling = undefined;
+          edited();
+        }, settleDelay);
       }
 
       async function start(): Promise<void> {
@@ -217,11 +254,11 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
 
         // A catalog edit regenerates too: bytes stay the same, so only the per-locale check runs.
         // Angular's dev server applies a catalog at its next rebuild, not at this edit.
-        const watched = [...roots];
-
         for (const locale of router.localization?.locales ?? []) {
-          watched.push(...locale.files);
+          catalogs.push(...locale.files);
         }
+
+        const watched = [...roots, ...catalogs];
 
         const watcher = chokidar.watch(watched, { ignoreInitial: true, followSymlinks: false });
         const ready = Promise.withResolvers<boolean>();
@@ -239,8 +276,8 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           watcher.on("error", (error) => context.logger.error(String(error)));
           ready.resolve(true);
         });
-        watcher.on("all", (_event, path) => {
-          void changed(path).catch((error) => context.logger.error(String(error)));
+        watcher.on("all", (event, path) => {
+          void changed(event, path).catch((error) => context.logger.error(String(error)));
         });
 
         const readyForGeneration = await ready.promise;
@@ -249,6 +286,9 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
+        // The initial pass reads every change so far, so a burst still settling needs no pass.
+        clearTimeout(settling);
+        settling = undefined;
         regeneration = "running";
 
         const initial = regenerate();
@@ -272,6 +312,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
+        succeeded = true;
         // Before a queued pass can compare its table with it.
         started = tableOf(words);
         passEnded();
