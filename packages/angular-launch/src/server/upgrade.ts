@@ -101,7 +101,9 @@ function refusedUpgrade(effects: ResponseEffects, reply: Reply): Upgrade {
  * Until the socket is accepted the call's signal follows `request.signal`; a request that
  * aborts before the handler is reached skips the handler, and one that aborts after it
  * returned its iterable returns that iterator before its body ran. Either way the socket,
- * if accepted, closes without a frame. Afterwards the signal follows the socket closing.
+ * if accepted, closes without a frame. Afterwards the signal follows the socket closing. The
+ * scope's request carries that signal, so stages' `signal` and every `request.signal` end with
+ * the socket too.
  *
  * @param application - The application binding.
  * @param request - The upgrade request, as a web `Request`.
@@ -147,7 +149,8 @@ export async function handleChannelUpgrade(
   let reply: Reply;
 
   try {
-    const scope = createRequestScope(application, request);
+    // Stages and `request.signal` follow the call: the request until accept, then the socket.
+    const scope = createRequestScope(application, new Request(request, { signal: socket.signal }));
     const started = Promise.withResolvers<StreamStart>();
     const outcome = runProcedure(
       url.pathname,

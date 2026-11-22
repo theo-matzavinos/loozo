@@ -86,7 +86,8 @@ export function failureFrame(reply: Reply): string {
  * Internal. Sends one `value` event per yielded value, then, once the whole call settled
  * (`outcome`, middleware included), one `end` event or one `error` event whose data is
  * the reply's frame with its status: `{ status, error }`, `{ status, redirect }` or
- * `{ status, notFound }`. A comment goes out every {@link keepAliveMs}.
+ * `{ status, notFound }`. A comment goes out every {@link keepAliveMs}, unless the reader is
+ * behind: one still waiting in the body's queue is enough to keep the connection open.
  *
  * Pull-based, so a slow reader pauses the handler. A yielded value that isn't strict JSON
  * fails the call. The stream stops when `signal` aborts, which it does when the host
@@ -163,6 +164,11 @@ export function eventStream(
 
       signal.addEventListener("abort", stopped, { once: true });
       keepAlive = setInterval(() => {
+        // A reader that's behind already has data waiting: don't queue comments behind it.
+        if (controller.desiredSize === null || controller.desiredSize <= 0) {
+          return;
+        }
+
         controller.enqueue(encoder.encode(": keep-alive\n\n"));
       }, keepAliveMs);
     },

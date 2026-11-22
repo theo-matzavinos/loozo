@@ -2,6 +2,7 @@
 import { STATUS_CODES, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket as NodeWebSocket } from "ws";
+import { bufferedMark } from "../server/buffered-mark.js";
 import type { Upgrade } from "../server/upgrade.js";
 import { upgradeListenerSlot } from "./upgrade-listener-slot.js";
 
@@ -79,6 +80,16 @@ async function writeResponse(socket: Duplex, response: Response): Promise<void> 
 
 function ignore(): void {}
 
+// Answers the caller's pings while the socket buffers less than the mark. ws's own answers
+// ignore the buffer, so a caller that pings without reading would grow it without bound.
+function answerPings(socket: NodeWebSocket): void {
+  socket.on("ping", (data) => {
+    if (socket.readyState === socket.OPEN && socket.bufferedAmount < bufferedMark) {
+      socket.pong(data);
+    }
+  });
+}
+
 // Terminates a socket that didn't answer the previous ping.
 function keepAlive(socket: NodeWebSocket): void {
   let alive = true;
@@ -113,7 +124,8 @@ function keepAlive(socket: NodeWebSocket): void {
  * server's other `upgrade` listeners, such as a dev server's. A `Response` is written to the
  * socket, which then closes. An `Upgrade` is accepted with `ws`, with its headers on the `101`,
  * unless the client already left. Accepted sockets are pinged every 15 s and terminated when
- * they miss the answer.
+ * they miss the answer. A caller's own pings are answered only while the socket buffers less
+ * than 1 MiB of unsent data, so one that pings without reading can't grow the buffer.
  *
  * Under `ng serve`, Launch's serve builder forwards `/_rpc/` upgrades to the latest listener
  * created, so attaching it where your built server listens is all the wiring there is.
@@ -142,7 +154,12 @@ export function createUpgradeHandler(
   handle: (request: Request) => Promise<Response | Upgrade | null>,
   { maxPayload = 1024 * 1024 }: UpgradeHandlerOptions = {},
 ): UpgradeListener {
-  const server = new WebSocketServer({ noServer: true, clientTracking: false, maxPayload });
+  const server = new WebSocketServer({
+    noServer: true,
+    clientTracking: false,
+    autoPong: false,
+    maxPayload,
+  });
   const accepted = new WeakMap<IncomingMessage, Headers>();
 
   server.on("headers", (lines: string[], incoming: IncomingMessage) => {
@@ -221,6 +238,7 @@ export function createUpgradeHandler(
       // A frame over maxPayload or a broken connection emits an error, then the socket closes.
       websocket.on("error", () => undefined);
       keepAlive(websocket);
+      answerPings(websocket);
       // ws implements the WHATWG WebSocket interface Launch uses.
       call.accept(websocket as unknown as WebSocket);
     });

@@ -1,6 +1,7 @@
 import { parseJson, serializeJson } from "../json.js";
 import { MessageRefused, type ChannelInbox } from "./channel-messages.js";
 import { invalidInput, type Reply } from "./dispatch.js";
+import { bufferedMark } from "./buffered-mark.js";
 import { failureFrame, settleStopped, type StreamStart } from "./event-stream.js";
 import type { InputIssue } from "../input-issues.js";
 
@@ -8,8 +9,6 @@ import type { InputIssue } from "../input-issues.js";
 export const valueWindow = 256;
 /** How many messages the caller sends before the server must grant more. */
 export const messageWindow = 32;
-/** Past this many unsent bytes in the socket's buffer, the server stops pulling values. */
-export const bufferedMark = 1024 * 1024;
 /** How often the server checks whether the socket's buffer drained below the mark. */
 export const bufferedPollMs = 50;
 
@@ -59,7 +58,9 @@ export interface ChannelSocket {
  * with credit and while the socket buffers less than {@link bufferedMark} bytes, checking
  * every {@link bufferedPollMs} ms. The caller sends at most {@link messageWindow} messages
  * the handler hasn't read; the server grants `{"ready":n}` once the handler read half a
- * window since the last grant.
+ * window since the last grant, but holds it back while the socket buffers {@link bufferedMark}
+ * bytes or more, checking every {@link bufferedPollMs} ms, then grants everything read since
+ * in one frame.
  *
  * A binary or malformed frame, a message beyond the caller's credit or a grant for more
  * values than are outstanding ends the call with `INVALID_INPUT`, as does a message that
@@ -98,18 +99,38 @@ export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
   let inboxError: MessageRefused | undefined;
   let messageCredit = messageWindow;
   let readSinceGrant = 0;
+  let grantPoll: ReturnType<typeof setTimeout> | undefined;
 
   function send(frame: string): void {
     socket!.send(frame);
   }
 
+  // A caller that doesn't read its frames can't grow the socket's buffer with grants: past the
+  // mark, the grant waits until the buffer drains.
+  function grant(): void {
+    grantPoll = undefined;
+
+    if (readSinceGrant < messageWindow / 2 || stopped || ending) {
+      return;
+    }
+
+    if (socket!.bufferedAmount >= bufferedMark) {
+      grantPoll = setTimeout(grant, bufferedPollMs);
+
+      return;
+    }
+
+    send(serializeJson({ ready: readSinceGrant }));
+    messageCredit += readSinceGrant;
+    readSinceGrant = 0;
+  }
+
   function read(): void {
     readSinceGrant += 1;
 
-    if (readSinceGrant >= messageWindow / 2 && !stopped && !ending) {
-      send(serializeJson({ ready: readSinceGrant }));
-      messageCredit += readSinceGrant;
-      readSinceGrant = 0;
+    // A held grant goes out with the next check, covering this read too.
+    if (grantPoll === undefined) {
+      grant();
     }
   }
 
@@ -142,6 +163,7 @@ export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
 
     stopped = true;
     clearTimeout(poll);
+    clearTimeout(grantPoll);
     wake?.();
     endInbox();
 
