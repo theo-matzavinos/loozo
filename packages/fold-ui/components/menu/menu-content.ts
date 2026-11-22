@@ -1,16 +1,20 @@
-import { Directive, computed, inject, input } from "@angular/core";
+import { Component, computed, inject, input } from "@angular/core";
 import { OrigamiMenuContent, OrigamiMenuContentOptions } from "@loozo/origami-ui/menu";
 import { cn } from "../cn";
 import { popupClasses, popupListClasses } from "../popup";
+import { ScrollArea } from "../scroll-area";
 
 /**
  * The menu panel, in the top layer: at least 192px and as wide as the Trigger, 4px from it by
- * default, scrolling within the room the viewport leaves. Below the Trigger at the root, beside
- * the sub-trigger inside a MenuSub.
+ * default, scrolling in a ScrollArea within the room the viewport leaves. Below the Trigger at the
+ * root, beside the sub-trigger inside a MenuSub. Its viewport fills the panel's padding box and
+ * isn't a Tab stop; the rows keep their 4px inset inside it, room for their focus rings, and a row
+ * the keyboard focuses scrolls into view with the viewport's 16px scroll padding.
  */
-@Directive({
+@Component({
   selector: "[fold__MenuContent]",
   exportAs: "fold__MenuContent",
+  imports: [ScrollArea],
   hostDirectives: [{ directive: OrigamiMenuContent, inputs: ["id", "side", "align"] }],
   providers: [
     // Origami's own id/side/align (so a submenu keeps its inline-end default) and fold's 4px gap.
@@ -21,6 +25,15 @@ import { popupClasses, popupListClasses } from "../popup";
     }),
   ],
   host: { "data-slot": "menu-content", "[class]": "classes()" },
+  template: `
+    <div
+      fold__ScrollArea
+      [viewportTabIndex]="-1"
+      class="-m-1 min-h-0 [&>[data-slot=scroll-area-viewport]]:overscroll-contain [&>[data-slot=scroll-area-viewport]]:scroll-py-4"
+    >
+      <div class="p-1"><ng-content /></div>
+    </div>
+  `,
 })
 export class MenuContent {
   readonly gap = input(4);

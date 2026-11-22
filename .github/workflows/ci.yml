@@ -409,8 +409,9 @@ jobs:
         env:
           pnpm_config_pm_on_fail: error
           pnpm_config_verify_deps_before_run: error
-      - run: pnpm exec playwright install --with-deps chromium
-      # Builds Origami and fold, packs them into a fresh `ng new` app, builds it and runs the smoke.
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      # Builds Origami and fold, packs them into a fresh `ng new` app, builds it and runs the
+      # Chromium smoke, then the scrolling suite in Chromium, Firefox and WebKit.
       - run: pnpm run test:consumer
 
   # Deterministic bench budgets (bytes, counts, instantiations); timings stay local. Matrix entries
