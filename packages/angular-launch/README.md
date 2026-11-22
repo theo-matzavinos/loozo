@@ -286,6 +286,8 @@ export const reqHandler = createNodeRequestHandler(app);
 
 Angular's dev server and build use the exported `reqHandler`; `listen` only runs when you start the built server yourself (see [Deploying](#deploying)). The server must serve the `browser` build output itself: Angular's engine doesn't serve script or style files. Express isn't required; see [Other server frameworks](#other-server-frameworks). The upgrade handler only matters if you define [channels](#channels); `ng serve` uses it too. See [Channels on Node](#channels-on-node).
 
+Launch sets no limit on request size, time or connections: it reads an RPC's whole body before any stage runs. In production, limit request bodies (bytes and read time), request targets and concurrent connections in your host or a proxy in front of this server; a body-parsing middleware such as `express.json()` isn't the place, since it consumes the body `handleRequest` reads. See [Deploying](#deploying) and the [threat model](SPEC.md#threat-model).
+
 Import `server.generated` before any module that reaches a route, as above: with [translated URLs](#translated-urls) that order is required.
 
 Always pass `scope.request` together with `scope`, not your original request. The scope ties the render's stages to the request Angular renders; if they don't match, RPC calls during rendering fail with `INTERNAL` and a server log entry. This catches wiring mistakes only; it doesn't check your authentication.
@@ -1079,6 +1081,8 @@ The server bundle includes your dependencies by default, so the host doesn't nee
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NG_ALLOWED_HOSTS`       | Comma-separated hostnames allowed for pages and RPCs. The server entry above reads it and passes the list to both; it defaults to `localhost` there. Other hosts get a 400.                  |
 | `NG_TRUST_PROXY_HEADERS` | Read by `AngularNodeAppEngine`: comma-separated `Forwarded` and `X-Forwarded-*` headers that Angular should trust. Set it only behind a proxy that overwrites those headers. Off by default. |
+
+Before exposing the server, limit what reaches it in the host or a proxy in front of it: request body size and read time, request target and header size, and concurrent connections, per client and in total. Launch sets none of these. It reads an RPC's whole body before any stage runs, so authentication in your stages can't stop an oversized one, and each open stream or channel holds a connection for as long as it runs. Body-parsing middleware isn't the place for the limit: it consumes the body `handleRequest` reads. The [threat model](SPEC.md#threat-model) lists what else the host and your stages own.
 
 Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even when the app has a different `<base href>`. If the app is served under a path prefix, route `/_rpc/` to the same server.
 
