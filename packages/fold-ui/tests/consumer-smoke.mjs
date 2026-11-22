@@ -8851,57 +8851,249 @@ try {
     assert.equal((usTree.match(/spinbutton/g) ?? []).length, 3, usTree);
     assert.doesNotMatch(usTree, /00/, usTree);
 
-    // A short viewport, with motion: Origami focuses the chosen day before the popup's height
+    // Waits until a scroller's position has held for 400ms, so a smooth or snapping wheel scroll
+    // has ended.
+    const scrollSettled = (selector) =>
+      page.evaluate(
+        (selector) =>
+          new Promise((done) => {
+            const element = document.querySelector(selector);
+            let last = `${element.scrollLeft},${element.scrollTop}`;
+            let stable = 0;
+            let ticks = 0;
+            const timer = setInterval(() => {
+              const now = `${element.scrollLeft},${element.scrollTop}`;
+
+              ticks += 1;
+              stable = now === last ? stable + 1 : 0;
+              last = now;
+
+              if (stable >= 8 || ticks > 80) {
+                clearInterval(timer);
+                done();
+              }
+            }, 50);
+          }),
+        selector,
+      );
+    // The pointer over an element's middle, at whole pixels.
+    const pointAt = async (selector) => {
+      const { left, top, width, height } = await rect(selector);
+
+      await page.mouse.move(Math.round(left + width / 2), Math.round(top + height / 2));
+    };
+
+    // Short viewports, with motion: Origami focuses the chosen day before the popup's height
     // settles, so the popup's snap scrolls it into view. After the opening animation the day
-    // is wholly inside the popup's visible box and the page hasn't scrolled.
+    // is wholly inside the popup's visible box and the page hasn't scrolled. Then a wheel over
+    // the popup reaches the header and the last row and rests there, with focus on the same day:
+    // the header and the rows are snap points too, so the focused day doesn't pull it back.
+    // At 844×460 the whole overflow is 50px, inside the snap's proximity.
     await page.emulateMedia({ reducedMotion: "no-preference" });
-    await page.setViewportSize({ width: 844, height: 390 });
+
+    for (const height of [390, 460]) {
+      await page.setViewportSize({ width: 844, height });
+      await fresh();
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(
+        (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
+        trigger("dp-field"),
+      );
+      await keyboardFocus(trigger("dp-field"));
+
+      const pageBeforeOpen = await page.evaluate(() => [scrollX, scrollY]);
+
+      await page.keyboard.press("Enter");
+      await opened("dp-field");
+      await page.waitForFunction(
+        (selector) =>
+          document.querySelector(selector).getAnimations({ subtree: true }).length === 0,
+        content("dp-field"),
+      );
+      await rendered();
+
+      // The popup's visible box and the focused day, the ‹ button and the last row in it.
+      const popupView = () =>
+        page.evaluate((selector) => {
+          const popup = document.querySelector(selector);
+          const outer = popup.getBoundingClientRect();
+          const top = outer.top + popup.clientTop;
+          const left = outer.left + popup.clientLeft;
+          const pick = (element) => {
+            const { left, top, right, bottom } = element.getBoundingClientRect();
+
+            return { left, top, right, bottom };
+          };
+          const rows = popup.querySelectorAll("tr");
+
+          return {
+            label: document.activeElement.getAttribute("aria-label"),
+            day: pick(document.activeElement),
+            previous: pick(popup.querySelector("[data-slot=calendar-previous]")),
+            lastRow: pick(rows[rows.length - 1]),
+            visible: {
+              left,
+              top,
+              right: left + popup.clientWidth,
+              bottom: top + popup.clientHeight,
+            },
+            scrollTop: popup.scrollTop,
+            max: popup.scrollHeight - popup.clientHeight,
+            page: [scrollX, scrollY],
+          };
+        }, content("dp-field"));
+      const shortOpen = await popupView();
+
+      assert.equal(shortOpen.label, "Tuesday, October 27, 2026", `${height}px`);
+      assert.ok(shortOpen.max > 0, `the ${height}px popup scrolls`);
+      inside(shortOpen.day, 0, shortOpen.visible, `the focused day in the ${height}px popup`);
+      assert.deepEqual(shortOpen.page, pageBeforeOpen, `the page didn't scroll at ${height}px`);
+
+      await pointAt(content("dp-field"));
+      await page.mouse.wheel(0, -100);
+      await scrollSettled(content("dp-field"));
+
+      const wheeledUp = await popupView();
+
+      assert.equal(wheeledUp.scrollTop, 0, `a wheel up the ${height}px popup reaches its top`);
+      inside(
+        wheeledUp.previous,
+        0,
+        wheeledUp.visible,
+        `the ‹ button after a wheel up at ${height}px`,
+      );
+      assert.equal(wheeledUp.label, shortOpen.label, `the wheel moved focus at ${height}px`);
+
+      await page.mouse.wheel(0, 100);
+      await scrollSettled(content("dp-field"));
+      await page.mouse.wheel(0, 100);
+      await scrollSettled(content("dp-field"));
+
+      const wheeledDown = await popupView();
+
+      assert.equal(
+        wheeledDown.scrollTop,
+        wheeledDown.max,
+        `a wheel down the ${height}px popup reaches its end`,
+      );
+      inside(
+        wheeledDown.lastRow,
+        0,
+        wheeledDown.visible,
+        `the last row after a wheel down at ${height}px`,
+      );
+      await page.keyboard.press("Escape");
+      await closed("dp-field");
+    }
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+
+    // 375px wide: after a click on the DateTimeField's first segment, a wheel over its row
+    // reaches the row's end, its last segment wholly shown, and back, without moving focus. The
+    // row snaps to every cell's start and its own end, not to the focused segment, so nothing
+    // pulls it back to that segment; its whole 27px overflow would be inside a proximity snap's
+    // reach.
+    await page.setViewportSize({ width: 375, height: 720 });
     await fresh();
     await page.evaluate(() => document.fonts.ready);
-    await page.evaluate(
-      (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
-      trigger("dp-field"),
-    );
-    await keyboardFocus(trigger("dp-field"));
-
-    const pageBeforeOpen = await page.evaluate(() => [scrollX, scrollY]);
-
-    await page.keyboard.press("Enter");
-    await opened("dp-field");
-    await page.waitForFunction(
-      (selector) => document.querySelector(selector).getAnimations({ subtree: true }).length === 0,
-      content("dp-field"),
-    );
+    await page.locator(box("dtf")).scrollIntoViewIfNeeded();
+    await pointAt(segment("dtf", 0));
+    await page.mouse.down();
+    await page.mouse.up();
     await rendered();
 
-    const shortOpen = await page.evaluate((selector) => {
-      const popup = document.querySelector(selector);
-      const outer = popup.getBoundingClientRect();
-      const day = document.activeElement.getBoundingClientRect();
-      const top = outer.top + popup.clientTop;
-      const left = outer.left + popup.clientLeft;
+    const rowView = () =>
+      page.evaluate((selector) => {
+        const row = document.querySelector(selector);
+        const segments = [...row.querySelectorAll("[data-slot=date-field-segment]")];
+        const pick = (element) => {
+          const { left, top, right, bottom } = element.getBoundingClientRect();
 
-      return {
-        label: document.activeElement.getAttribute("aria-label"),
-        day: { left: day.left, top: day.top, right: day.right, bottom: day.bottom },
-        visible: {
-          left,
-          top,
-          right: left + popup.clientWidth,
-          bottom: top + popup.clientHeight,
-        },
-        overflows: popup.scrollHeight > popup.clientHeight,
-        page: [scrollX, scrollY],
-      };
-    }, content("dp-field"));
+          return { left, top, right, bottom };
+        };
 
-    assert.equal(shortOpen.label, "Tuesday, October 27, 2026");
-    assert.ok(shortOpen.overflows, "the short popup scrolls");
-    inside(shortOpen.day, 0, shortOpen.visible, "the focused day in the short popup");
-    assert.deepEqual(shortOpen.page, pageBeforeOpen, "the page didn't scroll");
-    await page.keyboard.press("Escape");
-    await closed("dp-field");
-    await page.emulateMedia({ reducedMotion: "reduce" });
+        return {
+          scrollLeft: row.scrollLeft,
+          max: row.scrollWidth - row.clientWidth,
+          first: pick(segments[0]),
+          last: pick(segments.at(-1)),
+          visible: pick(row),
+          focused: segments.indexOf(document.activeElement),
+        };
+      }, row("dtf"));
+    const clicked = await rowView();
+
+    assert.equal(clicked.focused, 0, "the click focuses dtf's first segment");
+    assert.ok(clicked.max > 0, "dtf's row overflows at 375px");
+    await pointAt(row("dtf"));
+    await page.mouse.wheel(100, 0);
+    await scrollSettled(row("dtf"));
+
+    const wheeledRight = await rowView();
+
+    assert.equal(wheeledRight.scrollLeft, wheeledRight.max, "a wheel right reaches the row's end");
+    inside(wheeledRight.last, 0, wheeledRight.visible, "dtf's last segment after a wheel right");
+    assert.equal(wheeledRight.focused, 0, "the wheel right moved focus");
+    await page.mouse.wheel(-100, 0);
+    await scrollSettled(row("dtf"));
+
+    const wheeledLeft = await rowView();
+
+    assert.equal(wheeledLeft.scrollLeft, 0, "a wheel left reaches the row's start");
+    inside(wheeledLeft.first, 0, wheeledLeft.visible, "dtf's first segment after a wheel left");
+    assert.equal(wheeledLeft.focused, 0, "the wheel left moved focus");
+    await blur();
+
+    // 280px wide, two columns: the field-shape pickers' rows are 69px. Focus the month, wheel the
+    // row right to 28px, then move to the year by ArrowRight or Tab: the year is wholly shown,
+    // readonly and editable. Browsers leave a partly shown segment where it is when focus
+    // reaches it, so a row resting at 28px, with the year's last pixel clipped, wouldn't reveal
+    // it; the row's snap doesn't rest there. Nothing scrolls the row between the wheel and the key.
+    await page.setViewportSize({ width: 280, height: 720 });
+
+    for (const id of ["dp-field-readonly", "dp-field"]) {
+      for (const key of ["ArrowRight", "Tab"]) {
+        await fresh();
+        await page.evaluate(() => document.fonts.ready);
+        await keyboardFocus(segment(id, 1));
+        await pointAt(row(id));
+
+        const focusedAt = await page.evaluate(
+          (selector) => document.querySelector(selector).scrollLeft,
+          row(id),
+        );
+
+        await page.mouse.wheel(28 - focusedAt, 0);
+        await scrollSettled(row(id));
+        await page.keyboard.press(key);
+        await scrollSettled(row(id));
+
+        const year = await page.evaluate((selector) => {
+          const row = document.querySelector(selector);
+          const segments = [...row.querySelectorAll("[data-slot=date-field-segment]")];
+          const pick = (element) => {
+            const { left, top, right, bottom } = element.getBoundingClientRect();
+
+            return { left, top, right, bottom };
+          };
+
+          return {
+            focused: segments.indexOf(document.activeElement),
+            text: document.activeElement.textContent,
+            chip: pick(document.activeElement),
+            visible: pick(row),
+            max: row.scrollWidth - row.clientWidth,
+          };
+        }, row(id));
+
+        assert.ok(year.max > 0, `${id}'s row overflows at 280px`);
+        assert.equal(year.focused, 2, `${key} after a wheel moves ${id}'s focus to the year`);
+        assert.equal(year.text, "2026", `${id}'s year`);
+        inside(year.chip, 0, year.visible, `${id}'s year after a wheel and ${key}`);
+      }
+    }
+
+    await blur();
 
     // 320px wide, two columns: the DateTimeField's and the field-shape picker's boxes stay in
     // their columns, the picker's trigger inside its box and outside the scrolling row. Moving

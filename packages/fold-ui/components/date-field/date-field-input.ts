@@ -23,9 +23,15 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
  * 32px control drawn round the typed segments, which it renders in the locale's order with their
  * separators. Each segment sits in a cell as wide as its widest state, so nothing moves while you
  * type. The cells and separators sit in a row that scrolls sideways when the box is narrower than
- * them, with its scrollbar hidden; the focused segment snaps into view. The row itself is out of
- * the Tab order, which browsers would otherwise give a scroller. A DatePickerTrigger written
- * inside the box sits at its end, outside that row.
+ * them, with its scrollbar hidden. Focusing a segment scrolls it wholly into view. Browsers leave
+ * a partly shown segment where it is unless it lies outside the row's scroll padding (2.5rem,
+ * at most 40% of the row, each side). In a row under 100px that padding can be narrower than a
+ * segment, so the row snaps, mandatory, to each cell's start and to its own end: a wheel or
+ * swipe rests with a cell starting at the padding instead of anywhere a partly shown segment
+ * could reach into it, and never pulls back to the focused segment. After a manual scroll, a
+ * segment wider than 2.5rem, or one in a row under about 60px, can stay partly shown. The row
+ * itself is out of the Tab order, which browsers would otherwise give a scroller. A
+ * DatePickerTrigger written inside the box sits at its end, outside that row.
  *
  * It's the root's one Input: Origami gives it `role="group"` and, in a Field, the label's name.
  * Standalone, give it an `aria-label`.
@@ -39,7 +45,7 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
     <span
       data-slot="date-field-segments"
       tabindex="-1"
-      class="flex h-full min-w-0 flex-1 snap-x snap-proximity items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      class="flex h-full min-w-0 flex-1 snap-x snap-mandatory scroll-px-[min(2.5rem,40%)] items-center overflow-x-auto [scrollbar-width:none] *:last:snap-end [&::-webkit-scrollbar]:hidden"
     >
       @for (part of field.segments(); track part.key) {
         @if (part.type === "literal") {
@@ -47,7 +53,7 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
             part.text
           }}</span>
         } @else {
-          <span data-slot="date-field-cell" class="inline-grid">
+          <span data-slot="date-field-cell" class="inline-grid snap-start">
             @for (line of sizerLines()[part.type]; track line) {
               <span
                 aria-hidden="true"
@@ -127,8 +133,6 @@ export class DateFieldInput {
     return cn(
       // The chip and the box's ring carry focus, so the contenteditable's own ring is off.
       "col-start-1 row-start-1 cursor-text rounded-checkbox px-0.5 text-center caret-transparent outline-none",
-      // In a box too narrow for the row, focusing a segment scrolls it into view.
-      "focus:snap-center",
       alignment,
       "data-placeholder:not-focus:text-muted-foreground focus:bg-foreground focus:text-background",
       // A system color for every state, so the chip reads in forced colors.

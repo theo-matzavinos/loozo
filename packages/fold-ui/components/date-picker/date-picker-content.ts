@@ -17,7 +17,8 @@ import { popupClasses } from "../popup";
  * from the Trigger by default, holding a Calendar whose own box is dropped. Gate the Calendar on
  * this Content's `state.open()`, which stays true through the exit, so focus returns to the
  * Trigger after a choice. In the field shape, write `align="end"` so it lines up with the box's
- * end. When the popup is too short for the Calendar, it scrolls the focused cell into view.
+ * end. When the popup is too short for the Calendar, it scrolls the focused cell into view and
+ * snaps a manual scroll to the header's top or a row's bottom.
  */
 @Directive({
   selector: "[fold__DatePickerContent]",
@@ -43,8 +44,10 @@ export class DatePickerContent implements OrigamiDatePickerContentOptions {
       "w-fit max-w-[calc(100vw_-_1rem)] max-h-[calc(var(--og-available-height)_-_8px)] overflow-y-auto overscroll-contain p-3",
       // Origami focuses the Calendar's day before the popup's height settles, so a short popup
       // can leave it out of view. Snapping to the focused cell scrolls it back in, 12px clear of
-      // the edges.
+      // the edges. The header's top and every row's bottom are snap points too, so a manual
+      // scroll rests where it stops instead of being pulled back to the focused cell.
       "snap-y snap-proximity scroll-py-3 **:data-[slot=calendar-cell]:focus:snap-center",
+      "**:data-[slot=calendar-header]:snap-start [&_tr]:snap-end",
       // The Calendar sits on the popup's surface: no border, fill, radius or padding of its own.
       "**:data-[slot=calendar]:rounded-none **:data-[slot=calendar]:border-0 **:data-[slot=calendar]:bg-transparent **:data-[slot=calendar]:p-0",
       this.class(),
