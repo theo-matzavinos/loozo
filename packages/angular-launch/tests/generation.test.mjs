@@ -4,6 +4,7 @@ import ts from "typescript";
 import { mkdir, writeFile, readFile, readdir, stat, rm, rename, symlink } from "node:fs/promises";
 import { resolve, dirname, join, relative, sep } from "node:path";
 import { generate, createGenerationSession } from "../dist/generation/index.js";
+import { createBuilderSession } from "../dist/generation/run.js";
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
 const options = {
@@ -1981,4 +1982,156 @@ test("translateSegments validates every locale with the router's rules before an
     translateSegments: true,
     localization: localization(root),
   });
+});
+
+// Serve skips events for templates, styles, images, fonts and Markdown between passes (the
+// router's serve-events), so a pass must give the same files and words whatever those files
+// hold, are, or whether they're there at all.
+
+// The translated fixture, whose left page has an external template and style, imports an icon
+// through its declaration companion and a stylesheet through a `declare module` wildcard, and sits
+// next to a font and a Markdown file. Its passes share one builder session, as serve's do.
+async function assetFixture({ declareStyles = true } = {}) {
+  const root = await translatedFixture();
+  const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+  config.compilerOptions.allowArbitraryExtensions = true;
+  await put(root, "tsconfig.json", JSON.stringify(config));
+
+  if (declareStyles) {
+    await put(root, "src/styles.d.ts", 'declare module "*.css";\n');
+  }
+
+  await Promise.all([
+    put(
+      root,
+      "src/routes/left/page.ts",
+      `import { Component } from '@angular/core';
+import { icon } from './icon.svg';
+import './theme.css';
+
+@Component({ selector: 'fixture-left', templateUrl: './page.html', styleUrl: './page.css' })
+export default class Page {
+  readonly icon = icon;
+}
+`,
+    ),
+    put(root, "src/routes/left/icon.d.svg.ts", "export declare const icon: string;\n"),
+    put(root, "src/routes/left/icon.svg", "<svg/>\n"),
+    put(root, "src/routes/left/theme.css", "body { margin: 0; }\n"),
+    put(root, "src/routes/left/page.html", "<h1>Left</h1>\n"),
+    put(root, "src/routes/left/page.css", "h1 { color: red; }\n"),
+    put(root, "src/routes/left/fonts/body.woff2", "font\n"),
+    put(root, "src/routes/left/README.md", "# Left\n"),
+    put(root, "src/config.ts", providerImport),
+  ]);
+
+  const session = createBuilderSession(root, {
+    ...options,
+    translateSegments: true,
+    localization: localization(root),
+  });
+
+  return { root, session };
+}
+
+test("adding, editing and removing templates, styles, images, fonts and Markdown leaves a pass's files and words unchanged", async () => {
+  const { root, session } = await assetFixture();
+  const remove = (path) => rm(resolve(root, path));
+
+  try {
+    const words = await session.generate();
+    const files = await snapshot(root);
+
+    assert.deepEqual(
+      words,
+      new Map([
+        [
+          "de",
+          new Map([
+            ["left", "links"],
+            ["right", "right"],
+          ]),
+        ],
+      ]),
+    );
+    assert.ok(files["src/routes/left/route.generated.ts"]);
+
+    const steps = {
+      added: () =>
+        Promise.all([
+          put(root, "src/routes/left/extra.html", "<p>Extra</p>\n"),
+          put(root, "src/routes/left/extra.scss", "p { margin: 0; }\n"),
+          put(root, "src/routes/left/extra.svg", "<svg/>\n"),
+          put(root, "src/routes/left/fonts/extra.woff2", "font\n"),
+          put(root, "src/routes/extra.md", "# Extra\n"),
+        ]),
+      edited: () =>
+        Promise.all([
+          put(root, "src/routes/left/page.html", "<h1>{{ icon }}</h1>\n"),
+          put(root, "src/routes/left/page.css", "h1 { color: blue; }\n"),
+          put(root, "src/routes/left/icon.svg", "<svg><path/></svg>\n"),
+          put(root, "src/routes/left/theme.css", "not a stylesheet {\n"),
+          put(root, "src/routes/left/fonts/body.woff2", "another font\n"),
+          put(root, "src/routes/left/README.md", "# Edited\n"),
+        ]),
+      removed: () =>
+        Promise.all([
+          remove("src/routes/left/extra.html"),
+          remove("src/routes/left/extra.scss"),
+          remove("src/routes/left/extra.svg"),
+          remove("src/routes/left/fonts/extra.woff2"),
+          remove("src/routes/extra.md"),
+          // Imported, through the companion and through the wildcard.
+          remove("src/routes/left/icon.svg"),
+          remove("src/routes/left/theme.css"),
+          remove("src/routes/left/page.html"),
+          remove("src/routes/left/page.css"),
+        ]),
+    };
+
+    for (const [name, step] of Object.entries(steps)) {
+      await step();
+      assert.deepEqual(await session.generate(), words, `Words after the assets were ${name}`);
+      assert.deepEqual(await snapshot(root), files, `Files after the assets were ${name}`);
+    }
+
+    // The session's passes published what stateless generation would.
+    await generate(root, {
+      ...options,
+      translateSegments: true,
+      localization: localization(root),
+      check: true,
+    });
+  } finally {
+    await session.dispose();
+  }
+});
+
+// Such a project never has a successful pass, so serve never skips an event for that stylesheet.
+test("a side-effect import of a stylesheet without a declaration fails generation, whether or not the file is there", async () => {
+  const { root, session } = await assetFixture({ declareStyles: false });
+
+  try {
+    await assert.rejects(session.generate(), /Unresolved import: \.\/theme\.css/);
+    await rm(resolve(root, "src/routes/left/theme.css"));
+    await assert.rejects(session.generate(), /Unresolved import: \.\/theme\.css/);
+  } finally {
+    await session.dispose();
+  }
+});
+
+test("a symlinked image in the scan directory fails generation", async () => {
+  const { root, session } = await assetFixture();
+
+  try {
+    await session.generate();
+    await symlink(
+      resolve(root, "src/routes/left/icon.svg"),
+      resolve(root, "src/routes/left/linked.svg"),
+    );
+    await assert.rejects(session.generate(), /Unsafe source\/output symbolic link: .*linked\.svg/);
+  } finally {
+    await session.dispose();
+  }
 });

@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url";
 import {
   changedTableWarning,
   checkLocaleTableDefine,
+  isInertFileEvent,
   localeTable,
   localeTableWarnings,
   projectI18n,
@@ -93,8 +94,13 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       const releases: (() => Promise<unknown>)[] = [];
       let cleanup: Promise<void> | undefined;
       let settling: NodeJS.Timeout | undefined;
+      // Whether the latest completed pass, the initial one included, succeeded. An event for a
+      // file no pass reads is skipped only after a success: a failed pass may have read it.
+      let succeeded = false;
       // Resolved before the watcher starts.
       let session: BuilderSession;
+      // The watched locale catalogs, whose events always regenerate.
+      const catalogs: string[] = [];
       // The router's locale table of a pass, from the build target's options and that pass's words.
       let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
       // The table the dev server started with: its define is read once, at its start.
@@ -102,10 +108,14 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       // Each later table that differed from it, by JSON, so each is warned about once.
       const warned = new Set<string>();
 
-      async function changed(path: string): Promise<void> {
+      async function changed(event: string, path: string): Promise<void> {
         if (stopped) {
           return;
         }
+
+        // A pass that was running or queued when the event arrived may have read the file before
+        // or after it changed, so only an event that arrived while idle can be skipped.
+        const idleOnArrival = regeneration === "idle";
 
         const owned = generatedMarkers[basename(path)];
 
@@ -131,7 +141,15 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           }
         }
 
+        const inert = idleOnArrival && (await isInertFileEvent(event, path, catalogs));
+
         if (stopped) {
+          return;
+        }
+
+        // Checked again once the file was inspected: a pass that started or failed meanwhile needs
+        // this event's pass. A settling burst doesn't block the skip: it regenerates anyway.
+        if (inert && regeneration === "idle" && succeeded) {
           return;
         }
 
@@ -190,7 +208,16 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       // Later passes log their failures and keep serving.
       function startPass(): void {
         regeneration = "running";
-        pass = regenerate().then(compareTable, (error) => context.logger.error(message(error)));
+        pass = regenerate().then(
+          (words) => {
+            succeeded = true;
+            compareTable(words);
+          },
+          (error) => {
+            succeeded = false;
+            context.logger.error(message(error));
+          },
+        );
         void pass.then(passEnded);
       }
 
@@ -266,11 +293,11 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
 
         // A catalog edit regenerates too: bytes stay the same, so only the per-locale check runs.
         // Angular's dev server applies a catalog at its next rebuild, not at this edit.
-        const watched = [scanRoot];
-
         for (const locale of launch.localization?.locales ?? []) {
-          watched.push(...locale.files);
+          catalogs.push(...locale.files);
         }
+
+        const watched = [scanRoot, ...catalogs];
 
         const watcher = chokidar.watch(watched, { ignoreInitial: true, followSymlinks: false });
         const ready = Promise.withResolvers<boolean>();
@@ -288,8 +315,8 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           watcher.on("error", (error) => context.logger.error(String(error)));
           ready.resolve(true);
         });
-        watcher.on("all", (_event, path) => {
-          void changed(path).catch((error) => context.logger.error(String(error)));
+        watcher.on("all", (event, path) => {
+          void changed(event, path).catch((error) => context.logger.error(String(error)));
         });
 
         const readyForGeneration = await ready.promise;
@@ -298,6 +325,9 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
+        // The initial pass reads every change so far, so a burst still settling needs no pass.
+        clearTimeout(settling);
+        settling = undefined;
         regeneration = "running";
 
         const initial = regenerate();
@@ -321,6 +351,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
+        succeeded = true;
         // Before a queued pass can compare its table with it.
         started = tableOf(words);
         passEnded();

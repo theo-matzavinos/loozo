@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, writeFile, readFile, rename, rm, realpath, stat, symlink } from "node:fs/promises";
+import {
+  mkdir,
+  writeFile,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  realpath,
+  stat,
+  symlink,
+} from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
@@ -6935,4 +6945,197 @@ test("translated segments: a group's claims carry its descendants' messages, and
     project.translate(),
     /^Error: Locale de: .*Ordinary route collision\/overlap: src\/routes\/\+authenticated\/inbox\/route\.ts \(\/konto\); src\/routes\/\+signed-in\/profile\/route\.ts \(\/konto\), in sibling pathless groups src\/routes\/\+authenticated\/route\.ts and src\/routes\/\+signed-in\/route\.ts$/,
   );
+});
+
+// Serve skips events for templates, styles, images, fonts and Markdown between passes
+// (src/builders/serve-events.ts), so a pass must give the same files and words whatever those
+// files hold, are, or whether they're there at all.
+
+// Every generated file in the project, by path: the per-route copies and children tables beside
+// their routes, and the output directory.
+async function generatedFiles(root) {
+  const files = {};
+
+  for (const directory of ["src", "generated"]) {
+    for (const name of await readdir(resolve(root, directory), { recursive: true })) {
+      const path = `${directory}/${name.split(sep).join("/")}`;
+
+      if (path.includes(".generated.")) {
+        files[path] = await readFile(resolve(root, path), "utf8");
+      }
+    }
+  }
+
+  return files;
+}
+
+// A localized project whose docs page has an external template and style, imports an icon
+// through its declaration companion and a stylesheet through a `declare module` wildcard, and sits
+// next to a font and a Markdown file. Its passes share one session, as serve's do.
+async function assetProject({ declareStyles = true } = {}) {
+  const project = await localizedProject({
+    catalog: xliff1([["route.segment.docs", "dokumente"]]),
+  });
+  const state = {
+    discovery: new CompilerState(),
+    overlay: new CompilerState(),
+    anchor: new AnchorState(),
+  };
+
+  await project.write(
+    "tsconfig.json",
+    JSON.stringify({
+      compilerOptions: {
+        target: "ES2022",
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        strict: true,
+        skipLibCheck: true,
+        experimentalDecorators: true,
+        allowArbitraryExtensions: true,
+        lib: ["ES2022", "DOM"],
+        types: ["@angular/localize"],
+      },
+      include: ["src/**/*.ts"],
+    }),
+  );
+
+  if (declareStyles) {
+    await project.write("src/styles.d.ts", 'declare module "*.css";\n');
+  }
+
+  await Promise.all([
+    project.write(
+      "src/routes/docs/page.ts",
+      `import { Component } from "@angular/core";
+import { icon } from "./icon.svg";
+import "./theme.css";
+
+@Component({ templateUrl: "./page.html", styleUrl: "./page.css" })
+export default class Page {
+  readonly icon = icon;
+}
+`,
+    ),
+    project.write("src/routes/docs/icon.d.svg.ts", "export declare const icon: string;\n"),
+    project.write("src/routes/docs/icon.svg", "<svg/>\n"),
+    project.write("src/routes/docs/theme.css", "body { margin: 0; }\n"),
+    project.write("src/routes/docs/page.html", "<h1>Docs</h1>\n"),
+    project.write("src/routes/docs/page.css", "h1 { color: red; }\n"),
+    project.write("src/routes/docs/fonts/body.woff2", "font\n"),
+    project.write("src/routes/docs/README.md", "# Docs\n"),
+  ]);
+
+  // The serve builder's contract: any failed pass clears every slot.
+  async function pass() {
+    try {
+      return await generate(
+        project.root,
+        {
+          tsconfig: "tsconfig.json",
+          scanDirectories: ["src/routes"],
+          outDirectory: "generated",
+          translateSegments: true,
+          localization: project.localization,
+        },
+        () => false,
+        state,
+      );
+    } catch (error) {
+      state.discovery.clear();
+      state.overlay.clear();
+      state.anchor.clear();
+
+      throw error;
+    }
+  }
+
+  return { ...project, pass };
+}
+
+test("adding, editing and removing templates, styles, images, fonts and Markdown leaves a pass's files and words unchanged", async () => {
+  const project = await assetProject();
+  const words = await project.pass();
+  const files = await generatedFiles(project.root);
+  const remove = (path) => rm(resolve(project.root, path));
+
+  assert.deepEqual(words, new Map([["de", new Map([["docs", "dokumente"]])]]));
+  assert.ok(files["src/routes/docs/route.generated.ts"]);
+
+  const steps = {
+    added: () =>
+      Promise.all([
+        project.write("src/routes/docs/extra.html", "<p>Extra</p>\n"),
+        project.write("src/routes/docs/extra.scss", "p { margin: 0; }\n"),
+        project.write("src/routes/docs/extra.svg", "<svg/>\n"),
+        project.write("src/routes/docs/fonts/extra.woff2", "font\n"),
+        project.write("src/routes/extra.md", "# Extra\n"),
+      ]),
+    edited: () =>
+      Promise.all([
+        project.write("src/routes/docs/page.html", "<h1>{{ icon }}</h1>\n"),
+        project.write("src/routes/docs/page.css", "h1 { color: blue; }\n"),
+        project.write("src/routes/docs/icon.svg", "<svg><path/></svg>\n"),
+        project.write("src/routes/docs/theme.css", "not a stylesheet {\n"),
+        project.write("src/routes/docs/fonts/body.woff2", "another font\n"),
+        project.write("src/routes/docs/README.md", "# Edited\n"),
+      ]),
+    removed: () =>
+      Promise.all([
+        remove("src/routes/docs/extra.html"),
+        remove("src/routes/docs/extra.scss"),
+        remove("src/routes/docs/extra.svg"),
+        remove("src/routes/docs/fonts/extra.woff2"),
+        remove("src/routes/extra.md"),
+        // Imported, through the companion and through the wildcard.
+        remove("src/routes/docs/icon.svg"),
+        remove("src/routes/docs/theme.css"),
+        remove("src/routes/docs/page.html"),
+        remove("src/routes/docs/page.css"),
+      ]),
+  };
+
+  for (const [name, step] of Object.entries(steps)) {
+    await step();
+    assert.deepEqual(await project.pass(), words, `Words after the assets were ${name}`);
+    assert.deepEqual(
+      await generatedFiles(project.root),
+      files,
+      `Files after the assets were ${name}`,
+    );
+  }
+
+  // The session's passes published what stateless generation would.
+  await generate(
+    project.root,
+    {
+      tsconfig: "tsconfig.json",
+      scanDirectories: ["src/routes"],
+      outDirectory: "generated",
+      translateSegments: true,
+      localization: project.localization,
+      check: true,
+    },
+    () => false,
+  );
+});
+
+// Such a project never has a successful pass, so serve never skips an event for that stylesheet.
+test("a side-effect import of a stylesheet without a declaration fails generation, whether or not the file is there", async () => {
+  const project = await assetProject({ declareStyles: false });
+
+  await assert.rejects(project.pass(), /Unresolved import: \.\/theme\.css/);
+  await rm(resolve(project.root, "src/routes/docs/theme.css"));
+  await assert.rejects(project.pass(), /Unresolved import: \.\/theme\.css/);
+});
+
+test("a symlinked image in the scan directory fails generation", async () => {
+  const project = await assetProject();
+
+  await project.pass();
+  await symlink(
+    resolve(project.root, "src/routes/docs/icon.svg"),
+    resolve(project.root, "src/routes/docs/linked.svg"),
+  );
+  await assert.rejects(project.pass(), /Unsafe source\/output symbolic link: .*linked\.svg/);
 });

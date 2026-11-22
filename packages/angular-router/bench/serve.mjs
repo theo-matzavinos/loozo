@@ -2,15 +2,52 @@
 // <log.json> <options JSON>. Runs the consumer's real router serve target in-process through
 // Architect, then toggles the edited route's title and times each write until (1) the full
 // expected children table and route copy are on disk and (2) the served children chunk carries
-// the change.
+// the change. Then it edits the same route's external template and times each write until
+// Angular's next build, which must come without a generation pass.
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire, registerHooks } from "node:module";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { generate } from "../node/src/generation/generate.js";
 import { packageDirectory, readWorkspace } from "./consumer.mjs";
 import { editedRoute } from "./fixture.mjs";
+
+// Counts the generation passes serve starts: generate() is rebound, in its own module, to one
+// that counts each call. The bench and the serve builder share that module, so it's loaded only
+// after the hook is in place.
+const generationModule = new URL("../node/src/generation/generate.js", import.meta.url).href;
+let generations = 0;
+
+globalThis.countBenchGeneration = () => generations++;
+registerHooks({
+  load(url, context, nextLoad) {
+    const loaded = nextLoad(url, context);
+
+    if (url !== generationModule) {
+      return loaded;
+    }
+
+    let source = loaded.source;
+
+    if (typeof source !== "string") {
+      source = new TextDecoder().decode(source);
+    }
+
+    return {
+      ...loaded,
+      source: `${source}
+const benchGenerate = generate;
+generate = (...args) => {
+  globalThis.countBenchGeneration();
+
+  return benchGenerate(...args);
+};
+`,
+    };
+  },
+});
+
+const { generate } = await import(generationModule);
 
 const [consumer, resultPath, logPath, optionsJson] = process.argv.slice(2);
 const { edits, timeoutMs, pollMs, settleMs } = JSON.parse(optionsJson);
@@ -19,6 +56,8 @@ const generatedPath = join(consumer, "src/routes/g0000/children.generated.ts");
 const copyPath = join(consumer, editedRoute.path.replace(/route\.ts$/, "route.generated.ts"));
 const routeId = editedRoute.path;
 const editedPath = join(consumer, editedRoute.path);
+const pagePath = editedPath.replace(/route\.ts$/, "page.ts");
+const templatePath = editedPath.replace(/route\.ts$/, "page.html");
 
 async function readGenerated() {
   const [routes, copy] = await Promise.all([
@@ -62,6 +101,18 @@ if (!sameGenerated(await readGenerated(), withoutTitle)) {
 if (withTitle.routes.includes(anchor) || !withTitle.copy.includes(".title(")) {
   throw new Error(`The title edit did not reach ${routeId}'s record and copy`);
 }
+
+// The edited route's page moves its template to page.html for the template edits; serve.mjs puts
+// it back when it ends, so later phases measure the first-generation fixture.
+const inlinePage = await readFile(pagePath, "utf8");
+const inlineTemplate = /template: `([^`]*)`,/.exec(inlinePage);
+
+if (!inlineTemplate) {
+  throw new Error(`Expected an inline template in ${pagePath}`);
+}
+
+await writeFile(templatePath, inlineTemplate[1]);
+await writeFile(pagePath, inlinePage.replace(inlineTemplate[0], 'templateUrl: "./page.html",'));
 
 // Served code may lower the object spread to __spreadValues/__spreadProps and rename bindings, so
 // the probe follows the import() of g0000's loader in main.js to its children chunk, takes the
@@ -225,6 +276,7 @@ const result = {
     },
   },
   edits: [],
+  templateEdits: [],
 };
 let run;
 let subscription;
@@ -271,6 +323,7 @@ try {
       throw new Error(`The generated files changed before edit ${index + 1}`);
     }
 
+    const generationsBefore = generations;
     const started = performance.now();
 
     await writeFile(editedPath, editedRoute.source(title));
@@ -298,6 +351,44 @@ try {
     previous = expected;
     // A watch pass queued behind this one may still run; let it finish before the next edit.
     await delay(settleMs);
+    edit.generations = generations - generationsBefore;
+
+    if (edit.generations === 0) {
+      throw new Error(`Title edit ${index + 1} counted no generation pass`);
+    }
+  }
+
+  // Template edits: Angular rebuilds for each, and serve doesn't regenerate. A pass would start
+  // 150 ms after the write, well within the settle time each edit waits.
+  for (let index = 0; index < edits; index++) {
+    const generationsBefore = generations;
+    const outputsBefore = outputs.length;
+    const started = performance.now();
+
+    await writeFile(templatePath, `${inlineTemplate[1]}<p>Template edit ${index + 1}</p>`);
+    await waitFor("the build after the template edit", () => outputs.length > outputsBefore);
+
+    const builtMs = performance.now() - started;
+    const build = outputs[outputsBefore];
+
+    await delay(settleMs);
+
+    const edit = { builtMs, success: build.success, generations: generations - generationsBefore };
+
+    result.templateEdits.push(edit);
+    console.log(JSON.stringify({ template: true, ...edit }));
+
+    if (!build.success) {
+      throw new Error(`The build after template edit ${index + 1} failed; see ${logPath}`);
+    }
+
+    if (edit.generations !== 0) {
+      throw new Error(`Template edit ${index + 1} started ${edit.generations} generation passes`);
+    }
+
+    if (!sameGenerated(await readGenerated(), previous)) {
+      throw new Error(`The generated files changed after template edit ${index + 1}`);
+    }
   }
 } catch (error) {
   failure = error;
@@ -318,6 +409,8 @@ try {
     }
   }
 
+  await writeFile(pagePath, inlinePage);
+  await rm(templatePath, { force: true });
   result.outputs = {
     successful: outputs.filter((output) => output.success).length,
     failed: outputs.filter((output) => !output.success).length,

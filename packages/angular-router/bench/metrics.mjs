@@ -37,6 +37,13 @@ export const metrics = [
     budget: [1.3, 1000],
   },
   {
+    key: "serve.templateMs",
+    label: "Serve: template edit → next build",
+    unit: "ms",
+    deterministic: false,
+    budget: null,
+  },
+  {
     key: "build.ms",
     label: "ng build (incl. generator preflight)",
     unit: "ms",

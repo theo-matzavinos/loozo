@@ -4,6 +4,8 @@
 // collaborators.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { lstatSync, readFileSync } from "node:fs";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { afterEach, mock, test } from "node:test";
@@ -114,7 +116,10 @@ mock.module(new URL("../dist/generation/run.js", import.meta.url).href, {
   },
 });
 
-// realpath(workspaceRoot) is one of startup's awaits.
+// realpath(workspaceRoot) is one of startup's awaits. Serve reads a generated file's marker and
+// inspects an asset event's path before it starts the settle delay. Read synchronously, both
+// finish within settle()'s turns, so the mocked delay is never ticked before it starts. A scenario
+// can hold the inspection open.
 const fsPromises = await import("node:fs/promises");
 
 mock.module("node:fs/promises", {
@@ -126,6 +131,23 @@ mock.module("node:fs/promises", {
       await scenario.workspaceGate;
 
       return fsPromises.realpath(path, ...rest);
+    },
+    async readFile(path, options) {
+      return readFileSync(path, options);
+    },
+    async lstat(path) {
+      scenario.inspections++;
+      await scenario.inspectionGate;
+
+      // An error other than ENOENT, which no path gives on every platform: Windows reports ENOENT
+      // where Linux and macOS report ENOTDIR.
+      const code = scenario.inspectionErrors.get(path);
+
+      if (code !== undefined) {
+        throw Object.assign(new Error(`${code}: ${path}`), { code });
+      }
+
+      return lstatSync(path);
     },
   },
 });
@@ -215,6 +237,8 @@ function createScenario() {
     done: false,
     overlaps: 0,
     executions: 0,
+    inspections: 0,
+    inspectionErrors: new Map(),
   };
 }
 
@@ -329,14 +353,16 @@ function watcherOf(state) {
   return state.watchers[0];
 }
 
-// A watcher event, without the settle delay running out.
-function touch(state, path = "src/routes/page.ts", watcher = watcherOf(state)) {
-  watcher.emit("all", "change", resolve(packageDirectory, path));
+// A watcher event, without the settle delay running out. Serve inspects an event that arrives
+// between passes before it starts the settle delay, so the event's callbacks run first.
+async function touch(state, path = "src/routes/page.ts", event = "change") {
+  watcherOf(state).emit("all", event, resolve(packageDirectory, path));
+  await settle();
 }
 
 // A watcher event, then the settle delay running out.
-function change(state, path) {
-  touch(state, path);
+async function change(state, path, event) {
+  await touch(state, path, event);
   mock.timers.tick(settleDelay);
 }
 
@@ -418,12 +444,48 @@ test("serve watches the scan directory and runs the dev server after the initial
   assert.deepEqual(state.errors, []);
 });
 
+// Generation reads a catalog through its symlink, so an edit of the file it resolves to is a
+// catalog edit, and while the symlink dangles any such file could be the catalog.
+test("an event for the file a catalog symlink resolves to runs a pass", async () => {
+  const directory = await scratchDirectory("linked-catalogs");
+  const target = resolve(directory, "catalog.html");
+  const catalog = resolve(directory, "messages.de.xlf");
+
+  await writeFile(target, "<p>Katalog</p>\n");
+  await symlink(target, catalog);
+
+  const { run, scenario: state } = await started({
+    build: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+    metadata: {
+      i18n: {
+        sourceLocale: "en",
+        locales: {
+          de: `../../.scratch/launch-serve/${process.pid}/linked-catalogs/messages.de.xlf`,
+        },
+      },
+    },
+  });
+
+  await change(state, target);
+  await until(() => state.passes.length === 2, "the pass for the catalog's target");
+  state.passes[1].resolve();
+  await settle();
+
+  await rm(target);
+  await change(state, target, "unlink");
+  await until(() => state.passes.length === 3, "the pass for the dangling catalog");
+  state.passes[2].resolve();
+  await settle();
+
+  await run.stop();
+});
+
 test("a burst of watcher events within the settle delay runs one pass", async () => {
   const { run, scenario: state } = await started();
 
-  touch(state);
+  await touch(state);
   mock.timers.tick(settleDelay - 1);
-  touch(state, "src/routes/other/page.ts");
+  await touch(state, "src/routes/other/page.ts");
   mock.timers.tick(settleDelay - 1);
   await settle();
   assert.equal(state.passes.length, 1, "Each event restarts the settle delay");
@@ -440,11 +502,11 @@ test("a burst of watcher events within the settle delay runs one pass", async ()
 test("an edit during a pass causes exactly one more pass, however many edits arrive", async () => {
   const { run, scenario: state } = await started();
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the second pass");
 
-  change(state);
-  change(state, "src/routes/other/page.ts");
+  await change(state);
+  await change(state, "src/routes/other/page.ts");
   await settle();
   assert.equal(state.passes.length, 2, "A running pass is never doubled");
 
@@ -462,7 +524,7 @@ test("an edit during a pass causes exactly one more pass, however many edits arr
 test("an edit at any point after a pass settles is never lost", async () => {
   const { run, scenario: state } = await started();
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the first edit's pass");
 
   for (let delay = 0; delay < 40; delay++) {
@@ -474,7 +536,7 @@ test("an edit at any point after a pass settles is never lost", async () => {
       await Promise.resolve();
     }
 
-    change(state);
+    await change(state);
     await until(
       () => state.passes.length === before + 1,
       `the pass for an edit ${delay} ticks late`,
@@ -492,7 +554,7 @@ test("edits settled before the watcher is ready are covered by the initial gener
   const { run, scenario: state } = await serve();
 
   await until(() => state.watchers.length === 1, "the watcher");
-  change(state);
+  await change(state);
   watcherOf(state).emit("ready");
   await until(() => state.passes.length === 1, "the initial generation");
   state.passes[0].resolve();
@@ -507,12 +569,9 @@ test("an edit during the initial generation causes one pass after it, before the
   const { run, scenario: state } = await serve();
 
   await until(() => state.watchers.length === 1, "the watcher");
-  // Still settling when the watcher is ready, so it settles during the initial generation.
-  touch(state);
   watcherOf(state).emit("ready");
   await until(() => state.passes.length === 1, "the initial generation");
-  mock.timers.tick(settleDelay);
-  change(state);
+  await change(state);
   await settle();
   assert.equal(state.passes.length, 1, "Edits wait for the initial generation");
 
@@ -547,7 +606,7 @@ test("a failed initial generation reports a build failure and never starts the d
   assert.equal(state.servers.length, 0);
   assert.equal(state.validating, undefined);
 
-  change(state);
+  await change(state);
   await settle();
   assert.equal(state.passes.length, 1);
 
@@ -557,13 +616,13 @@ test("a failed initial generation reports a build failure and never starts the d
 test("a failed later pass is logged and serving continues", async () => {
   const { run, scenario: state } = await started();
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the second pass");
   state.passes[1].reject(new Error("Rpc diagnostics"));
   await until(() => errors(state).length === 1, "the logged failure");
   assert.deepEqual(errors(state), ["Rpc diagnostics"]);
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 3, "the pass after the failure");
   state.passes[2].resolve();
   await settle();
@@ -579,9 +638,9 @@ test("a failed later pass is logged and serving continues", async () => {
 test("a failed later pass still runs the rerun queued during it", async () => {
   const { run, scenario: state } = await started();
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the second pass");
-  change(state);
+  await change(state);
   state.passes[1].reject(new Error("Rpc diagnostics"));
   await until(() => state.passes.length === 3, "the queued rerun");
   assert.deepEqual(errors(state), ["Rpc diagnostics"]);
@@ -630,7 +689,7 @@ test("a watcher error during the initial generation is logged and serve still st
   state.passes[0].resolve();
   await until(() => state.servers.length === 1, "the dev server");
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the pass after startup");
   state.passes[1].resolve();
   await settle();
@@ -671,7 +730,7 @@ test("stopping before the watcher is ready closes it and never generates", async
   released(state);
 
   watcherOf(state).emit("ready");
-  change(state);
+  await change(state);
   await settle();
   assert.equal(state.passes.length, 0);
   assert.equal(state.servers.length, 0);
@@ -693,7 +752,7 @@ test("stopping during the initial generation cancels it, waits for it and never 
   await settle();
   assert.equal(stopped, false, "Stopping waits for the cancelled generation");
 
-  change(state);
+  await change(state);
   pass.resolve();
   await until(() => stopped, "the stop");
   await settle();
@@ -705,14 +764,14 @@ test("stopping during the initial generation cancels it, waits for it and never 
 test("stopping during a later pass cancels it and stops the dev server", async () => {
   const { run, scenario: state } = await started();
 
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the second pass");
 
   const pass = state.passes[1];
 
   void run.stop();
   await until(() => pass.isStopped(), "the cancellation signal");
-  change(state);
+  await change(state);
   pass.resolve();
   await until(() => state.servers[0].stopped, "the dev server stop");
   await settle();
@@ -819,7 +878,7 @@ for (const { ending, end } of [
 test("stopping cancels an edit that's still settling", async () => {
   const { run, scenario: state } = await started();
 
-  touch(state);
+  await touch(state);
   await run.stop();
   mock.timers.tick(settleDelay);
   await settle();
@@ -831,7 +890,7 @@ test("serve watches only the scan directory: there's no other watch to follow", 
 
   assert.equal(state.watchers.length, 1);
   assert.equal(watcherOf(state).paths[0], scanRoot);
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the route edit's pass");
   state.passes[1].resolve();
   await settle();
@@ -850,7 +909,7 @@ for (const last of ["pass", "watcher", "dev server", "session"]) {
     const [server] = state.servers;
     const [session] = state.sessions;
 
-    change(state);
+    await change(state);
     await until(() => state.passes.length === 2, "the second pass");
 
     const pass = state.passes[1];
@@ -1020,14 +1079,14 @@ test("a later pass that changes the table warns once per distinct table; the dev
   const define = state.servers[0].options.define.loozoRouterLocales;
 
   // Unchanged words: no warning.
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 2, "the unchanged pass");
   state.passes[1].resolve(germanWords(startedWords));
   await settle();
   assert.deepEqual(warnings(state), []);
 
   // A changed word warns, naming it.
-  change(state, "src/locale/messages.de.xlf");
+  await change(state, "src/locale/messages.de.xlf");
   await until(() => state.passes.length === 3, "the changed pass");
   state.passes[2].resolve(
     germanWords([
@@ -1042,7 +1101,7 @@ test("a later pass that changes the table warns once per distinct table; the dev
   );
 
   // The same changed table again: no second warning. A failed pass warns nothing.
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 4, "the repeated pass");
   state.passes[3].resolve(
     germanWords([
@@ -1050,7 +1109,7 @@ test("a later pass that changes the table warns once per distinct table; the dev
       ["guarded", "behuetet"],
     ]),
   );
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 5, "the failed pass");
   state.passes[4].reject(new Error("broken"));
   await until(() => errors(state).length === 1, "the logged failure");
@@ -1058,13 +1117,318 @@ test("a later pass that changes the table warns once per distinct table; the dev
   assert.equal(warnings(state).length, 1);
 
   // Back to the started table: nothing new, and the dev server still has its started table.
-  change(state);
+  await change(state);
   await until(() => state.passes.length === 6, "the restoring pass");
   state.passes[5].resolve(germanWords(startedWords));
   await settle();
   assert.equal(warnings(state).length, 1);
   assert.equal(state.servers.length, 1);
   assert.equal(state.servers[0].options.define.loozoRouterLocales, define);
+
+  await run.stop();
+});
+
+// Events for files no generation pass reads. The watcher is fake, but serve inspects each path, so
+// these are real files in a scratch directory.
+const inertExtensions = [
+  ".html",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".svg",
+  ".ico",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".md",
+];
+const scratch = resolve(packageDirectory, "../../.scratch/launch-serve", String(process.pid));
+
+async function scratchDirectory(name) {
+  const directory = resolve(scratch, name);
+
+  await rm(directory, { recursive: true, force: true });
+  await mkdir(directory, { recursive: true });
+
+  return directory;
+}
+
+// A regular file serve may skip an event for.
+async function asset(name = "page.html") {
+  const path = resolve(await scratchDirectory(`asset-${name}`), name);
+
+  await writeFile(path, "<p>Page</p>\n");
+
+  return path;
+}
+
+test("adding, changing or removing a template, style, image, font or Markdown file between passes runs no pass", async () => {
+  const { run, scenario: state } = await started();
+  const directory = await scratchDirectory("inert");
+
+  // The extension is compared without case.
+  for (const extension of [...inertExtensions, ".SVG"]) {
+    const path = resolve(directory, `file${extension}`);
+
+    await writeFile(path, "content\n");
+    await change(state, path, "add");
+    await change(state, path, "change");
+    await rm(path);
+    await change(state, path, "unlink");
+  }
+
+  await settle();
+  assert.equal(state.passes.length, 1);
+
+  await run.stop();
+});
+
+test("every event serve can't prove inert runs a pass", async () => {
+  const { run, scenario: state } = await started();
+  const directory = await scratchDirectory("regenerates");
+  const target = resolve(directory, "target.svg");
+  const regular = resolve(directory, "regular.css");
+
+  await writeFile(target, "<svg/>\n");
+  await writeFile(regular, "p {}\n");
+  await symlink(target, resolve(directory, "linked.svg"));
+  await symlink(resolve(directory, "missing.svg"), resolve(directory, "dangling.svg"));
+  state.inspectionErrors.set(resolve(directory, "unreadable.css"), "EACCES");
+
+  const cases = [
+    ["a route", "change", "src/routes/teams/route.ts"],
+    ["a helper", "change", "src/routes/teams/helper.ts"],
+    ["a page with an inline template", "change", "src/routes/teams/page.ts"],
+    ["a removed route", "unlink", "src/routes/teams/route.ts"],
+    ["a JSON file", "change", "src/routes/tsconfig.json"],
+    ["an added directory", "addDir", "src/routes/teams"],
+    ["a removed directory", "unlinkDir", "src/routes/teams"],
+    ["a removed directory whose path now holds an asset", "unlinkDir", regular],
+    ["a symlinked asset", "add", resolve(directory, "linked.svg")],
+    ["a removal with a dangling symlink at its path", "unlink", resolve(directory, "dangling.svg")],
+    ["an asset path lstat fails on", "unlink", resolve(directory, "unreadable.css")],
+    ["an asset that isn't there on a change", "change", resolve(directory, "gone.css")],
+  ];
+
+  for (const [name, event, path] of cases) {
+    const before = state.passes.length;
+
+    await change(state, path, event);
+    await until(() => state.passes.length === before + 1, `the pass for ${name}`);
+    state.passes.at(-1).resolve();
+    await settle();
+  }
+
+  await run.stop();
+});
+
+test("an event for a catalog runs a pass whatever its extension or case", async () => {
+  const directory = await scratchDirectory("catalogs");
+  const catalog = resolve(directory, "messages.de.html");
+
+  await writeFile(catalog, "<p>Katalog</p>\n");
+
+  const { run, scenario: state } = await started({
+    build: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+    metadata: {
+      i18n: {
+        sourceLocale: "en",
+        locales: { de: `../../.scratch/launch-serve/${process.pid}/catalogs/messages.de.html` },
+      },
+    },
+  });
+
+  assert.deepEqual(watcherOf(state).paths, [scanRoot, catalog]);
+
+  await change(state, catalog);
+  await until(() => state.passes.length === 2, "the catalog's pass");
+  state.passes[1].resolve();
+  await settle();
+
+  // On a case-insensitive filesystem this is the catalog too.
+  await change(state, catalog.toUpperCase(), "unlink");
+  await until(() => state.passes.length === 3, "the pass for the catalog in another case");
+  state.passes[2].resolve();
+  await settle();
+
+  await run.stop();
+});
+
+test("an asset event within a burst's settle delay still runs the burst's one pass", async () => {
+  const { run, scenario: state } = await started();
+
+  await touch(state);
+  mock.timers.tick(settleDelay - 1);
+  await touch(state, await asset());
+  mock.timers.tick(1);
+  await until(() => state.passes.length === 2, "the burst's pass");
+  state.passes[1].resolve();
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+test("a burst still settling when the initial generation starts needs no pass after it", async () => {
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  await touch(state);
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  mock.timers.tick(settleDelay);
+  state.passes[0].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+  await settle();
+  assert.equal(state.passes.length, 1);
+
+  await run.stop();
+});
+
+// The file is gone by the time the inspection finishes, so the event isn't inert: only the stop
+// check after the inspection keeps it from scheduling a pass.
+test("stopping while serve inspects an asset event runs no pass", async () => {
+  const { run, scenario: state } = await started();
+  const gate = Promise.withResolvers();
+  const path = await asset();
+
+  state.inspectionGate = gate.promise;
+  await touch(state, path);
+  assert.equal(state.inspections, 1);
+  await run.stop();
+  await rm(path);
+  gate.resolve();
+  await settle();
+  mock.timers.tick(settleDelay);
+  await settle();
+  assert.equal(state.passes.length, 1);
+});
+
+// The pass may have read the file before or after the event, so the event still regenerates even
+// when its inspection only finishes after the pass succeeded.
+test("an asset event during the initial generation runs one pass after it", async () => {
+  const { run, scenario: state } = await serve();
+  const gate = Promise.withResolvers();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.inspectionGate = gate.promise;
+  await change(state, await asset());
+  state.passes[0].resolve();
+  await until(() => state.passes.length === 2, "the pass for the asset event");
+  gate.resolve();
+  state.passes[1].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+  await settle();
+  mock.timers.tick(settleDelay);
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+test("an asset event during a later pass runs one pass after it", async () => {
+  const { run, scenario: state } = await started();
+  const gate = Promise.withResolvers();
+
+  await change(state);
+  await until(() => state.passes.length === 2, "the edit's pass");
+  state.inspectionGate = gate.promise;
+  await change(state, await asset());
+  state.passes[1].resolve();
+  await settle();
+  gate.resolve();
+  await settle();
+  mock.timers.tick(settleDelay);
+  await until(() => state.passes.length === 3, "the pass for the asset event");
+  state.passes[2].resolve();
+  await settle();
+  assert.equal(state.passes.length, 3);
+
+  await run.stop();
+});
+
+test("an asset event runs a pass when one starts while serve inspects it", async () => {
+  const { run, scenario: state } = await started();
+  const gate = Promise.withResolvers();
+
+  state.inspectionGate = gate.promise;
+  await touch(state, await asset());
+  assert.equal(state.inspections, 1);
+  state.inspectionGate = undefined;
+  await change(state);
+  await until(() => state.passes.length === 2, "the edit's pass");
+  gate.resolve();
+  await settle();
+  mock.timers.tick(settleDelay);
+  await settle();
+  state.passes[1].resolve();
+  await until(() => state.passes.length === 3, "the pass for the asset event");
+  state.passes[2].resolve();
+  await settle();
+  assert.equal(state.passes.length, 3);
+
+  await run.stop();
+});
+
+// A pass that failed while the event was inspected leaves no success to skip on, even though the
+// last pass had succeeded when the event arrived.
+test("an asset event runs a pass when one fails while serve inspects it", async () => {
+  const { run, scenario: state } = await started();
+  const gate = Promise.withResolvers();
+
+  state.inspectionGate = gate.promise;
+  await touch(state, await asset());
+  assert.equal(state.inspections, 1);
+  state.inspectionGate = undefined;
+  await change(state);
+  await until(() => state.passes.length === 2, "the edit's pass");
+  state.passes[1].reject(new Error("Route diagnostics"));
+  await settle();
+  gate.resolve();
+  await settle();
+  mock.timers.tick(settleDelay);
+  await until(() => state.passes.length === 3, "the asset's pass after the failure");
+  state.passes[2].resolve();
+  await settle();
+  assert.equal(state.passes.length, 3);
+
+  await run.stop();
+});
+
+test("after a failed pass, asset events run passes until one succeeds", async () => {
+  const { run, scenario: state } = await started();
+  const path = await asset("icon.svg");
+
+  await change(state);
+  await until(() => state.passes.length === 2, "the edit's pass");
+  state.passes[1].reject(new Error("Rpc diagnostics"));
+  await settle();
+
+  await change(state, path);
+  await until(() => state.passes.length === 3, "the asset's pass after the failure");
+  state.passes[2].reject(new Error("Rpc diagnostics"));
+  await settle();
+
+  await rm(path);
+  await change(state, path, "unlink");
+  await until(() => state.passes.length === 4, "the removal's pass after the failure");
+  state.passes[3].resolve();
+  await settle();
+
+  await writeFile(path, "<svg/>\n");
+  await change(state, path, "add");
+  await settle();
+  assert.equal(state.passes.length, 4, "A success makes asset events inert again");
 
   await run.stop();
 });
