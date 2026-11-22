@@ -112,6 +112,22 @@ class FakeSocket extends EventTarget {
   }
 }
 
+// A browser socket that opens when the test says, for the client's own queue.
+class BrowserSocket extends FakeSocket {
+  static created = [];
+  readyState = 0;
+
+  constructor() {
+    super();
+    BrowserSocket.created.push(this);
+  }
+
+  open() {
+    this.readyState = 1;
+    this.dispatchEvent(new Event("open"));
+  }
+}
+
 function upgradeRequest(
   path,
   input = null,
@@ -1182,8 +1198,11 @@ test("a yielded value that isn't strict JSON fails the call with INTERNAL, whate
 
 // A real Node server with the upgrade handler, and Node's WebSocket standing in for the
 // browser's: it resolves the client's relative URL against the server and sends what a
-// browser sends by itself.
-async function serve(namespaces, { maxPayload, origin, description = application } = {}) {
+// browser sends by itself. With `stall`, the server never reads what its clients send.
+async function serve(
+  namespaces,
+  { maxPayload, origin, description = application, stall = false } = {},
+) {
   const server = createServer(async (incoming, outgoing) => {
     const chunks = [];
 
@@ -1205,6 +1224,7 @@ async function serve(namespaces, { maxPayload, origin, description = application
     outgoing.end(Buffer.from(await response.arrayBuffer()));
   });
   const upgrades = [];
+  const stalled = [];
   const listener = createUpgradeHandler(
     (request) =>
       handleChannelUpgrade(bound(description, namespaces), request, {
@@ -1215,6 +1235,13 @@ async function serve(namespaces, { maxPayload, origin, description = application
 
   server.on("upgrade", (incoming, socket, head) => {
     upgrades.push(incoming.url);
+
+    // Paused before ws takes it: ws resumes a socket only once its receiver drains data.
+    if (stall) {
+      socket.pause();
+      stalled.push(socket);
+    }
+
     listener(incoming, socket, head);
   });
   server.listen(0, "127.0.0.1");
@@ -1222,6 +1249,7 @@ async function serve(namespaces, { maxPayload, origin, description = application
 
   const base = `http://127.0.0.1:${server.address().port}`;
   const RealWebSocket = globalThis.WebSocket;
+  const clients = [];
   let sockets = 0;
 
   globalThis.WebSocket = class extends RealWebSocket {
@@ -1230,17 +1258,25 @@ async function serve(namespaces, { maxPayload, origin, description = application
       super(new URL(url, base.replace("http", "ws")), {
         headers: { origin: origin ?? base, cookie: "alice" },
       });
+      clients.push(this);
     }
   };
 
   return {
     base,
     upgrades,
+    clients,
     get sockets() {
       return sockets;
     },
     close() {
       globalThis.WebSocket = RealWebSocket;
+
+      // A paused socket never reads the client's close: drop it so the client's close completes.
+      for (const socket of stalled) {
+        socket.destroy();
+      }
+
       server.closeAllConnections();
       server.close();
     },
@@ -1711,6 +1747,7 @@ function client(platform = "browser", translate) {
             errors: [{ code: "GONE", status: 410, message: "Gone" }],
           },
           { name: "quiet", input: false, kind: "channel", errors: [] },
+          { name: "held", input: false, kind: "channel", errors: [] },
         ],
       },
     }),
@@ -2014,6 +2051,18 @@ const iterationRegistry = (seen) => ({
           await new Promise((resolve) => signal.addEventListener("abort", resolve));
         },
       }),
+      // Reads nothing until the test opens its gate, then records every message.
+      held: channel({
+        message: anySchema,
+        handler: async function* ({ messages }) {
+          yield "ready";
+          await seen.gate.promise;
+
+          for await (const message of messages) {
+            seen.read.push(message);
+          }
+        },
+      }),
     }),
   },
 });
@@ -2030,6 +2079,9 @@ function within(promise, what) {
 function range(length) {
   return Array.from({ length }, (_, index) => index);
 }
+
+// The string length a message's frame counts toward the send queue's limit.
+const frameLength = (message) => JSON.stringify({ message }).length;
 
 test("a real client crosses both credit windows: its reads grant values, the handler's reads grant sends", async () => {
   const seen = { log: [], gate: Promise.withResolvers() };
@@ -2089,6 +2141,197 @@ test("a real client crosses both credit windows: its reads grant values, the han
     }
 
     assert.deepEqual(await within(echoes, "the echoes"), range(150));
+  } finally {
+    controller.abort();
+    destroy();
+    server.close();
+  }
+});
+
+const queueFull = { name: "RangeError", message: "Launch channel send queue is full" };
+const queueLimit = 1024 * 1024;
+
+// Marks each send that resolves, by index. A rejection stays the test's to assert, and isn't
+// an unhandled rejection meanwhile, which would end the test before its cleanup runs.
+function tracked(sends) {
+  const resolved = sends.map(() => false);
+
+  for (const [index, send] of sends.entries()) {
+    void send.then(
+      () => {
+        resolved[index] = true;
+      },
+      () => undefined,
+    );
+  }
+
+  return resolved;
+}
+
+test("the browser channel lets 1,024 sends and 1 MiB wait: one more rejects with a RangeError and the channel carries on", async () => {
+  const RealWebSocket = globalThis.WebSocket;
+  const controller = new AbortController();
+  const { rpc, destroy } = client();
+
+  BrowserSocket.created = [];
+  globalThis.WebSocket = BrowserSocket;
+
+  try {
+    // Count: 1,024 tiny sends wait before open, the 1,025th is refused.
+    const chat = rpc.chat.deaf({ signal: controller.signal });
+    const socket = BrowserSocket.created[0];
+    const iterator = chat[Symbol.asyncIterator]();
+    const sends = range(1024).map((index) => chat.send(index));
+    const resolved = tracked(sends);
+
+    await within(assert.rejects(chat.send(1024), queueFull), "the 1,025th send's refusal");
+
+    // Open: the first 32 go out on the message credit, the rest still wait.
+    socket.open();
+    await within(Promise.all(sends.slice(0, 32)), "the first window");
+    assert.deepEqual(
+      socket.frames(),
+      range(32).map((message) => ({ message })),
+    );
+    await settle();
+    assert.equal(resolved.indexOf(true, 32), -1);
+
+    // 992 wait now, so one more fits; a grant hands them all, in order, without the refused one.
+    const later = chat.send("later");
+
+    socket.receive({ ready: 993 });
+    await within(Promise.all([...sends, later]), "the granted sends");
+    assert.deepEqual(
+      socket.frames(),
+      [...range(1024), "later"].map((message) => ({ message })),
+    );
+
+    // The channel is still open.
+    socket.receive({ value: "v" });
+    assert.deepEqual(await within(iterator.next(), "a value"), { done: false, value: "v" });
+    await iterator.return();
+
+    // Bytes: the bound is inclusive, and a later send that fits is accepted after a refusal.
+    const bytes = rpc.chat.deaf({ signal: controller.signal });
+    const bytesSocket = BrowserSocket.created[1];
+    const a = "a".repeat(queueLimit / 2 - frameLength(""));
+    const b = "b".repeat(queueLimit / 2 - 13 - frameLength(""));
+
+    assert.equal(frameLength(a) + frameLength(b), queueLimit - 13);
+    assert.equal(frameLength(""), 14);
+    assert.equal(frameLength(0), 13);
+
+    const accepted = [bytes.send(a), bytes.send(b)];
+
+    tracked(accepted);
+    // One code unit over the limit.
+    await within(assert.rejects(bytes.send(""), queueFull), "the refusal at limit + 1");
+    // Exactly the limit.
+    accepted.push(bytes.send(0));
+    tracked(accepted.slice(2));
+    await within(assert.rejects(bytes.send(1), queueFull), "the refusal past a full queue");
+
+    bytesSocket.open();
+    await within(Promise.all(accepted), "the accepted sends");
+    assert.deepEqual(bytesSocket.frames(), [{ message: a }, { message: b }, { message: 0 }]);
+
+    // An empty queue takes one frame of any size; the queue frees as sends are handed.
+    const large = rpc.chat.deaf({ signal: controller.signal });
+    const largeSocket = BrowserSocket.created[2];
+    const big = large.send("x".repeat(3 * queueLimit));
+
+    tracked([big]);
+    await within(assert.rejects(large.send(0), queueFull), "the refusal behind a large send");
+    largeSocket.open();
+    await within(big, "the large send");
+    await within(large.send(0), "a send after the large one");
+  } finally {
+    controller.abort();
+    globalThis.WebSocket = RealWebSocket;
+    destroy();
+  }
+});
+
+test("a handler that doesn't read: 32 sends go out, 1,024 more wait, the next is refused, and reading delivers them in order", async () => {
+  const seen = { log: [], gate: Promise.withResolvers(), read: [] };
+  const server = await serve(iterationRegistry(seen));
+  const { rpc, destroy } = client();
+  // Upgraded sockets outlive the HTTP server's connections: close the channel on failure.
+  const controller = new AbortController();
+
+  try {
+    const chat = rpc.chat.held({ signal: controller.signal });
+    const iterator = chat[Symbol.asyncIterator]();
+
+    assert.deepEqual(await within(iterator.next(), "the first value"), {
+      done: false,
+      value: "ready",
+    });
+
+    const first = range(32).map((index) => chat.send(index));
+
+    await within(Promise.all(first), "the first window");
+
+    const queued = range(1024).map((index) => chat.send(index + 32));
+    const resolved = tracked(queued);
+
+    await within(assert.rejects(chat.send(1056), queueFull), "the refusal");
+    await settle();
+    assert.equal(resolved.indexOf(true), -1);
+
+    seen.gate.resolve();
+    await within(Promise.all(queued), "the queued sends");
+    await within(chat.send("after"), "a send after the refusal");
+    await until(() => seen.read.length === 1057, "the reads");
+    assert.deepEqual(seen.read, [...range(1056), "after"]);
+  } finally {
+    controller.abort();
+    destroy();
+    server.close();
+  }
+});
+
+test("over a stalled network the socket holds at most 32 sends and the queue stays bounded", async () => {
+  const seen = { log: [], gate: Promise.withResolvers() };
+  const server = await serve(iterationRegistry(seen), { stall: true });
+  const { rpc, destroy } = client();
+  const controller = new AbortController();
+
+  try {
+    const chat = rpc.chat.quiet({ signal: controller.signal });
+    const iterator = chat[Symbol.asyncIterator]();
+
+    // The server still sends; it only stops reading.
+    assert.deepEqual(await within(iterator.next(), "the first value"), {
+      done: false,
+      value: "ready",
+    });
+
+    const payload = "x".repeat(500_000);
+    const handed = range(32).map(() => chat.send(payload));
+
+    await within(Promise.all(handed), "the credit window");
+
+    // Two frames fit the 1 MiB queue, a third doesn't.
+    assert.ok(2 * frameLength(payload) <= queueLimit);
+    assert.ok(3 * frameLength(payload) > queueLimit);
+
+    const waiting = [chat.send(payload), chat.send(payload)];
+    const resolved = tracked(waiting);
+
+    await within(assert.rejects(chat.send(payload), queueFull), "the third queued send's refusal");
+    await settle();
+    await settle();
+
+    // How much of it sits in kernel buffers instead depends on the OS: only the bound holds.
+    assert.ok(server.clients[0].bufferedAmount <= 32 * frameLength(payload));
+    assert.deepEqual(resolved, [false, false]);
+
+    controller.abort();
+
+    for (const send of waiting) {
+      await within(assert.rejects(send, { name: "AbortError" }), "the waiting sends' abort");
+    }
   } finally {
     controller.abort();
     destroy();
