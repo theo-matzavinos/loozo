@@ -1811,6 +1811,23 @@ export class FileFields {
           </div>
         </div>
 
+        <div zzPopover id="uncapped-notes-popover">
+          <button zzPopoverTrigger variant="ghost" id="uncapped-notes-trigger">
+            Uncapped notes
+          </button>
+          <div
+            zzPopoverContent
+            aria-label="Uncapped notes"
+            tabindex="0"
+            id="uncapped-notes-content"
+            class="max-h-none"
+          >
+            @for (note of releaseNotes; track $index) {
+              <p class="mb-2">{{ note }}</p>
+            }
+          </div>
+        </div>
+
         <div zzPopover id="wide-popover">
           <button zzPopoverTrigger variant="ghost" id="wide-trigger">Usage</button>
           <div zzPopoverContent aria-label="Usage" id="wide-content">

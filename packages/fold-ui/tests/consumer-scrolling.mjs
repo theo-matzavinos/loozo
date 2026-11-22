@@ -653,20 +653,31 @@ async function run(browser, base, engine) {
 
     // Origami marks the overflow once it has measured the opened surface.
     await page.waitForSelector(`${root}[data-overflow-y]`, { timeout: 2000 }).catch(async () => {
-      const seen = await page.evaluate((root) => {
+      const look = (root) => {
         const area = document.querySelector(root);
         const viewport = area?.querySelector(":scope > [data-slot=scroll-area-viewport]");
+        const scrollbar = area?.querySelector(":scope > [data-slot=scroll-area-scrollbar]");
+        const thumb = scrollbar?.querySelector("[data-slot=scroll-area-thumb]");
 
         return {
           attributes: area && [...area.attributes].map((a) => a.name),
+          scrollbar: scrollbar && [...scrollbar.attributes].map((a) => `${a.name}=${a.value}`),
+          thumbStyle: thumb?.getAttribute("style"),
           scrollHeight: viewport?.scrollHeight,
           clientHeight: viewport?.clientHeight,
           display: viewport && getComputedStyle(viewport).display,
           overflowY: viewport && getComputedStyle(viewport).overflowY,
         };
-      }, root);
+      };
+      const seen = await page.evaluate(look, root);
 
-      assert.fail(`${label} overflows: ${JSON.stringify(seen)}`);
+      // Origami also measures on pointer entry: tell a missing resize measurement from none at all.
+      await page.hover(viewport, { position: { x: 20, y: 20 } });
+      await page.waitForTimeout(300);
+
+      const hovered = await page.evaluate(look, root);
+
+      assert.fail(`${label} overflows: ${JSON.stringify({ seen, hovered })}`);
     });
     await page.hover(viewport, { position: { x: 20, y: 20 } });
     await page.waitForFunction(
@@ -1182,6 +1193,25 @@ async function run(browser, base, engine) {
       `capped notes scroller ${capped.client.height} fills ${capped.padding.height}`,
     );
     await close(page, "capped-notes-content");
+
+    // A host class above the default cap: the panel grows past the room left, and its scroller
+    // with it, rather than stopping at a cap of its own.
+    await scrollToTop(page, "uncapped-notes-trigger");
+    await page.click("#uncapped-notes-trigger");
+    await shown(page, "uncapped-notes-content");
+
+    const uncapped = await listLook("uncapped-notes-content");
+
+    assert.ok(
+      uncapped.height > uncapped.available,
+      `uncapped notes ${uncapped.height} grow past the room left, ${uncapped.available}`,
+    );
+    assert.ok(
+      Math.abs(uncapped.client.height - uncapped.padding.height) <= 0.5,
+      `uncapped notes scroller ${uncapped.client.height} fills ${uncapped.padding.height}`,
+    );
+    assert.equal(uncapped.scrolls, false, "the uncapped notes don't scroll");
+    await close(page, "uncapped-notes-content");
   });
 
   // 8. Modal page lock: wheels over a long Body's rail at its end leave the page where it was.
@@ -1314,6 +1344,8 @@ async function run(browser, base, engine) {
         "notes-content",
         "scrollform-content",
         "wide-content",
+        "capped-notes-content",
+        "uncapped-notes-content",
         "filters-content",
         "long-dialog",
         "long-sheet",
