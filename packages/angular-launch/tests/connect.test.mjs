@@ -259,6 +259,19 @@ async function until(check, what) {
   assert.fail(`Timed out waiting for ${what}`);
 }
 
+// A flow-control regression stalls instead of failing: fail it after a while.
+function within(promise, what) {
+  const timeout = new Promise((resolve, reject) => {
+    setTimeout(() => reject(new Error(`Timed out waiting for ${what}`)), 5000).unref();
+  });
+
+  return Promise.race([promise, timeout]);
+}
+
+function range(length) {
+  return Array.from({ length }, (_, index) => index);
+}
+
 function stable(app) {
   return Promise.race([
     app.whenStable().then(() => "stable"),
@@ -468,6 +481,118 @@ test("connect() sends still waiting: a throwing reduce rejects them with error()
     app.destroy();
     server.close();
     foldGate = Promise.withResolvers();
+  }
+});
+
+test("connect() passes a full channel queue's RangeError through and stays open", async () => {
+  const server = await serve();
+
+  class Flooder {
+    rpc = injectClient(metadata);
+    deaf = this.rpc.live.deaf.connect({
+      input: () => ({ room: "a" }),
+      initial: () => null,
+    });
+  }
+
+  Component({ selector: "connect-flooder", template: "" })(Flooder);
+
+  const { app, root } = await bootstrap(server, Flooder, "connect-flooder");
+  const { deaf } = root;
+  // Settled as one, so the waiting sends' rejections never go unhandled.
+  let waiting = Promise.resolve([]);
+
+  try {
+    await until(() => deaf.value() === "ready a", "the deaf channel");
+
+    // The first 32 go out on the message credit; the next 1,024 wait.
+    const sends = range(1056).map((index) => deaf.send(index));
+
+    waiting = Promise.allSettled(sends.slice(32));
+    await within(Promise.all(sends.slice(0, 32)), "the first window");
+
+    await within(
+      assert.rejects(deaf.send(1056), {
+        name: "RangeError",
+        message: "Launch channel send queue is full",
+      }),
+      "the refusal",
+    );
+    assert.equal(deaf.status(), "open");
+    assert.equal(deaf.error(), undefined);
+  } finally {
+    app.destroy();
+    server.close();
+  }
+
+  // Destruction closes the call, and with it the sends still waiting.
+  const rest = await within(waiting, "the waiting sends");
+
+  assert.equal(rest.length, 1024);
+
+  for (const outcome of rest) {
+    assert.equal(outcome.status, "rejected");
+    assert.equal(outcome.reason.name, "AbortError");
+  }
+});
+
+test("connect() keeps a full queue's RangeError when reduce fails before the refusal settles", async () => {
+  const server = await serve();
+  const boom = new Error("bad fold");
+  let refused;
+
+  foldGate = Promise.withResolvers();
+
+  class Refuser {
+    rpc = injectClient(metadata);
+    fold = this.rpc.live.fold.connect({
+      initial: () => [],
+      reduce: (values, value) => {
+        if (value === "boom") {
+          // Refused while still open, and its rejection settles only after this throw.
+          refused = this.fold.send("late");
+          void refused.catch(() => undefined);
+
+          throw boom;
+        }
+
+        return [...values, value];
+      },
+    });
+  }
+
+  Component({ selector: "connect-refuser", template: "" })(Refuser);
+
+  const { app, root } = await bootstrap(server, Refuser, "connect-refuser");
+  const { fold } = root;
+
+  try {
+    await until(() => fold.value().length === 1, "the fold's first value");
+
+    // The fold never reads: 32 go out on the message credit and 1,024 wait.
+    const sends = range(1056).map((index) => fold.send(index));
+    const waiting = Promise.allSettled(sends.slice(32));
+
+    await within(Promise.all(sends.slice(0, 32)), "the first window");
+    foldGate.resolve();
+
+    const rest = await within(waiting, "the waiting sends");
+
+    assert.equal(fold.error(), boom);
+    await within(
+      assert.rejects(refused, { name: "RangeError", message: "Launch channel send queue is full" }),
+      "the refused send",
+    );
+
+    // The sends that were waiting still carry what reduce threw.
+    for (const outcome of rest) {
+      assert.equal(outcome.status, "rejected");
+      assert.equal(outcome.reason, boom);
+    }
+  } finally {
+    foldGate = Promise.withResolvers();
+    app.destroy();
+    server.close();
   }
 });
 
