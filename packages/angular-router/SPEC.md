@@ -75,7 +75,7 @@ Having no CLI or graph API does not remove discovery, validation, or read-only g
 **Kept behaviors.** These are part of the 1.x contract as they stand. Changing them needs a major; an improvement in 1.x comes as an opt-in or a warning:
 
 - A lone pathless group, a pathless declaration with children and no pathless sibling, isn't a sibling pathless group (§10 "Matching shapes and diagnostics"). It keeps Angular's native matching and gets no ownership guard, so its `canMatch` guards run, and once they pass its children table loads, for every URL that reaches it, including one that nothing beneath it matches.
-- A source-tree catchall that passes §3's and §10's catchall validation shadows the routes Angular tries after it by table order, as in plain Angular, and generation accepts the pair without a diagnostic: a root `docs/special` beside `docs/$rest[]` is unreachable. Shadowing that a locale's translated tree adds over the source tree is checked separately (§10 "Per locale").
+- When a source-tree catchall shadows another route (as §10 defines shadowing) and the pair passes §3's and §10's catchall validation, generation accepts it without a diagnostic and Angular's table order decides, as in plain Angular: a root `docs/special` beside `docs/$rest[]` is unreachable. Shadowing that a locale's translated tree adds over the source tree is checked separately (§10 "Per locale").
 - The active route's `localeUrls` (§6 "Active route") serialize each entry's own primary-outlet destination only. Open named-outlet branches are left out, so a language switch built from them closes an open outlet.
 
 ## 2. Route declarations [R]
