@@ -1,5 +1,5 @@
 import { inject } from "@angular/core";
-import { QueryClient, replaceEqualDeep, skipToken } from "@tanstack/angular-query";
+import { QueryClient, skipToken } from "@tanstack/angular-query";
 import type { DefaultError, Query, QueryFunctionContext } from "@tanstack/angular-query";
 import { RpcError } from "../client.js";
 import { RpcNotFound, RpcRedirect } from "../outcomes.js";
@@ -47,49 +47,117 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype;
 }
 
-// Whether a plain object `replaceEqualDeep` would copy has an own `__proto__` key. JSON.parse
-// keeps one as data, but `replaceEqualDeep` copies keys by assignment, so its setter would make
-// the value the copy's prototype (TanStack/query#12303, closed as not planned). The value isn't
-// only a JSON result: `select` output and placeholder data come here too, and may be cyclic or
-// class instances. `replaceEqualDeep` returns anything but a plain array or object as it is,
-// so the walk descends only into those. It visits each object once, so it ends on cycles, and
-// it's iterative, so deep results can't overflow the stack.
-function hasOwnProtoKey(data: unknown): boolean {
-  const pending: unknown[] = [data];
-  const visited = new WeakSet<object>();
+// query-core 5.104.3's `replaceEqualDeep`, with the same fast paths, depth limit and equality
+// rules, reading `a[key]` and `b[key]` once each in the same order, except at a "__proto__" key.
+// JSON.parse keeps that key as own data, but upstream copies keys by assignment, so the
+// setter makes the value the copy's prototype and the key is lost (TanStack/query#12303,
+// closed as not planned). Here the copy defines that key as an own data property, and the old
+// side's value counts only if it's an own property of `a`, so the old object's prototype is
+// never compared or reused.
+function replaceEqualDeep(a: unknown, b: unknown, depth = 0): unknown {
+  if (a === b) {
+    return a;
+  }
 
-  while (pending.length > 0) {
-    const value = pending.pop();
+  if (depth > 500) {
+    return b;
+  }
 
-    if (typeof value !== "object" || value === null || visited.has(value)) {
-      continue;
+  const array = isPlainArray(a) && isPlainArray(b);
+
+  if (!array && !(isPlainObject(a) && isPlainObject(b))) {
+    return b;
+  }
+
+  // Both are plain arrays or both plain objects, so both are indexable.
+  const previous = a as Record<PropertyKey, unknown>;
+  const next = b as Record<PropertyKey, unknown>;
+  let aItems: readonly unknown[];
+  let bItems: readonly unknown[];
+  let copy: Record<PropertyKey, unknown>;
+
+  if (array) {
+    aItems = a as unknown[];
+    bItems = b as unknown[];
+    // Upstream preallocates `new Array(bSize)`; the loop writes every index in order, so an
+    // empty array ends up the same.
+    copy = [] as unknown as Record<PropertyKey, unknown>;
+  } else {
+    aItems = Object.keys(previous);
+    bItems = Object.keys(next);
+    copy = {};
+  }
+
+  const aSize = aItems.length;
+  const bSize = bItems.length;
+  let equalItems = 0;
+
+  for (let i = 0; i < bSize; i += 1) {
+    let key: PropertyKey;
+
+    if (array) {
+      key = i;
+    } else {
+      key = bItems[i] as string;
     }
 
-    visited.add(value);
+    const isProtoKey = key === "__proto__";
+    let aItem: unknown;
 
-    if (isPlainArray(value)) {
-      // By index, as `replaceEqualDeep` reads it: an iterator could skip what it copies.
-      for (let index = 0; index < value.length; index += 1) {
-        pending.push(value[index]);
+    if (!isProtoKey || Object.hasOwn(previous, key)) {
+      aItem = previous[key];
+    }
+
+    const bItem = next[key];
+    let item: unknown;
+
+    if (aItem === bItem) {
+      item = aItem;
+
+      // An equal value counts only where the old data has the item, not where both lack it.
+      let inOld: boolean;
+
+      if (array) {
+        inOld = i < aSize;
+      } else {
+        inOld = Object.hasOwn(previous, key);
       }
 
-      continue;
+      if (inOld) {
+        equalItems += 1;
+      }
+    } else if (
+      aItem === null ||
+      bItem === null ||
+      typeof aItem !== "object" ||
+      typeof bItem !== "object"
+    ) {
+      item = bItem;
+    } else {
+      item = replaceEqualDeep(aItem, bItem, depth + 1);
+
+      if (item === aItem) {
+        equalItems += 1;
+      }
     }
 
-    if (!isPlainObject(value)) {
-      continue;
-    }
-
-    if (Object.hasOwn(value, "__proto__")) {
-      return true;
-    }
-
-    for (const key of Object.keys(value)) {
-      pending.push(value[key]);
+    if (isProtoKey) {
+      Object.defineProperty(copy, key, {
+        value: item,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    } else {
+      copy[key] = item;
     }
   }
 
-  return false;
+  if (aSize === bSize && equalItems === aSize) {
+    return a;
+  }
+
+  return copy;
 }
 
 // Builds a route's `queries` over its `remote` client. `route.queries` calls it in the
@@ -158,7 +226,7 @@ export const createQueries: CreateQueries = (rpc, namespaces) => {
 
   // Resolved per call like `retry`, so the client's default still decides: `false` shares
   // nothing and a function is the consumer's own sharing. Otherwise TanStack's default
-  // sharing, except for results it would corrupt: those replace the old data whole.
+  // sharing, through the copy above that keeps a "__proto__" key as data.
   function structuralSharingFor(queryKey: readonly unknown[]) {
     return (old: unknown, data: unknown): unknown => {
       const defaults = {
@@ -173,10 +241,6 @@ export const createQueries: CreateQueries = (rpc, namespaces) => {
 
       if (typeof fallback === "function") {
         return fallback(old, data);
-      }
-
-      if (hasOwnProtoKey(data)) {
-        return data;
       }
 
       return replaceEqualDeep(old, data);

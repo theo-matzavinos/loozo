@@ -16,6 +16,7 @@ import {
   QueryClient,
   QueryObserver,
   provideTanStackQuery,
+  replaceEqualDeep,
   skipToken,
 } from "@tanstack/angular-query";
 import { provideLaunchQueries } from "../dist/tanstack-query/index.js";
@@ -76,6 +77,24 @@ function setup({ platform = "browser", client = new QueryClient(), launch = true
       parent.destroy();
     },
   };
+}
+
+// Asserts that `value` keeps Object's prototype and an own, ordinary "__proto__" data key, and
+// returns the key's value.
+function protoKey(value) {
+  assert.equal(Object.getPrototypeOf(value), Object.prototype);
+
+  const descriptor = Object.getOwnPropertyDescriptor(value, "__proto__");
+
+  assert.deepEqual(Object.keys(descriptor).sort(), [
+    "configurable",
+    "enumerable",
+    "value",
+    "writable",
+  ]);
+  assert.equal(descriptor.writable && descriptor.enumerable && descriptor.configurable, true);
+
+  return descriptor.value;
 }
 
 test("keys are namespace, procedure and the caller's input; skipToken disables without input", () => {
@@ -343,26 +362,25 @@ test("structural sharing keeps __proto__ result keys as data and shares equal da
   }
 
   try {
-    await refetch();
+    const initial = await refetch();
 
-    // Top level and nested: the prototype stays Object's and the key stays own data.
+    // Top level and nested: the prototype stays Object's and the key stays own data, while
+    // unchanged branches keep their identity.
     const own = await refetch();
 
-    assert.equal(Object.getPrototypeOf(own), Object.prototype);
     assert.equal(own.canDelete, undefined);
-    assert.deepEqual(Object.getOwnPropertyDescriptor(own, "__proto__").value, { canDelete: true });
-    assert.equal(Object.getPrototypeOf(own.a), Object.prototype);
+    assert.deepEqual(protoKey(own), { canDelete: true });
     assert.equal(own.a.x, undefined);
-    assert.deepEqual(Object.getOwnPropertyDescriptor(own.a, "__proto__").value, { x: 1 });
+    assert.deepEqual(protoKey(own.a), { x: 1 });
+    assert.equal(own.b, initial.b);
 
     // Only nested, inside an array.
-    await refetch();
-
+    const plain = await refetch();
     const nested = await refetch();
 
-    assert.equal(Object.getPrototypeOf(nested.b[0]), Object.prototype);
     assert.equal(nested.b[0].y, undefined);
-    assert.deepEqual(Object.getOwnPropertyDescriptor(nested.b[0], "__proto__").value, { y: 1 });
+    assert.deepEqual(protoKey(nested.b[0]), { y: 1 });
+    assert.equal(nested.a, plain.a);
 
     // The global prototype was never written.
     assert.equal({}.canDelete, undefined);
@@ -388,7 +406,7 @@ test("structural sharing keeps __proto__ result keys as data and shares equal da
       queries.profile.byId.queryOptions(skipToken),
     ]) {
       assert.equal(options.structuralSharing(old, { a: {} }), old);
-      assert.equal(options.structuralSharing(old, proto), proto);
+      assert.deepEqual(protoKey(options.structuralSharing(old, proto).a), { x: 1 });
     }
 
     const replace = (old, data) => data;
@@ -407,7 +425,7 @@ test("structural sharing keeps __proto__ result keys as data and shares equal da
   }
 });
 
-test("structuralSharing follows the client default for the key, else the guard; overrides win", () => {
+test("structuralSharing follows the client default for the key, else Launch's sharing; overrides win", () => {
   const client = new QueryClient();
   const { queries, destroy } = setup({ client });
   const old = { a: {} };
@@ -418,13 +436,13 @@ test("structuralSharing follows the client default for the key, else the guard; 
     const { structuralSharing } = queries.todos.list.queryOptions();
     const byIdSharing = queries.todos.byId.queryOptions({ id: "1" }).structuralSharing;
 
-    // No client default: TanStack's sharing, guarded.
+    // No client default: TanStack's sharing, keeping "__proto__" as data.
     assert.equal(structuralSharing(old, equal), old);
-    assert.equal(structuralSharing(old, proto), proto);
+    assert.deepEqual(protoKey(structuralSharing(old, proto).a), { x: 1 });
 
     client.setDefaultOptions({ queries: { structuralSharing: true } });
     assert.equal(structuralSharing(old, equal), old);
-    assert.equal(structuralSharing(old, proto), proto);
+    assert.deepEqual(protoKey(structuralSharing(old, proto).a), { x: 1 });
 
     client.setDefaultOptions({ queries: { structuralSharing: false } });
     assert.equal(structuralSharing(old, equal), equal);
@@ -455,6 +473,155 @@ test("structuralSharing follows the client default for the key, else the guard; 
       queries.todos.list.queryOptions({ structuralSharing: true }).structuralSharing,
       true,
     );
+  } finally {
+    destroy();
+  }
+});
+
+// Where a shared `result` reuses the old data ("old") or the new data ("new"), path by path.
+function sharingOf(result, old, data) {
+  if (result === old) {
+    return "old";
+  }
+
+  if (result === data) {
+    return "new";
+  }
+
+  if (typeof result !== "object" || result === null) {
+    return result;
+  }
+
+  let shape = {};
+
+  if (Array.isArray(result)) {
+    shape = [];
+  }
+
+  for (const key of Object.keys(result)) {
+    shape[key] = sharingOf(result[key], old?.[key], data?.[key]);
+  }
+
+  return shape;
+}
+
+test("structural sharing matches TanStack's replaceEqualDeep on ordinary data", () => {
+  class Point {
+    constructor(x) {
+      this.x = x;
+    }
+  }
+
+  const nullPrototype = (entries) => Object.assign(Object.create(null), entries);
+  const sparse = (value) => {
+    const items = [];
+
+    items[1] = value;
+
+    return items;
+  };
+  const chain = (depth, leaf) => {
+    let value = { leaf };
+
+    for (let level = 0; level < depth; level += 1) {
+      value = { next: value };
+    }
+
+    return value;
+  };
+  const date = new Date(0);
+  const point = new Point(1);
+  const read = () => 1;
+  const pairs = [
+    ["equal", { a: 1, b: [1, 2], c: { d: "x" } }, { a: 1, b: [1, 2], c: { d: "x" } }],
+    ["changed", { a: { x: 1 }, b: { y: 2 }, c: [1] }, { a: { x: 1 }, b: { y: 3 }, c: [1] }],
+    ["array grown", [1, { a: 1 }], [1, { a: 1 }, { b: 2 }]],
+    ["array shrunk", [1, { a: 1 }, { b: 2 }], [1, { a: 1 }]],
+    ["key removed", { a: 1, b: 2 }, { a: 1 }],
+    ["key added", { a: {} }, { a: {}, b: 1 }],
+    ["undefined swapped", { a: undefined }, { b: undefined }],
+    ["undefined added", { a: 1 }, { a: 1, b: undefined }],
+    ["reordered", { a: { x: 1 }, b: 2 }, { b: 2, a: { x: 1 } }],
+    [
+      "nested",
+      {
+        list: [
+          { id: 1, tags: ["a"] },
+          { id: 2, tags: ["b"] },
+        ],
+      },
+      {
+        list: [
+          { id: 1, tags: ["a"] },
+          { id: 2, tags: ["c"] },
+        ],
+      },
+    ],
+    [
+      "non-plain values",
+      { date, other: new Date(0), map: new Map([[1, {}]]), point, read },
+      { date, other: new Date(0), map: new Map([[1, {}]]), point, read },
+    ],
+    ["class instances", { p: new Point(1) }, { p: new Point(1) }],
+    ["top-level instances", new Point(1), new Point(1)],
+    ["null prototype equal", nullPrototype({ a: { x: 1 } }), nullPrototype({ a: { x: 1 } })],
+    [
+      "null prototype changed",
+      nullPrototype({ a: { x: 1 }, b: 1 }),
+      nullPrototype({ a: { x: 1 }, b: 2 }),
+    ],
+    ["null prototype and plain", nullPrototype({ a: { x: 1 } }), { a: { x: 1 } }],
+    ["array and object", [1], { 0: 1 }],
+    ["sparse arrays", sparse({ a: 1 }), sparse({ a: 1 })],
+    ["no old data", undefined, { a: 1 }],
+    ["primitives", 1, 2],
+    ["null to object", null, {}],
+    ["object to null", { a: 1 }, null],
+    ["past the depth limit", chain(600, 1), chain(600, 2)],
+    ["equal past the depth limit", chain(600, 1), chain(600, 1)],
+  ];
+  const { queries, destroy } = setup();
+
+  try {
+    const { structuralSharing } = queries.todos.list.queryOptions();
+
+    for (const [name, old, data] of pairs) {
+      const launch = structuralSharing(old, data);
+      const tanstack = replaceEqualDeep(old, data);
+
+      assert.deepEqual(launch, tanstack, name);
+      assert.deepEqual(sharingOf(launch, old, data), sharingOf(tanstack, old, data), name);
+    }
+  } finally {
+    destroy();
+  }
+});
+
+test("structural sharing never compares or reuses the old data's prototype", () => {
+  const { queries, destroy } = setup();
+
+  try {
+    const { structuralSharing } = queries.todos.list.queryOptions();
+
+    // The old object has no own key, so its prototype isn't taken as the old value.
+    const empty = structuralSharing({}, JSON.parse('{"__proto__":{}}'));
+
+    assert.notEqual(protoKey(empty), Object.prototype);
+    assert.deepEqual(protoKey(empty), {});
+
+    // An own key on both sides is compared and shared like any other.
+    const old = JSON.parse('{"__proto__":{"x":1},"a":1}');
+    const changed = structuralSharing(old, JSON.parse('{"__proto__":{"x":1},"a":2}'));
+
+    assert.equal(structuralSharing(old, JSON.parse('{"__proto__":{"x":1},"a":1}')), old);
+    assert.equal(protoKey(changed), protoKey(old));
+    assert.equal(changed.a, 2);
+
+    // A key the new data dropped isn't copied.
+    const dropped = structuralSharing(old, { a: 1 });
+
+    assert.equal(Object.hasOwn(dropped, "__proto__"), false);
+    assert.equal(Object.getPrototypeOf(dropped), Object.prototype);
   } finally {
     destroy();
   }
@@ -551,7 +718,7 @@ test("structural sharing returns a cyclic class instance from select as it is", 
     }
   }));
 
-test("structural sharing shares a cyclic plain object from select, and guards it", () =>
+test("structural sharing shares a cyclic plain object from select, keeping __proto__ as data", () =>
   inWorker(async ({ assert, QueryObserver, setup }) => {
     const selected = [];
     let n = 0;
@@ -582,13 +749,17 @@ test("structural sharing shares a cyclic plain object from select, and guards it
     assert.equal(second.n, 2);
     assert.equal(Object.getPrototypeOf(second), Object.prototype);
 
-    // The key is found through the cycle, so the selected object replaces the old one whole.
+    // Shared the same way, with the key kept as data at every copied level.
     const third = (await observer.refetch()).data;
 
-    assert.equal(third, selected[2]);
-    assert.equal(Object.getPrototypeOf(third), Object.prototype);
-    assert.equal(third.x, undefined);
-    assert.deepEqual(Object.getOwnPropertyDescriptor(third, "__proto__").value, { x: 1 });
+    assert.notEqual(third, selected[2]);
+    assert.equal(third.n, 3);
+
+    for (const level of [third, third.self]) {
+      assert.equal(Object.getPrototypeOf(level), Object.prototype);
+      assert.equal(level.x, undefined);
+      assert.deepEqual(Object.getOwnPropertyDescriptor(level, "__proto__").value, { x: 1 });
+    }
   }));
 
 test("structural sharing reads a selected array by index, as TanStack copies it", () =>
@@ -618,6 +789,95 @@ test("structural sharing reads a selected array by index, as TanStack copies it"
     assert.equal(row.x, undefined);
     assert.deepEqual(Object.getOwnPropertyDescriptor(row, "__proto__").value, { x: 1 });
   }));
+
+test("structural sharing reads a selected getter only where TanStack reads it", async () => {
+  // Lazy getters, at a key and at an array index, that log each read and throw while armed.
+  const reads = [];
+  let armed = true;
+
+  function view(n, { added = false } = {}) {
+    const getter = (name) => ({
+      enumerable: true,
+      get() {
+        reads.push(`${n}.${name}`);
+
+        if (armed) {
+          throw new Error(`${name} read`);
+        }
+
+        return { n };
+      },
+    });
+    const rows = [];
+
+    Object.defineProperty(rows, 0, getter("rows[0]"));
+
+    const value = { n, rows };
+
+    Object.defineProperty(value, "lazy", getter("lazy"));
+
+    if (added) {
+      value.added = { n };
+    }
+
+    return value;
+  }
+
+  const selected = [];
+  let fetched = 0;
+  const parent = createEnvironmentInjector([]);
+  const client = new QueryClient();
+  const injector = createEnvironmentInjector(
+    [
+      { provide: PLATFORM_ID, useValue: "browser" },
+      { provide: QueryClient, useValue: client },
+      provideLaunchQueries(),
+    ],
+    parent,
+  );
+  const queries = runInInjectionContext(injector, () =>
+    createQueries(
+      { profile: { read: () => Promise.resolve({ n: ++fetched }) } },
+      { profile: { read: { kind: "query", input: false } } },
+    ),
+  );
+  const observer = new QueryObserver(
+    client,
+    queries.profile.read.queryOptions({
+      select: ({ n }) => {
+        const value = view(n, { added: n === 2 });
+
+        selected.push(value);
+
+        return value;
+      },
+    }),
+  );
+
+  try {
+    // Nothing to share with yet: the selected value comes back as it is, unread.
+    const first = await observer.refetch();
+
+    assert.equal(first.status, "success");
+    assert.equal(first.data, selected[0]);
+    assert.deepEqual(reads, []);
+
+    // A new branch makes TanStack compare every key; nothing is read more than it reads.
+    armed = false;
+
+    const second = await observer.refetch();
+    const observed = reads.splice(0);
+
+    assert.equal(second.status, "success");
+    replaceEqualDeep(view(1), view(2, { added: true }));
+    assert.deepEqual(observed, reads);
+    assert.deepEqual(observed, ["1.rows[0]", "2.rows[0]", "1.lazy", "2.lazy"]);
+  } finally {
+    observer.destroy();
+    injector.destroy();
+    parent.destroy();
+  }
+});
 
 test("refetchOnMount is false while hydrating, then the client default, else true; overrides win", () => {
   const client = new QueryClient();
