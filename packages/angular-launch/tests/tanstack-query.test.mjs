@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { Worker } from "node:worker_threads";
 import {
   Component,
   PLATFORM_ID,
@@ -11,7 +12,13 @@ import {
 } from "@angular/core";
 import { HttpClient, HttpErrorResponse } from "@angular/common/http";
 import { Observable } from "rxjs";
-import { QueryClient, provideTanStackQuery, skipToken } from "@tanstack/angular-query";
+import {
+  QueryClient,
+  QueryObserver,
+  provideTanStackQuery,
+  replaceEqualDeep,
+  skipToken,
+} from "@tanstack/angular-query";
 import { provideLaunchQueries } from "../dist/tanstack-query/index.js";
 import { createQueries } from "../dist/tanstack-query/create-queries.js";
 import { hydrationWindow } from "../dist/tanstack-query/hydration-window.js";
@@ -70,6 +77,24 @@ function setup({ platform = "browser", client = new QueryClient(), launch = true
       parent.destroy();
     },
   };
+}
+
+// Asserts that `value` keeps Object's prototype and an own, ordinary "__proto__" data key, and
+// returns the key's value.
+function protoKey(value) {
+  assert.equal(Object.getPrototypeOf(value), Object.prototype);
+
+  const descriptor = Object.getOwnPropertyDescriptor(value, "__proto__");
+
+  assert.deepEqual(Object.keys(descriptor).sort(), [
+    "configurable",
+    "enumerable",
+    "value",
+    "writable",
+  ]);
+  assert.equal(descriptor.writable && descriptor.enumerable && descriptor.configurable, true);
+
+  return descriptor.value;
 }
 
 test("keys are namespace, procedure and the caller's input; skipToken disables without input", () => {
@@ -286,6 +311,569 @@ test("retry skips RpcErrors and otherwise follows the client default, else three
     );
     assert.equal(attempts, 4);
   } finally {
+    injector.destroy();
+    parent.destroy();
+  }
+});
+
+test("structural sharing keeps __proto__ result keys as data and shares equal data; overrides win", async () => {
+  // What Angular's HTTP backends do with a JSON response: JSON.parse keeps "__proto__" as an
+  // own key. TanStack only corrupts a key whose object replaces an object in the old data.
+  const bodies = [
+    '{"a":{},"b":[1]}',
+    '{"a":{"__proto__":{"x":1}},"b":[1],"__proto__":{"canDelete":true}}',
+    '{"a":{},"b":[{}]}',
+    '{"a":{},"b":[{"__proto__":{"y":1}}]}',
+    '{"a":{},"b":[1]}',
+    '{"a":{},"b":[1]}',
+    '{"a":{},"b":[2]}',
+  ];
+  const rpc = {
+    profile: {
+      read: () => Promise.resolve(JSON.parse(bodies.shift())),
+      byId: () => Promise.resolve(null),
+    },
+  };
+  const parent = createEnvironmentInjector([]);
+  const client = new QueryClient();
+  const injector = createEnvironmentInjector(
+    [
+      { provide: PLATFORM_ID, useValue: "browser" },
+      { provide: QueryClient, useValue: client },
+      provideLaunchQueries(),
+    ],
+    parent,
+  );
+  const queries = runInInjectionContext(injector, () =>
+    createQueries(rpc, {
+      profile: {
+        read: { kind: "query", input: false },
+        byId: { kind: "query", input: true },
+      },
+    }),
+  );
+  // What injectQuery reads.
+  const observer = new QueryObserver(client, queries.profile.read.queryOptions());
+
+  async function refetch() {
+    const result = await observer.refetch();
+
+    return result.data;
+  }
+
+  try {
+    const initial = await refetch();
+
+    // Top level and nested: the prototype stays Object's and the key stays own data, while
+    // unchanged branches keep their identity.
+    const own = await refetch();
+
+    assert.equal(own.canDelete, undefined);
+    assert.deepEqual(protoKey(own), { canDelete: true });
+    assert.equal(own.a.x, undefined);
+    assert.deepEqual(protoKey(own.a), { x: 1 });
+    assert.equal(own.b, initial.b);
+
+    // Only nested, inside an array.
+    const plain = await refetch();
+    const nested = await refetch();
+
+    assert.equal(nested.b[0].y, undefined);
+    assert.deepEqual(protoKey(nested.b[0]), { y: 1 });
+    assert.equal(nested.a, plain.a);
+
+    // The global prototype was never written.
+    assert.equal({}.canDelete, undefined);
+    assert.equal({}.x, undefined);
+    assert.equal({}.y, undefined);
+
+    // Equal data keeps its identity, and unchanged parts of changed data are shared.
+    const before = await refetch();
+    const equal = await refetch();
+    const changed = await refetch();
+
+    assert.equal(equal, before);
+    assert.notEqual(changed, equal);
+    assert.equal(changed.a, equal.a);
+    assert.deepEqual(changed.b, [2]);
+
+    // Queries with input, and disabled ones, get the same default.
+    const old = { a: {} };
+    const proto = JSON.parse('{"a":{"__proto__":{"x":1}}}');
+
+    for (const options of [
+      queries.profile.byId.queryOptions("1"),
+      queries.profile.byId.queryOptions(skipToken),
+    ]) {
+      assert.equal(options.structuralSharing(old, { a: {} }), old);
+      assert.deepEqual(protoKey(options.structuralSharing(old, proto).a), { x: 1 });
+    }
+
+    const replace = (old, data) => data;
+
+    assert.equal(
+      queries.profile.read.queryOptions({ structuralSharing: false }).structuralSharing,
+      false,
+    );
+    assert.equal(
+      queries.profile.read.queryOptions({ structuralSharing: replace }).structuralSharing,
+      replace,
+    );
+  } finally {
+    injector.destroy();
+    parent.destroy();
+  }
+});
+
+test("structuralSharing follows the client default for the key, else Launch's sharing; overrides win", () => {
+  const client = new QueryClient();
+  const { queries, destroy } = setup({ client });
+  const old = { a: {} };
+  const equal = { a: {} };
+  const proto = JSON.parse('{"a":{"__proto__":{"x":1}}}');
+
+  try {
+    const { structuralSharing } = queries.todos.list.queryOptions();
+    const byIdSharing = queries.todos.byId.queryOptions({ id: "1" }).structuralSharing;
+
+    // No client default: TanStack's sharing, keeping "__proto__" as data.
+    assert.equal(structuralSharing(old, equal), old);
+    assert.deepEqual(protoKey(structuralSharing(old, proto).a), { x: 1 });
+
+    client.setDefaultOptions({ queries: { structuralSharing: true } });
+    assert.equal(structuralSharing(old, equal), old);
+    assert.deepEqual(protoKey(structuralSharing(old, proto).a), { x: 1 });
+
+    client.setDefaultOptions({ queries: { structuralSharing: false } });
+    assert.equal(structuralSharing(old, equal), equal);
+
+    const seen = [];
+    const marker = { shared: true };
+
+    client.setDefaultOptions({
+      queries: {
+        structuralSharing: (previous, data) => {
+          seen.push({ previous, data });
+
+          return marker;
+        },
+      },
+    });
+    assert.equal(structuralSharing(old, proto), marker);
+    assert.deepEqual(seen, [{ previous: old, data: proto }]);
+
+    // Query defaults for the key take precedence over the client's, and only for that key.
+    client.setDefaultOptions({ queries: { structuralSharing: true } });
+    client.setQueryDefaults(["launch", "todos", "list"], { structuralSharing: false });
+    assert.equal(structuralSharing(old, equal), equal);
+    assert.equal(byIdSharing(old, equal), old);
+
+    // An override replaces the generated default entirely.
+    assert.equal(
+      queries.todos.list.queryOptions({ structuralSharing: true }).structuralSharing,
+      true,
+    );
+  } finally {
+    destroy();
+  }
+});
+
+// Where a shared `result` reuses the old data ("old") or the new data ("new"), path by path.
+function sharingOf(result, old, data) {
+  if (result === old) {
+    return "old";
+  }
+
+  if (result === data) {
+    return "new";
+  }
+
+  if (typeof result !== "object" || result === null) {
+    return result;
+  }
+
+  let shape = {};
+
+  if (Array.isArray(result)) {
+    shape = [];
+  }
+
+  for (const key of Object.keys(result)) {
+    shape[key] = sharingOf(result[key], old?.[key], data?.[key]);
+  }
+
+  return shape;
+}
+
+test("structural sharing matches TanStack's replaceEqualDeep on ordinary data", () => {
+  class Point {
+    constructor(x) {
+      this.x = x;
+    }
+  }
+
+  const nullPrototype = (entries) => Object.assign(Object.create(null), entries);
+  const sparse = (value) => {
+    const items = [];
+
+    items[1] = value;
+
+    return items;
+  };
+  const chain = (depth, leaf) => {
+    let value = { leaf };
+
+    for (let level = 0; level < depth; level += 1) {
+      value = { next: value };
+    }
+
+    return value;
+  };
+  const date = new Date(0);
+  const point = new Point(1);
+  const read = () => 1;
+  const pairs = [
+    ["equal", { a: 1, b: [1, 2], c: { d: "x" } }, { a: 1, b: [1, 2], c: { d: "x" } }],
+    ["changed", { a: { x: 1 }, b: { y: 2 }, c: [1] }, { a: { x: 1 }, b: { y: 3 }, c: [1] }],
+    ["array grown", [1, { a: 1 }], [1, { a: 1 }, { b: 2 }]],
+    ["array shrunk", [1, { a: 1 }, { b: 2 }], [1, { a: 1 }]],
+    ["key removed", { a: 1, b: 2 }, { a: 1 }],
+    ["key added", { a: {} }, { a: {}, b: 1 }],
+    ["undefined swapped", { a: undefined }, { b: undefined }],
+    ["undefined added", { a: 1 }, { a: 1, b: undefined }],
+    ["reordered", { a: { x: 1 }, b: 2 }, { b: 2, a: { x: 1 } }],
+    [
+      "nested",
+      {
+        list: [
+          { id: 1, tags: ["a"] },
+          { id: 2, tags: ["b"] },
+        ],
+      },
+      {
+        list: [
+          { id: 1, tags: ["a"] },
+          { id: 2, tags: ["c"] },
+        ],
+      },
+    ],
+    [
+      "non-plain values",
+      { date, other: new Date(0), map: new Map([[1, {}]]), point, read },
+      { date, other: new Date(0), map: new Map([[1, {}]]), point, read },
+    ],
+    ["class instances", { p: new Point(1) }, { p: new Point(1) }],
+    ["top-level instances", new Point(1), new Point(1)],
+    ["null prototype equal", nullPrototype({ a: { x: 1 } }), nullPrototype({ a: { x: 1 } })],
+    [
+      "null prototype changed",
+      nullPrototype({ a: { x: 1 }, b: 1 }),
+      nullPrototype({ a: { x: 1 }, b: 2 }),
+    ],
+    ["null prototype and plain", nullPrototype({ a: { x: 1 } }), { a: { x: 1 } }],
+    ["array and object", [1], { 0: 1 }],
+    ["sparse arrays", sparse({ a: 1 }), sparse({ a: 1 })],
+    ["no old data", undefined, { a: 1 }],
+    ["primitives", 1, 2],
+    ["null to object", null, {}],
+    ["object to null", { a: 1 }, null],
+    ["past the depth limit", chain(600, 1), chain(600, 2)],
+    ["equal past the depth limit", chain(600, 1), chain(600, 1)],
+  ];
+  const { queries, destroy } = setup();
+
+  try {
+    const { structuralSharing } = queries.todos.list.queryOptions();
+
+    for (const [name, old, data] of pairs) {
+      const launch = structuralSharing(old, data);
+      const tanstack = replaceEqualDeep(old, data);
+
+      assert.deepEqual(launch, tanstack, name);
+      assert.deepEqual(sharingOf(launch, old, data), sharingOf(tanstack, old, data), name);
+    }
+  } finally {
+    destroy();
+  }
+});
+
+test("structural sharing never compares or reuses the old data's prototype", () => {
+  const { queries, destroy } = setup();
+
+  try {
+    const { structuralSharing } = queries.todos.list.queryOptions();
+
+    // The old object has no own key, so its prototype isn't taken as the old value.
+    const empty = structuralSharing({}, JSON.parse('{"__proto__":{}}'));
+
+    assert.notEqual(protoKey(empty), Object.prototype);
+    assert.deepEqual(protoKey(empty), {});
+
+    // An own key on both sides is compared and shared like any other.
+    const old = JSON.parse('{"__proto__":{"x":1},"a":1}');
+    const changed = structuralSharing(old, JSON.parse('{"__proto__":{"x":1},"a":2}'));
+
+    assert.equal(structuralSharing(old, JSON.parse('{"__proto__":{"x":1},"a":1}')), old);
+    assert.equal(protoKey(changed), protoKey(old));
+    assert.equal(changed.a, 2);
+
+    // A key the new data dropped isn't copied.
+    const dropped = structuralSharing(old, { a: 1 });
+
+    assert.equal(Object.hasOwn(dropped, "__proto__"), false);
+    assert.equal(Object.getPrototypeOf(dropped), Object.prototype);
+  } finally {
+    destroy();
+  }
+});
+
+// Runs `scenario` on a worker thread, so a structural-sharing walk that never ends fails the
+// test after `bound` milliseconds instead of blocking the suite. `scenario` is serialized, so
+// it uses only what it receives: assert, QueryObserver and setup(read), which gives a
+// QueryClient and the queries of a no-input `profile.read` query calling `read`.
+function inWorker(scenario, bound = 10_000) {
+  const modules = {
+    compiler: import.meta.resolve("@angular/compiler"),
+    core: import.meta.resolve("@angular/core"),
+    query: import.meta.resolve("@tanstack/angular-query"),
+    launch: new URL("../dist/tanstack-query/index.js", import.meta.url).href,
+    createQueries: new URL("../dist/tanstack-query/create-queries.js", import.meta.url).href,
+  };
+  const source = `
+    const { parentPort, workerData: modules } = require("node:worker_threads");
+
+    (async () => {
+      await import(modules.compiler);
+      const assert = (await import("node:assert/strict")).default;
+      const { PLATFORM_ID, createEnvironmentInjector, runInInjectionContext } = await import(modules.core);
+      const { QueryClient, QueryObserver } = await import(modules.query);
+      const { provideLaunchQueries } = await import(modules.launch);
+      const { createQueries } = await import(modules.createQueries);
+
+      function setup(read) {
+        const client = new QueryClient();
+        const injector = createEnvironmentInjector(
+          [
+            { provide: PLATFORM_ID, useValue: "browser" },
+            { provide: QueryClient, useValue: client },
+            provideLaunchQueries(),
+          ],
+          createEnvironmentInjector([]),
+        );
+        const queries = runInInjectionContext(injector, () =>
+          createQueries({ profile: { read } }, { profile: { read: { kind: "query", input: false } } }),
+        );
+
+        return { client, queries };
+      }
+
+      await (${scenario})({ assert, QueryObserver, setup });
+      parentPort.postMessage("done");
+    })();
+  `;
+
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(source, { eval: true, workerData: modules });
+    // Ends a walk stuck in a loop too: terminate() stops the running script.
+    const timer = setTimeout(() => {
+      worker.terminate();
+      reject(new Error(`the scenario didn't finish within ${bound} ms`));
+    }, bound);
+
+    worker.once("message", () => {
+      clearTimeout(timer);
+      // The QueryClient's timers would keep the worker alive.
+      worker.terminate().then(() => resolve());
+    });
+    worker.once("error", (error) => {
+      clearTimeout(timer);
+      worker.terminate();
+      reject(error);
+    });
+  });
+}
+
+test("structural sharing returns a cyclic class instance from select as it is", () =>
+  inWorker(async ({ assert, QueryObserver, setup }) => {
+    class View {
+      constructor(n) {
+        this.n = n;
+        this.self = this;
+      }
+    }
+
+    let n = 0;
+    const { client, queries } = setup(() => Promise.resolve({ n: ++n }));
+    const observer = new QueryObserver(
+      client,
+      queries.profile.read.queryOptions({ select: (data) => new View(data.n) }),
+    );
+
+    for (const expected of [1, 2]) {
+      const { data } = await observer.refetch();
+
+      assert.ok(data instanceof View);
+      assert.equal(data.n, expected);
+      assert.equal(data.self, data);
+    }
+  }));
+
+test("structural sharing shares a cyclic plain object from select, keeping __proto__ as data", () =>
+  inWorker(async ({ assert, QueryObserver, setup }) => {
+    const selected = [];
+    let n = 0;
+    const { client, queries } = setup(() => Promise.resolve({ n: ++n }));
+    const observer = new QueryObserver(
+      client,
+      queries.profile.read.queryOptions({
+        select: (data) => {
+          const view = JSON.parse(data.n === 3 ? '{"__proto__":{"x":1}}' : "{}");
+
+          view.n = data.n;
+          view.self = view;
+          selected.push(view);
+
+          return view;
+        },
+      }),
+    );
+
+    // Nothing to share with yet.
+    const first = (await observer.refetch()).data;
+
+    assert.equal(first, selected[0]);
+
+    // TanStack's sharing, which ends at its depth limit.
+    const second = (await observer.refetch()).data;
+
+    assert.equal(second.n, 2);
+    assert.equal(Object.getPrototypeOf(second), Object.prototype);
+
+    // Shared the same way, with the key kept as data at every copied level.
+    const third = (await observer.refetch()).data;
+
+    assert.notEqual(third, selected[2]);
+    assert.equal(third.n, 3);
+
+    for (const level of [third, third.self]) {
+      assert.equal(Object.getPrototypeOf(level), Object.prototype);
+      assert.equal(level.x, undefined);
+      assert.deepEqual(Object.getOwnPropertyDescriptor(level, "__proto__").value, { x: 1 });
+    }
+  }));
+
+test("structural sharing reads a selected array by index, as TanStack copies it", () =>
+  inWorker(async ({ assert, QueryObserver, setup }) => {
+    let n = 0;
+    const { client, queries } = setup(() => Promise.resolve({ n: ++n }));
+    const observer = new QueryObserver(
+      client,
+      queries.profile.read.queryOptions({
+        select: (data) => {
+          const rows = JSON.parse(data.n === 2 ? '[{"__proto__":{"x":1}}]' : "[{}]");
+
+          // An iterator that yields nothing hides the row from a walk that iterates.
+          Object.defineProperty(rows, Symbol.iterator, { value: function* () {} });
+
+          return rows;
+        },
+      }),
+    );
+
+    await observer.refetch();
+
+    // Indexed, not destructured: destructuring would use the empty iterator.
+    const row = (await observer.refetch()).data[0];
+
+    assert.equal(Object.getPrototypeOf(row), Object.prototype);
+    assert.equal(row.x, undefined);
+    assert.deepEqual(Object.getOwnPropertyDescriptor(row, "__proto__").value, { x: 1 });
+  }));
+
+test("structural sharing reads a selected getter only where TanStack reads it", async () => {
+  // Lazy getters, at a key and at an array index, that log each read and throw while armed.
+  const reads = [];
+  let armed = true;
+
+  function view(n, { added = false } = {}) {
+    const getter = (name) => ({
+      enumerable: true,
+      get() {
+        reads.push(`${n}.${name}`);
+
+        if (armed) {
+          throw new Error(`${name} read`);
+        }
+
+        return { n };
+      },
+    });
+    const rows = [];
+
+    Object.defineProperty(rows, 0, getter("rows[0]"));
+
+    const value = { n, rows };
+
+    Object.defineProperty(value, "lazy", getter("lazy"));
+
+    if (added) {
+      value.added = { n };
+    }
+
+    return value;
+  }
+
+  const selected = [];
+  let fetched = 0;
+  const parent = createEnvironmentInjector([]);
+  const client = new QueryClient();
+  const injector = createEnvironmentInjector(
+    [
+      { provide: PLATFORM_ID, useValue: "browser" },
+      { provide: QueryClient, useValue: client },
+      provideLaunchQueries(),
+    ],
+    parent,
+  );
+  const queries = runInInjectionContext(injector, () =>
+    createQueries(
+      { profile: { read: () => Promise.resolve({ n: ++fetched }) } },
+      { profile: { read: { kind: "query", input: false } } },
+    ),
+  );
+  const observer = new QueryObserver(
+    client,
+    queries.profile.read.queryOptions({
+      select: ({ n }) => {
+        const value = view(n, { added: n === 2 });
+
+        selected.push(value);
+
+        return value;
+      },
+    }),
+  );
+
+  try {
+    // Nothing to share with yet: the selected value comes back as it is, unread.
+    const first = await observer.refetch();
+
+    assert.equal(first.status, "success");
+    assert.equal(first.data, selected[0]);
+    assert.deepEqual(reads, []);
+
+    // A new branch makes TanStack compare every key; nothing is read more than it reads.
+    armed = false;
+
+    const second = await observer.refetch();
+    const observed = reads.splice(0);
+
+    assert.equal(second.status, "success");
+    replaceEqualDeep(view(1), view(2, { added: true }));
+    assert.deepEqual(observed, reads);
+    assert.deepEqual(observed, ["1.rows[0]", "2.rows[0]", "1.lazy", "2.lazy"]);
+  } finally {
+    observer.destroy();
     injector.destroy();
     parent.destroy();
   }
