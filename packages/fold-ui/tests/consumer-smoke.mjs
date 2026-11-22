@@ -3803,6 +3803,29 @@ try {
     "no file on the server",
   );
 
+  // Each FileFieldClear is a native named button, hidden while its field is empty, with a hidden
+  // icon; the disabled field's is natively disabled.
+  for (const id of [
+    "file-button-clear",
+    "file-zone-clear",
+    "file-locked-button-clear",
+    "file-primary-clear",
+  ]) {
+    const clear = openingTag(html, id);
+
+    assert.match(clear, /\btype="button"/, id);
+    assert.match(clear, /\bdata-slot="file-field-clear"/, id);
+    assert.match(clear, /\baria-label="Remove the [^"]+"/, id);
+    assert.match(clear, /\bclass="[^"]*\bhidden\b/, `${id} is hidden while empty`);
+    assert.ok(
+      tagsIn(element(html, id), "svg").some((tag) => tag.includes('aria-hidden="true"')),
+      `${id}'s icon is hidden`,
+    );
+  }
+
+  assert.match(openingTag(html, "file-locked-button-clear"), /\sdisabled[\s=>]/);
+  assert.doesNotMatch(openingTag(html, "file-button-clear"), /\sdisabled[\s=>]/);
+
   // Chooses a page-made file in an Input, as the picker does: its one file, then `change`.
   const pick = (id, name, size) =>
     page.evaluate(
@@ -3999,6 +4022,52 @@ try {
   assert.equal(valueLayout.icon, "16 rgb(163, 163, 160)");
   assert.equal(valueLayout.name, `13px ${foreground}`);
   assert.equal(valueLayout.size, "rgb(163, 163, 160) tabular-nums");
+
+  // FileFieldClear ends each row: a 32px ghost × with a 16px muted icon, 12px after the value and
+  // centered on the button look or, under the zone, on the value. Its negative margins leave the
+  // value 8px under the zone (above) with the × shown, and keep its box clear of the zone's edge.
+  const clearLayout = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+    const style = (selector) => getComputedStyle(document.querySelector(selector));
+    const middle = (box) => box.top + box.height / 2;
+    const size = (selector) => `${rect(selector).width}x${rect(selector).height}`;
+
+    return {
+      size: size("#file-button-clear"),
+      zoneSize: size("#file-zone-clear"),
+      ground: style("#file-button-clear").backgroundColor,
+      icon: `${rect("#file-button-clear svg").width} ${style("#file-button-clear svg").color}`,
+      afterValue: rect("#file-button-clear").left - rect("#file-button-value").right,
+      rowEnd: rect("#file-button-root").right - rect("#file-button-clear").right,
+      buttonOffset: middle(rect("#file-button-clear")) - middle(rect("#file-button")),
+      zoneAfterValue: rect("#file-zone-clear").left - rect("#file-zone-value").right,
+      zoneOffset: middle(rect("#file-zone-clear")) - middle(rect("#file-zone-value")),
+      underZone: rect("#file-zone-clear").top - rect("#file-zone").bottom,
+    };
+  });
+
+  assert.equal(clearLayout.size, "32x32");
+  assert.equal(clearLayout.zoneSize, "32x32");
+  assert.equal(clearLayout.ground, "rgba(0, 0, 0, 0)");
+  assert.equal(clearLayout.icon, "16 rgb(163, 163, 160)");
+  assert.ok(Math.abs(clearLayout.afterValue - 12) <= 0.5, `× after ${clearLayout.afterValue}`);
+  assert.ok(Math.abs(clearLayout.rowEnd) <= 0.5, `× to the row's end ${clearLayout.rowEnd}`);
+  assert.ok(Math.abs(clearLayout.buttonOffset) <= 0.5, `× offset ${clearLayout.buttonOffset}`);
+  assert.ok(
+    Math.abs(clearLayout.zoneAfterValue - 12) <= 0.5,
+    `zone × ${clearLayout.zoneAfterValue}`,
+  );
+  assert.ok(Math.abs(clearLayout.zoneOffset) <= 0.5, `zone × offset ${clearLayout.zoneOffset}`);
+  assert.ok(clearLayout.underZone >= 0, `zone × ${clearLayout.underZone} under the zone`);
+
+  // Under the pointer, the × takes the ghost tint and its icon the foreground.
+  await page.hover("#file-zone-clear");
+
+  const clearHover = await styleOf("#file-zone-clear", ["backgroundColor", "color"]);
+
+  assert.match(clearHover.backgroundColor, /\/ 0\.08\)$/, `× tint ${clearHover.backgroundColor}`);
+  assert.equal(clearHover.color, foreground);
+  await page.mouse.move(0, 0);
 
   // A long name truncates its stem and keeps its extension, inside the 240px root, with the full
   // name in its title.
@@ -4253,32 +4322,69 @@ try {
     borderTopStyle: "dashed",
   });
 
-  // Clearing writes null: the value line goes, leaving no gap, and the Input holds no file.
-  await pick("file-primary-input", "logo.png", 1536);
-  await untilFileSize("file-primary-value", "1.5 KB");
-
+  // FileFieldClear writes null through Origami, by pointer and by Enter: the value line and the ×
+  // go, leaving no gap, the Input holds no file and has focus, and no picker opens. The × stays
+  // 32px beside the 28px small button look, centered on it.
   const rootWidth = () =>
     page.evaluate(() => ({
       root: document.getElementById("file-primary-root").getBoundingClientRect().width,
       button: document.getElementById("file-primary").getBoundingClientRect().width,
     }));
+  const noPicker = () =>
+    page.waitForEvent("filechooser", { timeout: 500 }).then(
+      () => true,
+      () => false,
+    );
+  const cleared = async (how, picker) => {
+    await page.waitForFunction(
+      () => document.getElementById("file-primary-value").childElementCount === 0,
+    );
+    await rendered();
+    assert.deepEqual(
+      await page.evaluate(() => ({
+        value: getComputedStyle(document.getElementById("file-primary-value")).display,
+        clear: getComputedStyle(document.getElementById("file-primary-clear")).display,
+        files: document.getElementById("file-primary-input").files.length,
+        focus: document.activeElement?.id,
+      })),
+      { value: "none", clear: "none", files: 0, focus: "file-primary-input" },
+      how,
+    );
+    assert.ok(
+      Math.abs((await rootWidth()).root - (await rootWidth()).button) <= 0.5,
+      `no gap after clearing by ${how}`,
+    );
+    assert.equal(await picker, false, `clearing by ${how} opened the picker`);
+  };
 
+  await pick("file-primary-input", "logo.png", 1536);
+  await untilFileSize("file-primary-value", "1.5 KB");
   assert.ok((await rootWidth()).root > (await rootWidth()).button + 12, "the value is shown");
-  await page.click("#file-primary-clear");
-  await page.waitForFunction(
-    () => document.getElementById("file-primary-value").childElementCount === 0,
-  );
   assert.deepEqual(
-    await page.evaluate(() => ({
-      display: getComputedStyle(document.getElementById("file-primary-value")).display,
-      files: document.getElementById("file-primary-input").files.length,
-    })),
-    { display: "none", files: 0 },
+    await page.evaluate(() => {
+      const rect = (id) => document.getElementById(id).getBoundingClientRect();
+      const middle = (box) => box.top + box.height / 2;
+
+      return {
+        clear: rect("file-primary-clear").height,
+        button: rect("file-primary").height,
+        centered:
+          Math.abs(middle(rect("file-primary-clear")) - middle(rect("file-primary"))) <= 0.5,
+      };
+    }),
+    { clear: 32, button: 28, centered: true },
   );
-  assert.ok(
-    Math.abs((await rootWidth()).root - (await rootWidth()).button) <= 0.5,
-    "no gap after clearing",
-  );
+
+  let picker = noPicker();
+
+  await page.click("#file-primary-clear");
+  await cleared("pointer", picker);
+  await pick("file-primary-input", "logo.png", 1536);
+  await untilFileSize("file-primary-value", "1.5 KB");
+  await page.focus("#file-primary-clear");
+  picker = noPicker();
+  await page.keyboard.press("Enter");
+  await cleared("Enter", picker);
 
   // Disabled: dimmed, not-allowed, no hover change, no picker; the app can still write a file,
   // and its value line dims too.
@@ -4319,6 +4425,27 @@ try {
   await page.click("#file-locked-fill");
   await untilFileSize("file-locked-button-value", "1.5 KB");
   assert.equal((await styleOf("#file-locked-button-value", ["opacity"])).opacity, "0.5");
+  assert.deepEqual(
+    await page.evaluate(() => {
+      const clear = document.getElementById("file-locked-button-clear");
+
+      return {
+        shown: getComputedStyle(clear).display !== "none",
+        disabled: clear.disabled,
+        ariaDisabled: clear.getAttribute("aria-disabled"),
+        dataDisabled: clear.getAttribute("data-disabled"),
+        opacity: getComputedStyle(clear).opacity,
+      };
+    }),
+    {
+      shown: true,
+      disabled: true,
+      ariaDisabled: "true",
+      dataDisabled: "",
+      opacity: "0.5",
+    },
+    "the disabled field's ×",
+  );
 
   // Themes, from a fresh page: the light subtree's tokens, against the dark document's.
   await fresh();

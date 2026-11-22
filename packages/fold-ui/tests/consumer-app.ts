@@ -482,6 +482,7 @@ const MB = 1024 * 1024;
             <input zzFileFieldInput accept=".pdf,.jpg,.jpeg,.png" id="file-button-input" />
           </label>
           <p zzFileFieldValue id="file-button-value"></p>
+          <button zzFileFieldClear aria-label="Remove the invoice" id="file-button-clear"></button>
         </div>
         <p zzFieldDescription>PDF, JPG or PNG, up to 25 MB</p>
         @if (invoiceField.state.errorsShown()) {
@@ -503,6 +504,7 @@ const MB = 1024 * 1024;
             <input zzFileFieldInput id="file-zone-input" />
           </label>
           <p zzFileFieldValue id="file-zone-value"></p>
+          <button zzFileFieldClear aria-label="Remove the attachment" id="file-zone-clear"></button>
         </div>
         @if (attachmentField.state.errorsShown()) {
           <p zzFieldError id="file-zone-error">{{ attachmentField.state.errors()[0]?.message }}</p>
@@ -527,6 +529,11 @@ const MB = 1024 * 1024;
           Choose file <input zzFileFieldInput id="file-locked-button-input" />
         </label>
         <p zzFileFieldValue id="file-locked-button-value"></p>
+        <button
+          zzFileFieldClear
+          aria-label="Remove the locked file"
+          id="file-locked-button-clear"
+        ></button>
       </div>
       <button zzButton type="button" (click)="fillLocked()" id="file-locked-fill">
         Fill the locked field
@@ -538,16 +545,8 @@ const MB = 1024 * 1024;
             Upload logo <input zzFileFieldInput accept="image/*" id="file-primary-input" />
           </label>
           <p zzFileFieldValue id="file-primary-value"></p>
+          <button zzFileFieldClear aria-label="Remove the logo" id="file-primary-clear"></button>
         </div>
-        <button
-          zzButton
-          variant="ghost"
-          type="button"
-          (click)="logo.set(null)"
-          id="file-primary-clear"
-        >
-          Clear
-        </button>
       </div>
 
       <div zzFileField [(value)]="statement" class="w-60" id="file-narrow">
