@@ -303,6 +303,7 @@ export const inventory = {
     "OrigamiFileFieldState",
     "OrigamiFileFieldInput",
     "OrigamiFileFieldDropZone",
+    "OrigamiFileFieldClear",
   ],
   progress: ["OrigamiProgress", "OrigamiProgressOptions", "OrigamiProgressState"],
   avatar: [

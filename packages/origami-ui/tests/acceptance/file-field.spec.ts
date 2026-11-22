@@ -177,6 +177,7 @@ async function describeBilling(page: Page): Promise<Record<string, unknown>> {
       return attributes;
     };
     const byTestId = (id: string) => document.querySelector(`[data-testid="${id}"]`)!;
+    const clearAttributes = ["type", "disabled", "aria-disabled", "data-disabled"];
 
     return {
       input: read(byTestId("billing-input"), [
@@ -201,6 +202,8 @@ async function describeBilling(page: Page): Promise<Record<string, unknown>> {
       image: read(byTestId("image-input"), ["type", "id", "aria-describedby", "aria-required"]),
       imageLabelFor: document.querySelector("#image-label")!.getAttribute("for"),
       disabled: read(byTestId("disabled-input"), ["type", "disabled"]),
+      imageClear: read(byTestId("image-clear"), clearAttributes),
+      disabledClear: read(byTestId("disabled-clear"), clearAttributes),
     };
   });
 }
@@ -242,6 +245,18 @@ test("FF2 server HTML and hydration: the Input is the Field's named, described, 
     },
     imageLabelFor: imageId,
     disabled: { type: "file", disabled: "" },
+    imageClear: {
+      type: "button",
+      disabled: null,
+      "aria-disabled": null,
+      "data-disabled": null,
+    },
+    disabledClear: {
+      type: "button",
+      disabled: "",
+      "aria-disabled": "true",
+      "data-disabled": "",
+    },
   });
 
   expect(await describeBilling(page)).toEqual(server);
@@ -255,6 +270,10 @@ test("FF2 server HTML and hydration: the Input is the Field's named, described, 
     "image-input",
   );
   await expect(out(page, "disabled-input")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Αφαίρεση εικόνας" })).toHaveAttribute(
+    "data-testid",
+    "image-clear",
+  );
 });
 
 test("FF3 picker and keyboard: a zone click picks once and touches, Space and Enter open the chooser, the same file again, and a null write re-arms it", async ({
@@ -789,6 +808,52 @@ test("FF7 focus leaving the Input before its root's first render touches once th
   await expect(out(page, "dropped-sets")).toHaveText("0");
 });
 
+test("FF7 a Clear clicked before its block hydrates does nothing once replayed: an empty field stays empty, untouched, and focus stays where the user moved it", async ({
+  page,
+}, info) => {
+  await hydrateAfter(
+    page,
+    info,
+    async () => {
+      await out(page, "image-clear").click();
+      await out(page, "before-fields").click();
+    },
+    { url: "/file-field?hold-stability", holdChunks: true },
+  );
+  await releaseReplay(page);
+  await expect(out(page, "before-fields")).toBeFocused();
+  await expect(out(page, "image-value")).toHaveText("null");
+  await expect(out(page, "image-writes")).toHaveText("0");
+  await expect(out(page, "image-touches")).toHaveText("0");
+});
+
+test("FF7 a pick and then a Clear before the block hydrates keep the adopted pick: the replayed click doesn't empty the field or move focus", async ({
+  page,
+}, info) => {
+  const early = await diskFile(info, "early.png", 4);
+
+  await hydrateAfter(
+    page,
+    info,
+    async () => {
+      const choosing = page.waitForEvent("filechooser");
+
+      await out(page, "image-choose").click();
+      await (await choosing).setFiles(early);
+      await out(page, "image-clear").click();
+      await out(page, "before-fields").click();
+    },
+    { url: "/file-field?hold-stability", holdChunks: true },
+  );
+  await releaseReplay(page);
+  await expect(out(page, "before-fields")).toBeFocused();
+  await expect(out(page, "image-value")).toHaveText("early.png");
+  expect(await nativeFiles(out(page, "image-input"))).toEqual(["early.png"]);
+  await expect(out(page, "image-writes")).toHaveText("1");
+  // The adoption's touch and the Input's replayed blur.
+  await expect(out(page, "image-touches")).toHaveText("2");
+});
+
 test("FF9 split layout: the Label's for and the Input's description follow their hydrate boundaries, a pick in the dehydrated Input is adopted once, and the root's disabled reaches the late Input", async ({
   page,
 }, info) => {
@@ -1162,4 +1227,142 @@ test("FF12 nested roots: the innermost zone owns a drag; an enclosing zone isn't
   expect(await page.evaluate(() => window.ffZoneDrops)).toHaveLength(2);
   await expect(out(page, "nested-inner-value")).toHaveText("copy.pdf");
   await outerUntouched();
+});
+
+test("FF13 a Clear reached without leaving the Input empties an app-written, untouched field without touching it; leaving the Input then touches", async ({
+  page,
+}, info) => {
+  await fixture(page, "file-field", info);
+  await out(page, "billing-write").click();
+  await expect(out(page, "billing-value")).toHaveText("written.pdf");
+  await expect(out(page, "billing-root-value")).toHaveText("written.pdf");
+  await expect.poll(() => nativeFiles(out(page, "billing-input"))).toEqual(["written.pdf"]);
+  await expect(out(page, "billing-touches")).toHaveText("0");
+  await expect(out(page, "billing-touched")).toHaveText("false");
+
+  await moveFocus(out(page, "billing-clear"));
+  await page.keyboard.press("Enter");
+
+  await expect(out(page, "billing-value")).toHaveText("null");
+  await expect(out(page, "billing-root-value")).toHaveText("null");
+  // The app's write emitted nothing; the Clear's is the one valueChange.
+  await expect(out(page, "billing-writes")).toHaveText("1");
+  await expect(out(page, "billing-clear")).toHaveCount(0);
+  await expect(out(page, "billing-input")).toBeFocused();
+  await expect.poll(() => nativeFiles(out(page, "billing-input"))).toEqual([]);
+  await expect(out(page, "billing-touches")).toHaveText("0");
+  await expect(out(page, "billing-touched")).toHaveText("false");
+  await expect(out(page, "billing-error")).toHaveCount(0);
+
+  await page.keyboard.press("Tab");
+  await expect(out(page, "billing-touches")).toHaveText("1");
+  await expect(out(page, "billing-touched")).toHaveText("true");
+  await expect(out(page, "billing-error")).toHaveText("required");
+});
+
+for (const activation of ["pointer", "Enter", "Space"] as const) {
+  test(`FF14 pick, then a Clear by ${activation}: the field, the form and the native input are emptied, focus lands on the Input and required shows at once; the same file then writes again`, async ({
+    page,
+  }, info) => {
+    await fixture(page, "file-field", info);
+
+    const input = out(page, "billing-input");
+    const picked = await diskFile(info, "clear.pdf", 16);
+    const choose = async (): Promise<void> => {
+      const choosing = page.waitForEvent("filechooser");
+
+      await out(page, "billing-zone").click({ position: { x: 300, y: 12 } });
+      await (await choosing).setFiles(picked);
+    };
+
+    await choose();
+    await expect(out(page, "billing-value")).toHaveText("clear.pdf");
+    await expect(out(page, "billing-writes")).toHaveText("1");
+    // A pick touches: the Clear finds the field touched already.
+    await expect(out(page, "billing-touched")).toHaveText("true");
+    await expect(out(page, "billing-clear")).toHaveCount(1);
+
+    let choosers = 0;
+
+    page.on("filechooser", () => {
+      choosers += 1;
+    });
+
+    if (activation === "pointer") {
+      await out(page, "billing-clear").click();
+    } else {
+      await moveFocus(input);
+      await page.keyboard.press("Tab");
+      await expect(out(page, "billing-clear")).toBeFocused();
+      await page.keyboard.press(activation);
+    }
+
+    await expect(out(page, "billing-clear")).toHaveCount(0);
+    await expect(out(page, "billing-value")).toHaveText("null");
+    await expect(out(page, "billing-root-value")).toHaveText("null");
+    await expect(out(page, "billing-writes")).toHaveText("2");
+    await expect(input).toBeFocused();
+    await expect.poll(() => nativeFiles(input)).toEqual([]);
+    await expect(out(page, "billing-error")).toHaveText("required");
+    expect(await input.evaluate((element) => element.matches(":focus-visible"))).toBe(
+      activation !== "pointer",
+    );
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    expect(choosers).toBe(0);
+
+    await choose();
+    await expect(out(page, "billing-value")).toHaveText("clear.pdf");
+    await expect(out(page, "billing-writes")).toHaveText("3");
+  });
+}
+
+test("FF15 an empty field's Clear only focuses the Input; replaced Options' Clear writes the owner's value; a disabled field's Clear is natively disabled and inert", async ({
+  page,
+}, info) => {
+  await fixture(page, "file-field", info);
+
+  // Empty: nothing written, no valueChange, no touch; focus moves to the Input.
+  await out(page, "image-clear").click();
+  await expect(out(page, "image-input")).toBeFocused();
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(out(page, "image-value")).toHaveText("null");
+  await expect(out(page, "image-writes")).toHaveText("0");
+  await expect(out(page, "image-touches")).toHaveText("0");
+
+  // Existing replacement Options: the owner's model and the form are emptied, not the composed
+  // root's own model.
+  await out(page, "owned-input").setInputFiles({
+    name: "owned.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("o"),
+  });
+  await expect(out(page, "owned-value")).toHaveText("owned.pdf");
+  await out(page, "owned-clear").click();
+  await expect(out(page, "owned-value")).toHaveText("null");
+  await expect(out(page, "owned-state")).toHaveText("null");
+  await expect(out(page, "owned-own-value")).toHaveText("null");
+  await expect(out(page, "owned-input")).toBeFocused();
+  await expect.poll(() => nativeFiles(out(page, "owned-input"))).toEqual([]);
+
+  // Disabled: natively disabled with the field; a click writes nothing and moves no focus.
+  const clear = out(page, "disabled-clear");
+
+  await page.getByTestId("disabled-write").click();
+  await expect(out(page, "disabled-value")).toHaveText("model.pdf");
+  await expect(clear).toBeDisabled();
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+  await expect(clear).toHaveAttribute("data-disabled", "");
+  await moveFocus(page.getByTestId("disabled-write"));
+  await clear.evaluate((element: HTMLButtonElement) => element.click());
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(page.getByTestId("disabled-write")).toBeFocused();
+  await expect(out(page, "disabled-value")).toHaveText("model.pdf");
+  await expect(out(page, "disabled-writes")).toHaveText("0");
+  expect(await nativeFiles(out(page, "disabled-input"))).toEqual(["model.pdf"]);
 });

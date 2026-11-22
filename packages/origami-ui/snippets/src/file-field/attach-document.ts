@@ -8,6 +8,7 @@ import {
 } from "@loozo/origami-ui/field";
 import {
   OrigamiFileField,
+  OrigamiFileFieldClear,
   OrigamiFileFieldDropZone,
   OrigamiFileFieldInput,
 } from "@loozo/origami-ui/file-field";
@@ -17,7 +18,8 @@ const MB = 1024 * 1024;
 // A document attached with a comment, as one Signal Form. The drop zone is the label, so a click
 // anywhere on it opens the native picker; the input stays focusable but visually hidden. Size is
 // the form's rule, not the input's `accept`. Uploading is the application's job: Attach hands the
-// file over and resets the form with its values, which also clears the native input.
+// file over and resets the form with its values, which also clears the native input. Remove
+// empties the field and moves focus back to the input; it sits inside the field, outside the label.
 @Component({
   selector: "app-attach-document",
   imports: [
@@ -29,19 +31,23 @@ const MB = 1024 * 1024;
     OrigamiFileField,
     OrigamiFileFieldInput,
     OrigamiFileFieldDropZone,
+    OrigamiFileFieldClear,
   ],
   template: `
     <div ogField #field="ogField" class="stack">
-      <div ogFileField [formField]="attachment.file" #picker="ogFileField">
+      <div ogFileField [formField]="attachment.file" #picker="ogFileField" class="stack">
         <label ogFieldLabel ogFileFieldDropZone class="zone">
           <span class="button">Choose a file</span> or drag it here
           <input ogFileFieldInput class="visually-hidden" accept=".pdf,.png,.jpg" />
         </label>
+        @if (picker.state.value(); as file) {
+          <p class="chosen">
+            {{ file.name }}
+            <button ogFileFieldClear aria-label="Remove the document">Remove</button>
+          </p>
+        }
       </div>
       <p ogFieldDescription>PDF, PNG or JPG, up to 10 MB</p>
-      @if (picker.state.value(); as file) {
-        <p>{{ file.name }}</p>
-      }
       @if (field.state.errorsShown()) {
         @switch (field.state.errors()[0]?.kind) {
           @case ("required") {
@@ -101,6 +107,13 @@ const MB = 1024 * 1024;
       overflow: hidden;
       clip-path: inset(50%);
       white-space: nowrap;
+    }
+
+    .chosen {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0;
     }
 
     .actions {

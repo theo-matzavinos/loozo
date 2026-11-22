@@ -1520,10 +1520,10 @@ import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
   },
   "file-field": {
     imports: `import { FormField, form, required } from "@angular/forms/signals";
-import { OrigamiFileField, OrigamiFileFieldInput, OrigamiFileFieldDropZone, OrigamiFileFieldState } from "@loozo/origami-ui/file-field";
+import { OrigamiFileField, OrigamiFileFieldInput, OrigamiFileFieldDropZone, OrigamiFileFieldClear, OrigamiFileFieldState } from "@loozo/origami-ui/file-field";
 import { OrigamiField, OrigamiFieldLabel } from "@loozo/origami-ui/field";`,
     directives:
-      "FormField, OrigamiFileField, OrigamiFileFieldInput, OrigamiFileFieldDropZone, OrigamiField, OrigamiFieldLabel",
+      "FormField, OrigamiFileField, OrigamiFileFieldInput, OrigamiFileFieldDropZone, OrigamiFileFieldClear, OrigamiField, OrigamiFieldLabel",
     members: `
   readonly attachment = signal<File | null>(null);
   readonly model = signal<{ file: File | null; label: string | null; files: File[] }>({ file: null, label: null, files: [] });
@@ -2542,7 +2542,7 @@ const templates = [
   {
     name: "file-field-positive",
     family: "file-field",
-    template: `<div ogField><div ogFileField #picker="ogFileField" [formField]="form.file" (touch)="touched()" (click)="picker.focus({ preventScroll: true }); fileOutput(picker.state.value()); observeState(picker.state)"><label ogFieldLabel ogFileFieldDropZone>Attachment <input ogFileFieldInput /></label></div></div><div ogFileField ogFileFieldDropZone [(value)]="attachment" (valueChange)="fileOutput($event)" disabled><input ogFileFieldInput aria-label="Attachment" /></div>`,
+    template: `<div ogField><div ogFileField #picker="ogFileField" [formField]="form.file" (touch)="touched()" (click)="picker.focus({ preventScroll: true }); fileOutput(picker.state.value()); observeState(picker.state)"><label ogFieldLabel ogFileFieldDropZone>Attachment <input ogFileFieldInput /></label>@if (picker.state.value()) { <button ogFileFieldClear aria-label="Remove the attachment">×</button> }</div></div><div ogFileField ogFileFieldDropZone [(value)]="attachment" (valueChange)="fileOutput($event)" disabled><input ogFileFieldInput aria-label="Attachment" /></div>`,
   },
   {
     name: "file-field-form-string",
