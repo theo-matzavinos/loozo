@@ -66,7 +66,9 @@ function location(root, node) {
 // `problems` lists anything that would make that check pass without looking: compiler errors
 // (such as a missing module), a public entry with no exports, and exports or references that
 // don't resolve to a declaration.
-function checkDeclarations(root, files) {
+function checkDeclarations(directory, files) {
+  // With / separators, as TypeScript names its source files on every platform.
+  const root = directory.split(sep).join("/");
   const program = ts.createProgram(files, {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
