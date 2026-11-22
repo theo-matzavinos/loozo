@@ -602,7 +602,19 @@ export function createValidationProgram(
 
     return generated.get(path) ?? originalRead(file);
   };
-  host.fileExists = (file) => generated.has(resolve(file)) || originalExists(file);
+  // Memoized for this pass like the overlay host's, past the generated overlay's resolve().
+  const existence = new Map<string, boolean>();
+
+  host.fileExists = (file) => {
+    let found = existence.get(file);
+
+    if (found === undefined) {
+      found = generated.has(resolve(file)) || originalExists(file);
+      existence.set(file, found);
+    }
+
+    return found;
+  };
   host.getSourceFile = (file, language) => {
     const text = host.readFile(file);
 
@@ -1099,6 +1111,13 @@ export async function validateRoutes(
     );
   }
 
+  // Resolution depends only on the mode, the containing directory and the name (TypeScript's
+  // own cache key), so this pass resolves each once and replays its probed candidates.
+  const resolutions = new Map<
+    string,
+    { resolved: ts.ResolvedModuleFull | undefined; candidates: ReadonlySet<string> }
+  >();
+
   for (const source of scanned) {
     if (!generated.has(resolve(source.fileName))) {
       await auditPath(source.fileName);
@@ -1117,43 +1136,53 @@ export async function validateRoutes(
 
       const specifier = reference.specifier!;
       const name = specifier.text;
-      const candidates = new Set<string>();
-      const resolutionHost: ts.ModuleResolutionHost = {
-        ...host,
-        // Omit the optional directory shortcut so native resolution probes files
-        // even below absent directories. Observe only; never invent existence.
-        directoryExists: undefined,
-        fileExists(file) {
-          candidates.add(resolve(file));
-
-          return host.fileExists(file);
-        },
-      };
       let mode = program.getModeForUsageLocation(source, specifier);
 
       if (reference.form === "require" || reference.form === "import =") {
         mode = ts.ModuleKind.CommonJS;
       }
 
-      const resolved = ts.resolveModuleName(
-        name,
-        source.fileName,
-        sources.parsed.options,
-        resolutionHost,
-        undefined,
-        undefined,
-        mode,
-      ).resolvedModule;
+      const key = JSON.stringify([mode, dirname(source.fileName), name]);
+      let resolution = resolutions.get(key);
+
+      if (!resolution) {
+        const probed = new Set<string>();
+        const resolutionHost: ts.ModuleResolutionHost = {
+          ...host,
+          // Omit the optional directory shortcut so native resolution probes files
+          // even below absent directories. Observe only; never invent existence.
+          directoryExists: undefined,
+          fileExists(file) {
+            probed.add(resolve(file));
+
+            return host.fileExists(file);
+          },
+        };
+        const found = ts.resolveModuleName(
+          name,
+          source.fileName,
+          sources.parsed.options,
+          resolutionHost,
+          undefined,
+          undefined,
+          mode,
+        ).resolvedModule;
+
+        if (found) {
+          // A real resolved module wins over earlier failed search candidates.
+          probed.clear();
+          probed.add(resolve(found.resolvedFileName));
+        }
+
+        resolution = { resolved: found, candidates: probed };
+        resolutions.set(key, resolution);
+      }
+
+      const { resolved, candidates } = resolution;
       const file = resolved?.resolvedFileName;
 
       if (file && obsolete.has(resolve(file))) {
         fail(specifier, `Generated import is not a retained owned target: ${name}`);
-      }
-
-      if (file) {
-        // A real resolved module wins over earlier failed search candidates.
-        candidates.clear();
-        candidates.add(resolve(file));
       }
 
       for (const candidate of candidates) {
