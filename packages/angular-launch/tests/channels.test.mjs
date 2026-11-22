@@ -1498,8 +1498,10 @@ test("a channel's stages and requests see the call's signal: the request's until
   }
 });
 
-test("the Node listener answers a caller's pings only while the socket buffers less than 1 MiB", async () => {
-  const mark = 1024 * 1024;
+// A real Node server and a raw `ws` caller on one echo channel. `ping(count, payload)` sends
+// pings and waits until the server saw them; `fill()` stops reading and pings until the server
+// socket buffers 1 MiB.
+async function pingingCaller() {
   const namespaces = {
     chat: {
       build: ({ channel }) => ({
@@ -1539,50 +1541,142 @@ test("the Node listener answers a caller's pings only while the socket buffers l
     origin: base,
   });
   let socket;
+  let pings = 0;
+
+  // Waits for the server's socket and the server to close, so no handle outlives the test.
+  async function close() {
+    const closed = [new Promise((resolve) => server.close(resolve))];
+
+    if (socket !== undefined && socket.readyState !== socket.CLOSED) {
+      closed.push(once(socket, "close"));
+    }
+
+    client.terminate();
+    socket?.terminate();
+    await Promise.all(closed);
+  }
 
   try {
     await once(client, "open");
     socket = await accepted.promise;
+  } catch (error) {
+    await close();
+    throw error;
+  }
 
+  socket.on("ping", () => {
+    pings += 1;
+  });
+
+  async function ping(count, payload = Buffer.alloc(125)) {
+    const target = pings + count;
+
+    for (let index = 0; index < count; index += 1) {
+      client.ping(payload);
+    }
+
+    await until(() => pings === target, `${count} pings`);
+  }
+
+  // The caller stops reading: the server's answers fill the kernel's buffers, then the socket's.
+  async function fill() {
+    client.pause();
+
+    for (let sent = 0; socket.bufferedAmount < pingMark; sent += 1) {
+      assert.ok(sent < 1000, "the socket's buffer never reached the mark");
+      await ping(1000);
+    }
+  }
+
+  return { client, socket, ping, fill, close };
+}
+
+const pingMark = 1024 * 1024;
+
+test("the Node listener answers a caller's pings only while the socket buffers less than 1 MiB", async () => {
+  const { client, socket, ping, fill, close } = await pingingCaller();
+
+  try {
     // A caller that reads gets its pong.
     const pong = once(client, "pong");
 
     client.ping("hello");
     assert.equal(String((await pong)[0]), "hello");
 
-    let pings = 0;
-
-    socket.on("ping", () => {
-      pings += 1;
-    });
-
-    async function ping(count) {
-      const payload = Buffer.alloc(125);
-      const target = pings + count;
-
-      for (let index = 0; index < count; index += 1) {
-        client.ping(payload);
-      }
-
-      await until(() => pings === target, `${count} pings`);
-    }
-
-    // The caller stops reading: the server's answers fill the kernel's buffers, then the socket's.
-    client.pause();
-
-    for (let sent = 0; socket.bufferedAmount < mark; sent += 1) {
-      assert.ok(sent < 1000, "the socket's buffer never reached the mark");
-      await ping(1000);
-    }
+    await fill();
 
     // About 2 MiB more pings add no more than one answer.
     await ping(16_000);
-    assert.ok(socket.bufferedAmount < mark + 256, `buffered ${socket.bufferedAmount}`);
+    assert.ok(socket.bufferedAmount < pingMark + 256, `buffered ${socket.bufferedAmount}`);
     assert.equal(socket.readyState, socket.OPEN);
   } finally {
+    await close();
+  }
+});
+
+test("the Node listener answers the latest ping sent over 1 MiB once the caller reads", async () => {
+  const { client, socket, ping, fill, close } = await pingingCaller();
+  const late = [];
+
+  client.on("pong", (data) => {
+    if (String(data).startsWith("late")) {
+      late.push(String(data));
+    }
+  });
+
+  try {
+    await fill();
+
+    for (let index = 0; index < 10; index += 1) {
+      await ping(1, `late ${index}`);
+    }
+
+    assert.ok(socket.bufferedAmount >= pingMark, `buffered ${socket.bufferedAmount}`);
+    client.resume();
+    await until(() => late.length > 0, "the latest ping's pong");
+    // Several more 50 ms checks: no other answer follows.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(late, ["late 9"]);
+    assert.ok(socket.bufferedAmount < pingMark, `buffered ${socket.bufferedAmount}`);
+
+    // Under the mark again, a ping is answered at once.
+    const pong = once(client, "pong");
+
+    client.ping("hello");
+    assert.equal(String((await pong)[0]), "hello");
+  } finally {
+    await close();
+  }
+});
+
+test("the Node listener stops waiting to answer a ping when the socket closes", async () => {
+  function timers() {
+    let count = 0;
+
+    for (const resource of process.getActiveResourcesInfo()) {
+      if (resource === "Timeout") {
+        count += 1;
+      }
+    }
+
+    return count;
+  }
+
+  const before = timers();
+  const { client, socket, ping, fill, close } = await pingingCaller();
+
+  try {
+    await fill();
+    await ping(1, "late");
+    assert.ok(socket.bufferedAmount >= pingMark, `buffered ${socket.bufferedAmount}`);
+
+    const closed = once(socket, "close");
+
     client.terminate();
-    socket?.terminate();
-    server.close();
+    await closed;
+    assert.equal(timers(), before);
+  } finally {
+    await close();
   }
 });
 

@@ -1,7 +1,7 @@
 import { parseJson, serializeJson } from "../json.js";
 import { MessageRefused, type ChannelInbox } from "./channel-messages.js";
 import { invalidInput, type Reply } from "./dispatch.js";
-import { bufferedMark } from "./buffered-mark.js";
+import { bufferedMark, bufferedPollMs } from "./buffered-mark.js";
 import { failureFrame, settleStopped, type StreamStart } from "./event-stream.js";
 import type { InputIssue } from "../input-issues.js";
 
@@ -9,8 +9,6 @@ import type { InputIssue } from "../input-issues.js";
 export const valueWindow = 256;
 /** How many messages the caller sends before the server must grant more. */
 export const messageWindow = 32;
-/** How often the server checks whether the socket's buffer drained below the mark. */
-export const bufferedPollMs = 50;
 
 // WebSocket readyState values; the WebSocket global isn't on every server runtime.
 const connecting = 0;

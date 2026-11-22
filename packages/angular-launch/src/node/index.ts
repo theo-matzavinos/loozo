@@ -2,7 +2,7 @@
 import { STATUS_CODES, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket as NodeWebSocket } from "ws";
-import { bufferedMark } from "../server/buffered-mark.js";
+import { bufferedMark, bufferedPollMs } from "../server/buffered-mark.js";
 import type { Upgrade } from "../server/upgrade.js";
 import { upgradeListenerSlot } from "./upgrade-listener-slot.js";
 
@@ -80,14 +80,46 @@ async function writeResponse(socket: Duplex, response: Response): Promise<void> 
 
 function ignore(): void {}
 
-// Answers the caller's pings while the socket buffers less than the mark. ws's own answers
-// ignore the buffer, so a caller that pings without reading would grow it without bound.
+// Answers the caller's pings without growing the socket's buffer past the mark. ws's own
+// answers ignore the buffer, so a caller that pings without reading would grow it without
+// bound. While the socket buffers the mark or more, only the latest ping is kept and answered
+// once the buffer drains (RFC 6455 §5.5.3 allows answering only the most recent ping).
 function answerPings(socket: NodeWebSocket): void {
-  socket.on("ping", (data) => {
-    if (socket.readyState === socket.OPEN && socket.bufferedAmount < bufferedMark) {
-      socket.pong(data);
+  let pending: Buffer | undefined;
+  let poll: ReturnType<typeof setTimeout> | undefined;
+
+  function answerPending(): void {
+    poll = undefined;
+
+    if (socket.bufferedAmount >= bufferedMark) {
+      poll = setTimeout(answerPending, bufferedPollMs);
+
+      return;
     }
+
+    const data = pending!;
+
+    pending = undefined;
+    socket.pong(data);
+  }
+
+  socket.on("ping", (data) => {
+    if (socket.readyState !== socket.OPEN) {
+      return;
+    }
+
+    // A pending answer goes out first, so a later ping waits for it and replaces it.
+    if (pending === undefined && socket.bufferedAmount < bufferedMark) {
+      socket.pong(data);
+
+      return;
+    }
+
+    // A copy: ws's payload is a view of the whole chunk the ping arrived in.
+    pending = Buffer.from(data);
+    poll ??= setTimeout(answerPending, bufferedPollMs);
   });
+  socket.on("close", () => clearTimeout(poll));
 }
 
 // Terminates a socket that didn't answer the previous ping.
@@ -124,8 +156,9 @@ function keepAlive(socket: NodeWebSocket): void {
  * server's other `upgrade` listeners, such as a dev server's. A `Response` is written to the
  * socket, which then closes. An `Upgrade` is accepted with `ws`, with its headers on the `101`,
  * unless the client already left. Accepted sockets are pinged every 15 s and terminated when
- * they miss the answer. A caller's own pings are answered only while the socket buffers less
- * than 1 MiB of unsent data, so one that pings without reading can't grow the buffer.
+ * they miss the answer. A caller's own pings are answered at once while the socket buffers less
+ * than 1 MiB of unsent data; past that, only the latest one is answered, once the buffer drains
+ * under 1 MiB, so one that pings without reading can't grow the buffer.
  *
  * Under `ng serve`, Launch's serve builder forwards `/_rpc/` upgrades to the latest listener
  * created, so attaching it where your built server listens is all the wiring there is.
