@@ -1077,6 +1077,8 @@ withFallback(remembered(numberParam, "a"), 1);
 arrayParam(remembered(numberParam, "a"));
 // @ts-expect-error Remembered codecs are search-only.
 defineRoute("remembered/$id", { params: { id: remembered(numberParam, "id") } });
+// @ts-expect-error A remembered codec doesn't promise the wrapped codec's extra members.
+void remembered({ ...stringParam, label: "workspace" }, "label").label;
 // The storage adapter and the restore view are plain types.
 const memory = new Map<string, string>();
 const storage: SearchStorage = {

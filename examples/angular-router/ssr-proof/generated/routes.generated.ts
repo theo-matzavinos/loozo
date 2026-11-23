@@ -4,6 +4,7 @@ import type { Routes } from '@angular/router';
 import { record, callbacks, owned, redirect, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route__workspace_route } from "../src/routes/+workspace/route.generated.js";
 import { route as route_handle_only_$id_route } from "../src/routes/handle-only/$id/route.generated.js";
+import { route as route_old_order_$id_route } from "../src/routes/old-order/$id/route.generated.js";
 import { route as route_old_orders_route } from "../src/routes/old-orders/route.generated.js";
 import { route as route_other_route } from "../src/routes/other/route.generated.js";
 import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
@@ -20,6 +21,7 @@ import { destination as destination__workspace_route } from "../src/routes/+work
 import { destination as destination_handle_only_$id_route } from "../src/routes/handle-only/$id/destination.generated.js";
 import { destination as destination_login_route } from "../src/routes/login/destination.generated.js";
 import { destination as destination_not_found_route } from "../src/routes/not-found/destination.generated.js";
+import { destination as destination_old_order_$id_route } from "../src/routes/old-order/$id/destination.generated.js";
 import { destination as destination_old_orders_route } from "../src/routes/old-orders/destination.generated.js";
 import { destination as destination_other_route } from "../src/routes/other/destination.generated.js";
 import { destination as destination_teams_$teamId_items_$id_legacy_route } from "../src/routes/teams/$teamId/items/$id/legacy/destination.generated.js";
@@ -30,7 +32,11 @@ import { destination as destination_teams_$teamId_route } from "../src/routes/te
  * Generated native Angular route configuration; install with provideRouter(routes).
  * Regenerate through the router's Architect companions instead of editing this file.
  */
-export const routes: Routes = [{ path: "old-orders",
+export const routes: Routes = [{ path: "old-order/:id",
+pathMatch: 'full',
+...record(destination_old_order_$id_route),
+redirectTo: redirect(route_old_order_$id_route) },
+{ path: "old-orders",
 pathMatch: 'full',
 ...record(destination_old_orders_route),
 redirectTo: redirect(route_old_orders_route) },

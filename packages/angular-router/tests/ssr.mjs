@@ -3112,6 +3112,7 @@ const proofStorage = new InjectionToken<SearchStorage>("proof storage", {
           done({
             status: response.statusCode,
             location,
+            vary: response.headers.vary ?? null,
             starts: Number(response.headers["x-navigation-starts"] ?? 0),
             searchCookies,
             otherCookies,
@@ -3184,6 +3185,31 @@ const proofStorage = new InjectionToken<SearchStorage>("proof storage", {
     assert.equal(missingAgain.status, 404, label);
     assert.equal(missingAgain.starts, 2, label);
     assert.deepEqual(missingAgain.searchCookies, [], label);
+
+    // A typed redirect into a missing order: after the retry, the not-found page answers at the
+    // requested URL, with and without a remembered value.
+    const aliased = await observe("aliased", "/old-order/42", "search.orders.pageSize=50");
+    const aliasedBare = await observe("aliasedBare", "/old-order/42");
+
+    for (const [response, cookies] of [
+      [aliased, [deletion]],
+      [aliasedBare, []],
+    ]) {
+      assert.equal(response.status, 404, label);
+      assert.equal(response.location, null, label);
+      assert.equal(response.notFound, true, label);
+      assert.deepEqual(response.searchCookies, cookies, label);
+    }
+
+    // Pages that use a remembered key vary on the cookies, redirects included; others don't.
+    const plain = await observe("plain", "/login");
+
+    for (const response of [first, recovered, recoveredAgain, missing]) {
+      assert.match(response.vary ?? "", /(?:^|,\s*)Cookie(?:\s*,|$)/, label);
+    }
+
+    assert.doesNotMatch(plain.vary ?? "", /Cookie/, label);
+    assert.equal(plain.status, 200, label);
 
     // One render commits 50, 100 and 50 again under PendingTasks: the response carries 100 then
     // 50, in order, and the page renders the last commit.

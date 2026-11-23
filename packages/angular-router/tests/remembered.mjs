@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
 const repository = resolve(packageDirectory, "../..");
 
-const proof = `import { inject, type EnvironmentProviders, makeEnvironmentProviders, provideEnvironmentInitializer } from '@angular/core';
+const proof = `import { ErrorHandler, inject, type EnvironmentProviders, makeEnvironmentProviders, provideEnvironmentInitializer } from '@angular/core';
 import { EventType, RedirectCommand, Router, type ActivatedRouteSnapshot, type RouterStateSnapshot } from '@angular/router';
 import { EMPTY } from 'rxjs';
 import type { SearchStorage } from '@loozo/angular-router';
@@ -32,7 +32,16 @@ export const proof: any = ((window as any).remember ??= {
   handled: [],
   views: [],
   storageMode: 'ok',
+  reported: [],
 });
+
+/** Angular's ErrorHandler, recording each error's message first. */
+class RecordingErrorHandler extends ErrorHandler {
+  override handleError(error: any): void {
+    proof.reported.push(String(error?.message ?? error));
+    super.handleError(error);
+  }
+}
 
 function op(kind: string, id: string, text?: string) {
   const entry: any = { op: kind, id, pending: [...proof.pending] };
@@ -50,7 +59,7 @@ export function proofStorage(): SearchStorage {
     read(id) {
       op('read', id);
 
-      if (proof.storageMode === 'throw-read') {
+      if (proof.storageMode === 'throw-read' || proof.storageMode === 'throw-read:' + id) {
         throw new Error('storage read failed');
       }
 
@@ -58,6 +67,11 @@ export function proofStorage(): SearchStorage {
     },
     write(id, text) {
       op('write', id, text);
+
+      if (proof.storageMode === 'throw-write:' + id) {
+        throw new Error('storage write failed: ' + id);
+      }
+
       proof.memory.set(id, text);
     },
     forget(id) {
@@ -185,6 +199,15 @@ export function bounce(key: string, target: string) {
   };
 }
 
+// After the not-found handler recovered, sends the retry on to another owner, /orders.
+export function hopAfterRecovery() {
+  if (proof.controls.hop === 'orders' && proof.handled.length > 0) {
+    return new RedirectCommand(inject(Router).parseUrl('/orders'));
+  }
+
+  return true;
+}
+
 export function refuse() {
   return false;
 }
@@ -210,6 +233,7 @@ export function missingWhen(key: string, missing: number) {
 /** Records router events, and navigates again from a NavigationEnd when a row asks. */
 export function proofProviders(): EnvironmentProviders {
   return makeEnvironmentProviders([
+    { provide: ErrorHandler, useClass: RecordingErrorHandler },
     provideEnvironmentInitializer(() => {
       const router = inject(Router);
 
@@ -315,7 +339,7 @@ const routes = [
   ],
   [
     "+shell/+density/recover",
-    "defineRoute('recover', { parent, search: { size: remembered(withFallback(numberParam, 20), 'recover.size') } }).resolve({ size: missingWhen('size', 99) })",
+    "defineRoute('recover', { parent, search: { size: remembered(withFallback(numberParam, 20), 'recover.size') } }).canActivate([hopAfterRecovery]).resolve({ size: missingWhen('size', 99) })",
   ],
   [
     "+shell/+density/recover/$id",
@@ -451,7 +475,7 @@ export async function rememberedFixture(evidence) {
     await writeFile(
       join(folder, "definition.ts"),
       `import { arrayParam, defineRoute, numberParam, remembered, retained, stringParam, withFallback } from '@loozo/angular-router';
-import { ancestorPolicy, bounce, fail, guard, missingWhen, ownerSymbol, refuse, resolver, title } from '${"../".repeat(depth)}proof.js';
+import { ancestorPolicy, bounce, fail, guard, hopAfterRecovery, missingWhen, ownerSymbol, refuse, resolver, title } from '${"../".repeat(depth)}proof.js';
 ${parent}
 export default ${expression};
 `,
@@ -516,6 +540,7 @@ export async function reset(tab, { memory = {}, from = "/outside", controls = {}
       proof.handled = [];
       proof.constructed = [];
       proof.storageMode = "ok";
+      proof.reported = [];
       proof.memory = new Map(Object.entries(seed));
       proof.controls = set;
     },

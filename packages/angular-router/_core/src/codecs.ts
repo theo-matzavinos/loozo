@@ -61,7 +61,11 @@ export type ArrayCodec<Value> = ParamCodec<Value> & {
   readonly [searchArray]: true;
 };
 /** The search brands a codec carries. */
-type SearchBrand = typeof searchFallback | typeof searchArray | typeof searchRetained;
+type SearchBrand =
+  | typeof searchFallback
+  | typeof searchArray
+  | typeof searchRetained
+  | typeof searchRemembered;
 /**
  * A wrapper of `Codec`: a codec of its value type with its search brands, and none of its
  * other members, which a wrapper doesn't copy.
@@ -80,7 +84,7 @@ export type RetainedCodec<Codec> = CodecWrapper<Codec> & {
  * back into the URL when a navigation enters the key's owner without it; reads and URL
  * creation are the wrapped codec's.
  */
-export type RememberedCodec<Codec> = Codec & {
+export type RememberedCodec<Codec> = CodecWrapper<Codec> & {
   readonly [searchRemembered]: true;
 };
 /** A codec `retained` may wrap: one that isn't retained already. */

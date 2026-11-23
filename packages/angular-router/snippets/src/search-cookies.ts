@@ -30,34 +30,43 @@ export function cookieSearchStorage(): SearchStorage {
   const response = inject(RESPONSE_INIT);
   // What this response leaves in the browser: the request's cookies, then every write and forget.
   const effective = cookies(request?.headers.get("cookie") ?? "");
+  let varied = false;
 
-  function append(value: string): void {
+  // Angular builds the response, and its redirects, from these headers: keep the object.
+  function headers(): Headers | undefined {
     if (!response) {
-      return;
+      return undefined;
     }
 
-    // Angular builds the response, and its redirects, from these headers: keep the object.
-    let headers = response.headers;
-
-    if (!(headers instanceof Headers)) {
-      headers = new Headers(headers);
-      response.headers = headers;
+    if (!(response.headers instanceof Headers)) {
+      response.headers = new Headers(response.headers);
     }
 
-    headers.append("Set-Cookie", value);
+    return response.headers;
+  }
+
+  // A page that uses remembered values answers each visitor's cookies: a redirect, the fallback
+  // page or a Set-Cookie. Keep shared caches from reusing it for another visitor.
+  function use(): Map<string, string> {
+    if (!varied) {
+      varied = true;
+      headers()?.append("Vary", "Cookie");
+    }
+
+    return effective;
   }
 
   return {
-    read: (id) => effective.get(`search.${id}`),
+    read: (id) => use().get(`search.${id}`),
     write: (id, text) => {
-      if (effective.get(`search.${id}`) !== text) {
+      if (use().get(`search.${id}`) !== text) {
         effective.set(`search.${id}`, text);
-        append(`search.${id}=${text}; ${attributes}`);
+        headers()?.append("Set-Cookie", `search.${id}=${text}; ${attributes}`);
       }
     },
     forget: (id) => {
-      if (effective.delete(`search.${id}`)) {
-        append(`search.${id}=; Path=/; Max-Age=0`);
+      if (use().delete(`search.${id}`)) {
+        headers()?.append("Set-Cookie", `search.${id}=; Path=/; Max-Age=0`);
       }
     },
   };

@@ -4114,6 +4114,70 @@ try {
   remembered.thrown = thrown;
   assert.equal(thrown, "error: storage read failed");
 
+  // A read that throws after an earlier key's value was collected: the navigation fails, and
+  // the collected value, never applied, is kept.
+  await reset(tab, { memory: { density: "d", "recover.size": "30" } });
+
+  const partial = await tab.evaluate(async () => {
+    const proof = window.remember;
+
+    proof.storageMode = "throw-read:recover.size";
+
+    return {
+      result: await proof.go("/recover"),
+      ops: proof.ops.map((entry) => `${entry.op} ${entry.id}`),
+      memory: Object.fromEntries(proof.memory),
+    };
+  });
+
+  remembered.partial = partial;
+  assert.deepEqual(partial, {
+    result: "error: storage read failed",
+    ops: ["read density", "read recover.size"],
+    memory: { density: "d", "recover.size": "30" },
+  });
+
+  // After the handler's recovery, a redirect into another owner restores nothing there: the
+  // retry reads no stored value, and the bare URL's commit forgets it as any commit does.
+  const hopped = await enter("/recover", {
+    memory: { "recover.size": "99", "orders.pageSize": "50" },
+    controls: { hop: "orders" },
+  });
+
+  remembered.hopped = hopped;
+  assert.equal(hopped.result, true);
+  assert.equal(hopped.url, "/orders");
+  assert.deepEqual(
+    hopped.ops.filter((entry) => entry.op === "read").map((entry) => entry.id),
+    ["density", "recover.size"],
+  );
+  assert.deepEqual(hopped.memory, {});
+
+  // A write that throws at a commit reaches Angular's ErrorHandler; the navigation succeeds
+  // and the other keys are still written.
+  await reset(tab, {});
+
+  const failedWrite = await tab.evaluate(async () => {
+    const proof = window.remember;
+
+    proof.storageMode = "throw-write:density";
+
+    return {
+      result: await proof.go("/recover?density=d&size=30"),
+      ops: proof.ops.map((entry) => `${entry.op} ${entry.id}`),
+      memory: Object.fromEntries(proof.memory),
+      reported: proof.reported,
+    };
+  });
+
+  remembered.failedWrite = failedWrite;
+  assert.deepEqual(failedWrite, {
+    result: true,
+    ops: ["write density", "write recover.size"],
+    memory: { "recover.size": "30" },
+    reported: ["storage write failed: density"],
+  });
+
   // Two keys of one chain under one id: the lazily loaded child's destination fails the entering
   // navigation before any guard or storage operation.
   const duplicate = await enter("/dup/child", { memory: { "dup.id": "1" } });

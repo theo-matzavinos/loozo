@@ -55,13 +55,21 @@ function restore(
   state: RouterStateSnapshot,
   keys: ReturnType<typeof rememberedKeys>,
 ): true | RedirectCommand {
+  const chain = store.chain!;
+
+  // After the chain's recovery, nothing is restored until the chain ends.
+  if (chain.recovered) {
+    return true;
+  }
+
   // During resolution the router's state is still the one being left.
   const current = stateOwners(router.routerState.snapshot.root);
-  const chain = store.chain!;
   const query = state.root.queryParamMap;
   // No prototype: a key named like an inherited setter (`__proto__`) stays an own key.
   const restored: Record<string, string | readonly string[]> = Object.create(null);
-  let collected = false;
+  // Recorded as restored only once the redirect is built: a later read that throws fails the
+  // navigation, and the chain's failure then forgets only what earlier restores applied.
+  const ids: string[] = [];
 
   for (const { key, codec, id, owner } of keys) {
     if (current.has(owner) || query.has(key) || chain.read.has(id)) {
@@ -79,13 +87,12 @@ function restore(
     const raws = storedValues(codec, text);
 
     if (raws === undefined) {
-      store.storage.forget(id);
+      store.forget(id);
 
       continue;
     }
 
-    chain.ids.add(id);
-    collected = true;
+    ids.push(id);
 
     if (isArrayCodec(codec)) {
       restored[key] = raws;
@@ -94,15 +101,22 @@ function restore(
     }
   }
 
-  if (!collected) {
+  if (ids.length === 0) {
     return true;
   }
-
-  chain.originalUrl ??= state.url;
 
   // A fresh tree: the parsed one caches its queryParamMap. Spreading defines own keys.
   const parsed = router.parseUrl(state.url);
   const target = new UrlTree(parsed.root, { ...parsed.queryParams, ...restored }, parsed.fragment);
+  const redirect = new RedirectCommand(target, {
+    state: router.currentNavigation()?.extras.state,
+  });
 
-  return new RedirectCommand(target, { state: router.currentNavigation()?.extras.state });
+  for (const id of ids) {
+    chain.ids.add(id);
+  }
+
+  chain.originalUrl ??= state.url;
+
+  return redirect;
 }

@@ -1,5 +1,6 @@
 import {
   DestroyRef,
+  ErrorHandler,
   InjectionToken,
   inject,
   makeEnvironmentProviders,
@@ -49,6 +50,7 @@ export class SearchStore {
   /** The current navigation's restore decision, made once by the first gate Angular calls. */
   decided: { readonly id: number; readonly result: true | RedirectCommand } | undefined;
   readonly #router = inject(Router);
+  readonly #errors = inject(ErrorHandler);
   // Set by the chain's redirect cancellation; the next NavigationStart continues the chain.
   #continuing = false;
   #lastProcessed = 0;
@@ -59,6 +61,11 @@ export class SearchStore {
     const subscription = this.#router.events.subscribe((event) => this.#observe(event));
 
     inject(DestroyRef).onDestroy(() => subscription.unsubscribe());
+  }
+
+  /** Forgets `id`, sending an adapter failure to Angular's ErrorHandler like every forget. */
+  forget(id: string): void {
+    this.#report(() => this.storage.forget(id));
   }
 
   /** The chain's retry, while its current navigation can still take it. */
@@ -86,7 +93,7 @@ export class SearchStore {
 
         // The ids stay in the chain, so the retry restores none of them again.
         for (const id of chain.ids) {
-          this.storage.forget(id);
+          this.forget(id);
         }
       },
     });
@@ -164,7 +171,17 @@ export class SearchStore {
   // can't fail every later entry. Superseded and aborted chains keep their values.
   #forgetRestored(chain: RedirectChain): void {
     for (const id of chain.ids) {
-      this.storage.forget(id);
+      this.forget(id);
+    }
+  }
+
+  // Router events reach no navigation's error path: an adapter's write or forget failure goes
+  // to Angular's ErrorHandler, and the remaining operations and the chain's bookkeeping go on.
+  #report(operation: () => void): void {
+    try {
+      operation();
+    } catch (error) {
+      this.#errors.handleError(error);
     }
   }
 
@@ -196,9 +213,9 @@ export class SearchStore {
       const text = storedText(codec, root.queryParamMap.getAll(key));
 
       if (text === undefined) {
-        this.storage.forget(storageId);
+        this.forget(storageId);
       } else {
-        this.storage.write(storageId, text);
+        this.#report(() => this.storage.write(storageId, text));
       }
     }
   }

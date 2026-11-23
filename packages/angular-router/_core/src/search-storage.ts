@@ -5,9 +5,9 @@
  * Pass a factory returning one to `provideSearchStorage()` from `routes.generated.ts`; it runs
  * once per application, in its environment injection context (once per request on the
  * server). The router stores each value as text that is a valid cookie value and storage
- * value as is, under the id `remembered` was given. The adapter owns its platform checks and
- * its failures: the router doesn't catch them, so a throw from `read` fails the navigation
- * that restores, and a throw from `write` or `forget` reaches Angular's `ErrorHandler`.
+ * value as is, under the id `remembered` was given. The adapter owns its platform checks. A
+ * throw from `read` fails the navigation that restores; the router reports a throw from
+ * `write` or `forget` to Angular's `ErrorHandler` and carries on with the other keys.
  *
  * @example
  * ```ts
