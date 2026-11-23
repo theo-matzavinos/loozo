@@ -44,10 +44,15 @@ const cases = [
   { input: [10, 40, 40, 20, 30, omitted], expected: "suboptimum" },
   { input: [0, 100, 70, 60, 80, omitted], expected: "suboptimum" },
   { input: [0, 140, 70, 60, 80, omitted], expected: "optimum" },
+  // The midpoint of -0.2 and 1.2 is exactly the low threshold, as native <meter> computes it.
+  { input: [-0.2, 1.2, 0.9, 0.5, 0.8, omitted], expected: "suboptimum" },
 
   // Empty and huge ranges.
   { input: [20, 20, 20, 50, 0, 100], expected: "optimum" },
   { input: [-1e308, 1e308, 5e307, -1, 1, omitted], expected: "suboptimum" },
+  // A sum that overflows: the midpoint, 1.3e308, still sits inside the band.
+  { input: [1e308, 1.6e308, 1.5e308, 1.2e308, 1.4e308, omitted], expected: "suboptimum" },
+  { input: [1e308, 1.6e308, 1.3e308, 1.2e308, 1.4e308, omitted], expected: "optimum" },
 
   // Raw bounds that Origami normalizes: max raised to min, non-finite bounds defaulted.
   { input: [20, 10, 20, 20, omitted, omitted], expected: "optimum" },

@@ -41,11 +41,12 @@ export function meterRegion(
 
   let optimumPoint = optimum;
   if (!Number.isFinite(optimumPoint)) {
-    const span = max - min;
-    if (Number.isFinite(span)) {
-      optimumPoint = min + span / 2;
+    // Blink's (min + max) / 2, so a midpoint on a fractional threshold lands on it exactly; the
+    // sum of a huge range overflows, and halving each bound first doesn't.
+    const sum = min + max;
+    if (Number.isFinite(sum)) {
+      optimumPoint = sum / 2;
     } else {
-      // The span of a huge range overflows; halving each bound first doesn't.
       optimumPoint = min / 2 + max / 2;
     }
   }
