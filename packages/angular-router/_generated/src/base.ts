@@ -1,4 +1,11 @@
-import { PLATFORM_ID, inject } from "@angular/core";
+import {
+  DestroyRef,
+  InjectionToken,
+  PLATFORM_ID,
+  inject,
+  signal,
+  type Signal,
+} from "@angular/core";
 import { Location, isPlatformServer } from "@angular/common";
 import { PRIMARY_OUTLET, Router, UrlTree, type ActivatedRouteSnapshot } from "@angular/router";
 import { destinationRecord, type AnyRoute, type Destination } from "@loozo/angular-router/_core";
@@ -16,6 +23,23 @@ export interface NavigationState {
   readonly owners: ReadonlySet<Destination<AnyRoute>>;
 }
 
+/**
+ * Counts the browser URL changes `Location` reports: the router's writes, eager ones included,
+ * and history traversals. Angular's own navigation signals don't change when it writes the
+ * eager URL, so callers before the first success read this to follow the address bar.
+ */
+const BROWSER_URL_CHANGES = new InjectionToken<Signal<number>>("BROWSER_URL_CHANGES", {
+  providedIn: "root",
+  factory: () => {
+    const changes = signal(0);
+    const remove = inject(Location).onUrlChange(() => changes.update((count) => count + 1));
+
+    inject(DestroyRef).onDestroy(remove);
+
+    return changes.asReadonly();
+  },
+});
+
 const noOwners: ReadonlySet<Destination<AnyRoute>> = new Set();
 // The router state's snapshot or the seed's chain, to the declarations its URL is inside.
 const ownerCache = new WeakMap<object, ReadonlySet<Destination<AnyRoute>>>();
@@ -30,14 +54,17 @@ const ownerCache = new WeakMap<object, ReadonlySet<Destination<AnyRoute>>>();
  * owners come from the router state when that state's URL equals it (Angular installed it
  * for this navigation), else from the published hydration seed when the seed's URL equals
  * it, else there are none. Otherwise the URL and the owners are the router state's. Each
- * call reads `lastSuccessfulNavigation()` and the seed's state, so template and `computed`
- * callers re-run after every success and when the seed changes.
+ * call reads `lastSuccessfulNavigation()` and the seed's state, and before the first success
+ * a count of the browser URL changes `Location` reports, so template and `computed` callers
+ * re-run after every success, when the seed changes and, until the first success, when the
+ * browser URL changes (an eager URL update included).
  */
 export function injectNavigationState(): () => NavigationState {
   const router = inject(Router);
   const location = inject(Location);
   const server = isPlatformServer(inject(PLATFORM_ID));
   const seed = inject(SEED, { optional: true });
+  const urlChanges = server ? undefined : inject(BROWSER_URL_CHANGES);
 
   return () => {
     const success = router.lastSuccessfulNavigation();
@@ -46,6 +73,8 @@ export function injectNavigationState(): () => NavigationState {
     if (success !== null || server) {
       return { tree: router.parseUrl(snapshot.url), owners: stateOwners(snapshot.root) };
     }
+
+    urlChanges?.();
 
     const current = browserUrl(router, location);
     const seedState = seed?.state();

@@ -1042,6 +1042,9 @@ retained(retained(stringParam));
 withFallback(retained(numberParam), 1);
 // @ts-expect-error retained is outermost: arrayParam can't wrap it.
 arrayParam(retained(numberParam));
+// The wrapper copies parse and stringify only, so its type has no other member of the codec.
+// @ts-expect-error A retained codec doesn't promise the wrapped codec's extra members.
+void retained({ ...stringParam, label: "workspace" }).label;
 // @ts-expect-error Retained codecs are search-only.
 defineRoute("retained/$id", { params: { id: retained(numberParam) } });
 defineRoute("articles-replace", {}).redirect({

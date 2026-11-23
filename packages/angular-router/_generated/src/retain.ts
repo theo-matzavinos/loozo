@@ -20,40 +20,33 @@ const noKeys: readonly RetainedKey[] = Object.freeze([]);
 const retainedKeyCache = new WeakMap<Destination<AnyRoute>, readonly RetainedKey[]>();
 
 /**
- * The URL values `link` and `navigate` create the target's URL from: the caller's, plus each
- * retained key of the target that the caller's search omits, copied from the current URL when
- * that URL is inside the key's owner and holds a present valid value.
+ * The retained keys of the target that the caller's search omits, each with the value
+ * `link` and `navigate` copy from the current URL: those whose owner that URL is inside and
+ * that hold a present valid value there. Undefined when none is copied.
  *
  * @remarks
- * A scalar key needs exactly one value that parses to something other than `undefined`; an
- * array key needs at least one value, each parsing. The copy is the parsed value, which
- * `createUrl` stringifies and validates like a caller's. An own `search` entry, `undefined`
- * included, is the caller's choice and is never replaced. Branch destinations take params
- * only and retain nothing. Values the caller's record can't carry are left for `createUrl`
- * to reject.
+ * Call it with values `createUrl` already accepted for the target. A scalar key needs
+ * exactly one value that parses to something other than `undefined`; an array key needs at
+ * least one value, each parsing. The copy is the parsed value, which `withSearch` writes as
+ * `createUrl` would. An own `search` entry, `undefined` included, is the caller's choice and
+ * is never replaced. Branch destinations take params only and retain nothing.
  */
-export function retainedValues(
+export function retainedSearch(
   target: Destination<AnyRoute>,
   values: Readonly<Record<string, unknown>>,
   current: NavigationState,
-): Readonly<Record<string, unknown>> {
+): Readonly<Record<string, unknown>> | undefined {
   const keys = retainedKeys(target);
 
   if (keys.length === 0) {
-    return values;
+    return undefined;
   }
 
-  const search = values.search;
-  const supplied = Object.hasOwn(values, "search");
-
-  if (supplied && (typeof search !== "object" || search === null || Array.isArray(search))) {
-    return values;
-  }
-
-  const copied: Record<string, unknown> = {};
+  const search = values.search as object | undefined;
+  let copied: Record<string, unknown> | undefined;
 
   for (const { key, codec, owner } of keys) {
-    if (supplied && Object.hasOwn(search as object, key)) {
+    if (search !== undefined && Object.hasOwn(search, key)) {
       continue;
     }
 
@@ -64,34 +57,12 @@ export function retainedValues(
     const value = presentValue(codec, current.tree.queryParamMap.getAll(key));
 
     if (value !== undefined) {
+      copied ??= Object.create(null) as Record<string, unknown>;
       copied[key] = value;
     }
   }
 
-  if (Object.keys(copied).length === 0) {
-    return values;
-  }
-
-  let merged: object = Object.create(null);
-
-  // The caller's record exactly as given, so createUrl still checks its prototype and keys.
-  if (supplied) {
-    merged = Object.create(
-      Object.getPrototypeOf(search),
-      Object.getOwnPropertyDescriptors(search),
-    ) as object;
-  }
-
-  for (const key of Object.keys(copied)) {
-    Object.defineProperty(merged, key, {
-      value: copied[key],
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
-
-  return { ...values, search: merged };
+  return copied;
 }
 
 function retainedKeys(target: Destination<AnyRoute>): readonly RetainedKey[] {

@@ -2373,13 +2373,27 @@ try {
 
     await visitPage.waitForFunction(() => window.proofApp !== undefined);
 
-    // The shell's links read now, with what the browser and the router show.
+    // The shell's links read now and as rendered after the next frames, with what the browser
+    // and the router show.
     const read = () =>
-      visitPage.evaluate(() => ({
-        address: location.pathname + location.search,
-        success: window.proofApp.router.lastSuccessfulNavigation() !== null,
-        shell: window.proofApp.retainedHrefs(),
-      }));
+      visitPage.evaluate(async () => {
+        const state = {
+          address: location.pathname + location.search,
+          success: window.proofApp.router.lastSuccessfulNavigation() !== null,
+          shell: window.proofApp.retainedHrefs(),
+        };
+
+        for (let frame = 0; frame < 2; frame += 1) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+
+        const href = (id) => document.querySelector("#" + id)?.getAttribute("href") ?? null;
+
+        return {
+          ...state,
+          rendered: { order: href("shell-order"), otherChild: href("shell-other-child") },
+        };
+      });
     const first = await visitPage.evaluate(() => window.proofFirstRetained);
     const finish = async (extra = {}) => {
       await visitPage.screenshot({ path: join(evidence, `retained-${name}.png`) });
@@ -2490,8 +2504,16 @@ try {
 
       assert.deepEqual(result.serverHrefs, shellHrefs(acmeShell), name);
       assert.deepEqual(result.first, acmeShell, name);
-      assert.deepEqual(held, { address: path, success: false, shell: acmeShell }, name);
-      assert.deepEqual(after, { address: path, success: true, shell: acmeShell }, name);
+      assert.deepEqual(
+        held,
+        { address: path, success: false, shell: acmeShell, rendered: acmeShell },
+        name,
+      );
+      assert.deepEqual(
+        after,
+        { address: path, success: true, shell: acmeShell, rendered: acmeShell },
+        name,
+      );
       assert.deepEqual(result.errors, [], name);
     }
 
@@ -2530,16 +2552,29 @@ try {
 
         // Deferred: the browser still shows A, the seed's URL, so A's owners keep acme. Eager:
         // the browser shows B while neither the router state nor the seed matches it, so
-        // nothing is retained. Never beta copied into A's link.
+        // nothing is retained, in the rendered shell too (it follows the address bar). Never
+        // beta copied into A's link.
         if (strategy === "deferred") {
-          assert.deepEqual(held, { address: path, success: false, shell: acmeShell }, name);
+          assert.deepEqual(
+            held,
+            { address: path, success: false, shell: acmeShell, rendered: acmeShell },
+            name,
+          );
         } else {
-          assert.deepEqual(held, { address: target, success: false, shell: bareShell }, name);
+          assert.deepEqual(
+            held,
+            { address: target, success: false, shell: bareShell, rendered: bareShell },
+            name,
+          );
         }
 
         // B's constructor runs before the first success, against B's installed state.
         assert.deepEqual(constructed, { success: false, page: betaShell, shell: betaShell }, name);
-        assert.deepEqual(after, { address: target, success: true, shell: betaShell }, name);
+        assert.deepEqual(
+          after,
+          { address: target, success: true, shell: betaShell, rendered: betaShell },
+          name,
+        );
         assert.deepEqual(result.errors, [], name);
       }
     }

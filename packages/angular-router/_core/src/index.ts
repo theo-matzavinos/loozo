@@ -44,7 +44,7 @@ export type {
   StepSignature,
   UrlFacts,
 } from "./fluent.js";
-export { branchPath, createUrl } from "./url.js";
+export { branchPath, createUrl, withSearch } from "./url.js";
 export { localeUrls } from "./locale-urls.js";
 export type { LocaleUrl } from "./locale-urls.js";
 export { angularPath } from "./path.js";

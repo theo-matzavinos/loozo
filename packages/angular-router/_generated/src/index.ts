@@ -23,6 +23,7 @@ import {
   createUrl,
   destinationRecord,
   routeMetadata,
+  withSearch,
   type AnyRoute,
   type Branch,
   type OutletOf,
@@ -43,7 +44,7 @@ import { injectNavigationState, type NavigationState } from "./base.js";
 import { compose, type Composition } from "./compose.js";
 import { observeRecord, type RouteView } from "./handle.js";
 import { destinationOf } from "./inputs.js";
-import { retainedValues } from "./retain.js";
+import { retainedSearch } from "./retain.js";
 
 type DataOf<Target> = Target extends { readonly __data?: infer Data } ? Readonly<Data> : never;
 type IsUnion<Value, Whole = Value> = Value extends unknown
@@ -377,7 +378,7 @@ export function addMembers(
 interface Opened {
   readonly destination: Destination<AnyRoute>;
   readonly values: Readonly<Record<string, unknown>>;
-  readonly url: string;
+  readonly url: `/${string}`;
 }
 
 /**
@@ -478,12 +479,12 @@ export function createDestinationHandle<
     if ("close" in target) {
       input = target;
     } else {
-      const retained = retainedValues(target.destination, target.values, state);
-      let url = target.url;
+      const retained = retainedSearch(target.destination, target.values, state);
+      let url: `/${string}` = target.url;
 
-      // Only when a retained key was copied: its parsed value is written like a caller's.
-      if (retained !== target.values) {
-        url = createUrl(target.destination, retained as unknown as UrlValues<AnyRoute>);
+      // The caller's values were read and stringified once, by createUrl; only copies are added.
+      if (retained) {
+        url = withSearch(target.destination, url, retained);
       }
 
       input = { open: router.parseUrl(url) };

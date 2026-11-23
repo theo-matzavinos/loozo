@@ -2001,6 +2001,42 @@ test("link and navigate copy an omitted retained key from the current URL inside
   assert.equal(reads, 0);
   counted.link({ to: order, params: { id: 7 } });
   assert.equal(reads, 1);
+
+  // The caller's values are read and stringified once, also when a retained key is copied: a
+  // path stringifier runs once and a getter reads once, against the caller's own record.
+  let stringified = 0;
+  const countedId = {
+    parse: (raw) => Number(raw),
+    stringify: (value) => {
+      stringified += 1;
+
+      return String(value);
+    },
+  };
+  const counter = defineDestination(
+    "counter/$id",
+    { parent: workspace, params: { id: countedId } },
+    "retain-counter",
+  );
+  let gets = 0;
+  const search = {
+    get plain() {
+      gets += 1;
+
+      return Object.hasOwn(this, "workspace") ? "copied" : "own";
+    },
+  };
+
+  state = {
+    tree: serializer.parse("/orders?workspace=acme&page=2"),
+    owners: new Set([orders, workspace]),
+  };
+  assert.equal(
+    href(page.link({ to: counter, params: { id: 5 }, search })),
+    "/counter/5?page=2&plain=own&workspace=acme",
+  );
+  assert.equal(stringified, 1);
+  assert.equal(gets, 1);
 });
 
 test("extension record stamps carry the copy's runtime and chain, and handle members stay lazy", async () => {
@@ -2710,7 +2746,15 @@ test("the navigation state reads the browser URL before the first success, the r
   await import("@angular/compiler");
 
   const { injectNavigationState, record } = await import("@loozo/angular-router/_generated");
-  const { Injector, PLATFORM_ID, runInInjectionContext, signal } = await import("@angular/core");
+  const {
+    Injector,
+    PLATFORM_ID,
+    computed,
+    createEnvironmentInjector,
+    runInInjectionContext,
+    signal,
+    ɵINJECTOR_SCOPE: INJECTOR_SCOPE,
+  } = await import("@angular/core");
   const { Location } = await import("@angular/common");
   const { DefaultUrlSerializer, Router } = await import("@angular/router");
   const serializer = new DefaultUrlSerializer();
@@ -2745,23 +2789,44 @@ test("the navigation state reads the browser URL before the first success, the r
     },
   };
   let browserPath = "/orders?workspace=acme#f";
+  const urlListeners = new Set();
   const location = {
     path: (fragment) => (fragment ? browserPath : browserPath.replace(/#.*$/, "")),
+    onUrlChange(listener) {
+      urlListeners.add(listener);
+
+      return () => urlListeners.delete(listener);
+    },
   };
-  const make = (platform) =>
-    runInInjectionContext(
-      Injector.create({
-        providers: [
-          { provide: Router, useValue: router },
-          { provide: Location, useValue: location },
-          { provide: PLATFORM_ID, useValue: platform },
-        ],
-      }),
-      injectNavigationState,
+  // Location's writes and traversals notify its URL listeners.
+  const moveBrowser = (path) => {
+    browserPath = path;
+
+    for (const listener of urlListeners) {
+      listener(path, null);
+    }
+  };
+  const injectors = [];
+  const make = (platform) => {
+    const injector = createEnvironmentInjector(
+      [
+        { provide: INJECTOR_SCOPE, useValue: "root" },
+        { provide: Router, useValue: router },
+        { provide: Location, useValue: location },
+        { provide: PLATFORM_ID, useValue: platform },
+      ],
+      Injector.NULL,
     );
+
+    injectors.push(injector);
+
+    return runInInjectionContext(injector, injectNavigationState);
+  };
   const browser = make("browser");
   const server = make("server");
   const read = (state) => ({ url: serializer.serialize(state.tree), owners: [...state.owners] });
+  // What a rendered link reads: it follows the browser URL until the first success.
+  const rendered = computed(() => read(browser()));
 
   // Angular's initial state: no owners in the browser without a seed; the router state on the server.
   assert.deepEqual(read(browser()), { url: "/orders?workspace=acme#f", owners: [] });
@@ -2773,10 +2838,13 @@ test("the navigation state reads the browser URL before the first success, the r
     root: snapshotOf(layout, undefined, orders),
   };
   assert.deepEqual(read(browser()), { url: "/orders?workspace=acme#f", owners: [orders, layout] });
+  assert.deepEqual(rendered(), { url: "/orders?workspace=acme#f", owners: [orders, layout] });
 
-  // The browser URL moved on (eager updates) while that state stays: values and owners never mix.
-  browserPath = "/other?workspace=beta";
+  // The browser URL moved on (eager updates) while that state stays: values and owners never mix,
+  // and a computed reader re-runs though no router signal changed.
+  moveBrowser("/other?workspace=beta");
   assert.deepEqual(read(browser()), { url: "/other?workspace=beta", owners: [] });
+  assert.deepEqual(rendered(), { url: "/other?workspace=beta", owners: [] });
 
   // After the first success, the router state's URL and owners, whatever the browser shows.
   router.routerState.snapshot = { url: "/other?workspace=beta", root: snapshotOf(other) };
@@ -2788,6 +2856,13 @@ test("the navigation state reads the browser URL before the first success, the r
 
   // The function injects nothing; creating it needs an injection context.
   assert.throws(() => injectNavigationState(), /NG0203/);
+
+  // Destroying the root injector stops listening.
+  for (const injector of injectors) {
+    injector.destroy();
+  }
+
+  assert.equal(urlListeners.size, 0);
 });
 
 test("without a locale table, localeUrls checks its values and returns an empty list", () => {
