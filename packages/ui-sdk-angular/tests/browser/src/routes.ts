@@ -1,4 +1,12 @@
 import type { Routes } from "@angular/router";
+import { AccordionRoute } from "./accordion";
+import {
+  BindPassTabs,
+  BindPassTabsDefer,
+  BindPassToolbar,
+  BindPassToolbarDefer,
+} from "./bind-pass";
+import { CollapsibleRoute } from "./collapsible";
 import { Controlled } from "./controlled";
 import { Defer } from "./defer";
 import { Errors } from "./errors";
@@ -9,6 +17,7 @@ import { FormsDefer } from "./forms-defer";
 import { Groups, GroupsDefer } from "./groups";
 import { Home } from "./home";
 import { Lifecycle } from "./lifecycle";
+import { incremental } from "./mode";
 import { OpenOrder } from "./open-order";
 import { Remap } from "./remap";
 import { ReplaceItems } from "./replace-items";
@@ -16,6 +25,7 @@ import { SignalFormsRoute } from "./signal-forms";
 import { SignalFormsComposers } from "./signal-forms-composers";
 import { SignalFormsBoolean, SignalFormsHidden, SignalFormsUndefined } from "./signal-forms-edges";
 import { SignalFormsTypes } from "./signal-forms-types";
+import { TabsRoute } from "./tabs";
 import { VirtualFocus } from "./virtual-focus";
 
 export const routes: Routes = [
@@ -40,4 +50,11 @@ export const routes: Routes = [
   { path: "groups", component: Groups },
   { path: "groups-defer", component: GroupsDefer },
   { path: "virtual-focus", component: VirtualFocus },
+  { path: "tabs", component: TabsRoute },
+  { path: "accordion", component: AccordionRoute },
+  { path: "collapsible", component: CollapsibleRoute },
+  // The probes' templates must be creation templates: the route's own in eager mode, a deferred
+  // child's in incremental mode.
+  { path: "bind-pass/toolbar", component: incremental ? BindPassToolbarDefer : BindPassToolbar },
+  { path: "bind-pass/tabs", component: incremental ? BindPassTabsDefer : BindPassTabs },
 ];

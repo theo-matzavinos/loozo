@@ -3,15 +3,21 @@
 // file; it has no runtime part.
 import type { OutputEmitterRef } from "@angular/core";
 import type { ɵExpect } from "@loozo/ui-sdk-angular";
+import type { UiAccordion, UiAccordionItem } from "@loozo/ui-sdk-angular/accordion";
 import type { UiCheckbox } from "@loozo/ui-sdk-angular/checkbox";
+import type { UiCollapsible } from "@loozo/ui-sdk-angular/collapsible";
 import type { UiRadioGroup } from "@loozo/ui-sdk-angular/radio";
 import type { UiSelect } from "@loozo/ui-sdk-angular/select";
 import type { UiSwitch } from "@loozo/ui-sdk-angular/switch";
+import type { UiTabs } from "@loozo/ui-sdk-angular/tabs";
 import type { UiToggle } from "@loozo/ui-sdk-angular/toggle";
 import type { ChangeDetails } from "@ui-sdk/core";
+import type { AccordionValueChangeReason } from "@ui-sdk/core/accordion";
 import type { CheckboxCheckedChangeReason, CheckedState } from "@ui-sdk/core/checkbox";
+import type { CollapsibleOpenChangeReason } from "@ui-sdk/core/collapsible";
 import type { RadioGroupValueChangeReason } from "@ui-sdk/core/radio";
 import type { SwitchCheckedChangeReason } from "@ui-sdk/core/switch";
+import type { TabsValueChangeReason } from "@ui-sdk/core/tabs";
 import type {
   ListHighlightDetails,
   SelectOpenChangeReason,
@@ -120,4 +126,53 @@ type _Touch = [
   ɵExpect<Same<Emitted<UiSwitch["touch"]>, void>>,
   ɵExpect<Same<Emitted<UiRadioGroup["touch"]>, void>>,
   ɵExpect<Same<Emitted<FruitSelect["touch"]>, void>>,
+];
+
+type Section = "profile" | "billing";
+
+type _TabsValueRequest = [
+  ɵExpect<Same<Emitted<UiTabs<Section>["valueChangeRequest"]>["value"], Section | null>>,
+  ɵExpect<
+    Same<
+      Emitted<UiTabs<Section>["valueChangeRequest"]>["details"],
+      ChangeDetails<TabsValueChangeReason>
+    >
+  >,
+  ɵExpect<Same<Emitted<UiTabs<Section>["valueChange"]>, Section | null>>,
+];
+
+type _AccordionValueRequest = [
+  ɵExpect<Same<Emitted<UiAccordion<Section>["valueChangeRequest"]>["value"], Section[]>>,
+  ɵExpect<
+    Same<
+      Emitted<UiAccordion<Section>["valueChangeRequest"]>["details"],
+      ChangeDetails<AccordionValueChangeReason>
+    >
+  >,
+  ɵExpect<Same<Emitted<UiAccordion<Section>["valueChange"]>, Section[]>>,
+];
+
+/** An item reports a request and its panel settling, never a change of its own (A2). */
+type _AccordionItemOutputs = [
+  ɵExpect<Same<Emitted<UiAccordionItem["openChangeRequest"]>["value"], boolean>>,
+  ɵExpect<
+    Same<
+      Emitted<UiAccordionItem["openChangeRequest"]>["details"],
+      ChangeDetails<AccordionValueChangeReason>
+    >
+  >,
+  ɵExpect<Same<Emitted<UiAccordionItem["openChangeComplete"]>, boolean>>,
+  ɵExpect<Same<"openChange" extends keyof UiAccordionItem ? true : false, false>>,
+];
+
+type _CollapsibleOpenRequest = [
+  ɵExpect<Same<Emitted<UiCollapsible["openChangeRequest"]>["value"], boolean>>,
+  ɵExpect<
+    Same<
+      Emitted<UiCollapsible["openChangeRequest"]>["details"],
+      ChangeDetails<CollapsibleOpenChangeReason>
+    >
+  >,
+  ɵExpect<Same<Emitted<UiCollapsible["openChange"]>, boolean>>,
+  ɵExpect<Same<Emitted<UiCollapsible["openChangeComplete"]>, boolean>>,
 ];

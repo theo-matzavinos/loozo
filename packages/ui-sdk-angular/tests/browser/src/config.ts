@@ -1,4 +1,8 @@
-import { type ApplicationConfig, provideZonelessChangeDetection } from "@angular/core";
+import {
+  type ApplicationConfig,
+  ErrorHandler,
+  provideZonelessChangeDetection,
+} from "@angular/core";
 import {
   provideClientHydration,
   withEventReplay,
@@ -6,6 +10,7 @@ import {
   withNoIncrementalHydration,
 } from "@angular/platform-browser";
 import { provideRouter } from "@angular/router";
+import { RecordingErrorHandler } from "./error-handler";
 import { incremental } from "./mode";
 import { routes } from "./routes";
 
@@ -18,6 +23,17 @@ function hydration() {
   return provideClientHydration(withEventReplay(), withNoIncrementalHydration());
 }
 
-export const config: ApplicationConfig = {
-  providers: [provideZonelessChangeDetection(), provideRouter(routes), hydration()],
-};
+/**
+ * The fixture's providers. A factory, so `?prod=1` can call `enableProdMode()` first: the
+ * hydration providers capture dev mode when they're made.
+ */
+export function config(): ApplicationConfig {
+  return {
+    providers: [
+      provideZonelessChangeDetection(),
+      provideRouter(routes),
+      hydration(),
+      { provide: ErrorHandler, useClass: RecordingErrorHandler },
+    ],
+  };
+}

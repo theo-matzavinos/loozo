@@ -422,3 +422,513 @@ export function observeSlots(): void {
     );
   }
 }
+
+// Page-side log for the structural panels (Tabs, Accordion and Collapsible), installed with
+// `page.addInitScript(recordPanels)` before any page script. Every entry carries the serial of
+// the node it's about: a node gets its serial on first sight, server nodes at `remember()` before
+// main.js runs, inserted ones at their insertion. Elements are labeled by `data-probe`; panels
+// also carry `data-probe-panel`. Serialized by addInitScript: it must stay self-contained.
+
+export type PanelSnapshot = {
+  node: number;
+  label: string;
+  attrs: Record<string, string>;
+  text: string;
+  opacity: string;
+  /** Running opacity transitions on the panel itself. */
+  transitions: number;
+};
+
+export type PanelEntry = {
+  seq: number;
+  t: number;
+  kind:
+    | "insert"
+    | "remove"
+    | "attr"
+    | "read"
+    | "listener-add"
+    | "listener-remove"
+    | "bound"
+    | "focus"
+    | "frame"
+    | "click"
+    | "transition-finished"
+    | "transition-canceled"
+    | "transition-run"
+    | "transition-end"
+    | "output"
+    | "mark";
+  node?: number;
+  label?: string;
+  name?: string;
+  value?: unknown;
+  reason?: string;
+  canceled?: boolean;
+  previous?: unknown;
+  stack?: string;
+  panels?: PanelSnapshot[];
+  /** A frame's `aria-controls` of every labeled element that has one, by label. */
+  controls?: Record<string, string>;
+};
+
+/** What a fixture reports (tests/browser/src/panels.ts): an output, or a step of its own. */
+export type PanelOutput = Partial<
+  Pick<PanelEntry, "name" | "label" | "value" | "reason" | "canceled" | "previous">
+> & { element?: Element | null };
+
+export type PanelLog = {
+  entries: PanelEntry[];
+  /** Server panel serials by label, from `remember()`. */
+  server: Record<string, number>;
+  /** The panels in the page now. */
+  current: PanelSnapshot[];
+};
+
+declare global {
+  interface Window {
+    __uiSdkPanels: {
+      /** Gives every labeled server node its serial and keeps its handle. */
+      remember(): void;
+      /** Whether `label`'s current node is the one `remember()` saw. */
+      sameServerNode(label: string): boolean;
+      read(): PanelLog;
+      sequence(): number;
+      mark(name: string): void;
+      /** Samples every panel on each animation frame from now on, the next one included. */
+      sampleFrames(): void;
+      serial(node: Node): number;
+    };
+  }
+}
+
+export function recordPanels(): void {
+  // The originals, called with `.call`: the recorder wraps them below.
+  const original = <F>(owner: object, name: string) =>
+    Object.getOwnPropertyDescriptor(owner, name)!.value as F;
+  const entries: PanelEntry[] = [];
+  const server: Record<string, number> = {};
+  const serverNodes = new Map<string, Element>();
+  const serials = new WeakMap<Node, number>();
+  let seq = 0;
+  let count = 0;
+  const frame = window.requestAnimationFrame.bind(window);
+  const getStyle = window.getComputedStyle.bind(window);
+  const getAnimations = original<Element["getAnimations"]>(Element.prototype, "getAnimations");
+  const watched = new WeakSet<Animation>();
+
+  const serial = (node: Node): number => {
+    let known = serials.get(node);
+
+    if (known === undefined) {
+      count += 1;
+      known = count;
+      serials.set(node, known);
+    }
+
+    return known;
+  };
+  const labelOf = (node: Node): string | undefined => {
+    if (node instanceof Element) {
+      return node.getAttribute("data-probe") ?? undefined;
+    }
+
+    return undefined;
+  };
+  const isPanel = (node: Node): node is Element =>
+    node instanceof Element && node.hasAttribute("data-probe-panel");
+  const inPanel = (node: Node): boolean =>
+    node instanceof Element && node.closest("[data-probe-panel]") !== null;
+  const log = (
+    kind: PanelEntry["kind"],
+    node: Node | undefined,
+    extra: Partial<PanelEntry> = {},
+  ) => {
+    seq += 1;
+
+    const entry: PanelEntry = { seq, t: performance.now(), kind, ...extra };
+
+    if (node !== undefined) {
+      entry.node = serial(node);
+      entry.label ??= labelOf(node);
+    }
+
+    entries.push(entry);
+  };
+  const snapshot = (element: Element): PanelSnapshot => {
+    const attrs: Record<string, string> = {};
+
+    for (const attribute of element.attributes) {
+      attrs[attribute.name] = attribute.value;
+    }
+
+    let transitions = 0;
+
+    for (const animation of getAnimations.call(element)) {
+      const transition = animation as CSSTransition;
+      const target = (animation.effect as KeyframeEffect | null)?.target;
+
+      if (
+        transition.transitionProperty === "opacity" &&
+        target === element &&
+        animation.playState === "running"
+      ) {
+        transitions += 1;
+      }
+    }
+
+    return {
+      node: serial(element),
+      label: labelOf(element) ?? "",
+      attrs,
+      text: element.textContent?.trim() ?? "",
+      opacity: getStyle(element).opacity,
+      transitions,
+    };
+  };
+  const panels = () => [...document.querySelectorAll("[data-probe-panel]")];
+
+  const insertBefore = original<Node["insertBefore"]>(Node.prototype, "insertBefore");
+
+  Node.prototype.insertBefore = function <T extends Node>(node: T, child: Node | null): T {
+    const inserted = insertBefore.call(this, node, child) as T;
+
+    if (isPanel(node)) {
+      log("insert", node);
+    }
+
+    return inserted;
+  };
+
+  const appendChild = original<Node["appendChild"]>(Node.prototype, "appendChild");
+
+  Node.prototype.appendChild = function <T extends Node>(node: T): T {
+    const appended = appendChild.call(this, node) as T;
+
+    if (isPanel(node)) {
+      log("insert", node);
+    }
+
+    return appended;
+  };
+
+  const removeChild = original<Node["removeChild"]>(Node.prototype, "removeChild");
+
+  Node.prototype.removeChild = function <T extends Node>(node: T): T {
+    if (isPanel(node)) {
+      log("remove", node);
+    }
+
+    return removeChild.call(this, node) as T;
+  };
+
+  // Angular's DOM renderer removes a node with ChildNode.remove().
+  const remove = original<Element["remove"]>(Element.prototype, "remove");
+
+  Element.prototype.remove = function () {
+    if (isPanel(this)) {
+      log("remove", this);
+    }
+
+    remove.call(this);
+  };
+
+  const setAttribute = original<Element["setAttribute"]>(Element.prototype, "setAttribute");
+
+  Element.prototype.setAttribute = function (name: string, value: string) {
+    setAttribute.call(this, name, value);
+
+    if (this.hasAttribute("data-probe")) {
+      let stack: string | undefined;
+
+      if (name === "hidden" && value === "until-found") {
+        stack = new Error("until-found").stack;
+      }
+
+      log("attr", this, { name, value, stack });
+    }
+  };
+
+  const removeAttribute = original<Element["removeAttribute"]>(
+    Element.prototype,
+    "removeAttribute",
+  );
+
+  Element.prototype.removeAttribute = function (name: string) {
+    removeAttribute.call(this, name);
+
+    if (this.hasAttribute("data-probe")) {
+      log("attr", this, { name, value: null });
+    }
+  };
+
+  const toggleAttribute = original<Element["toggleAttribute"]>(
+    Element.prototype,
+    "toggleAttribute",
+  );
+
+  Element.prototype.toggleAttribute = function (name: string, force?: boolean) {
+    const result = toggleAttribute.call(this, name, force);
+
+    if (this.hasAttribute("data-probe")) {
+      log("attr", this, { name, value: this.getAttribute(name) });
+    }
+
+    return result;
+  };
+
+  // Style and layout reads on a panel's subtree, for the first write's ordering.
+  window.getComputedStyle = (element: Element, pseudo?: string | null) => {
+    if (inPanel(element)) {
+      log("read", element, { name: "getComputedStyle" });
+    }
+
+    return getStyle(element, pseudo);
+  };
+
+  const getBoundingClientRect = original<Element["getBoundingClientRect"]>(
+    Element.prototype,
+    "getBoundingClientRect",
+  );
+
+  Element.prototype.getBoundingClientRect = function () {
+    if (inPanel(this)) {
+      log("read", this, { name: "getBoundingClientRect" });
+    }
+
+    return getBoundingClientRect.call(this);
+  };
+
+  for (const property of ["offsetWidth", "offsetHeight", "scrollHeight", "scrollWidth"]) {
+    const descriptor =
+      Object.getOwnPropertyDescriptor(HTMLElement.prototype, property) ??
+      Object.getOwnPropertyDescriptor(Element.prototype, property);
+
+    if (descriptor?.get === undefined) {
+      continue;
+    }
+
+    let owner: object = Element.prototype;
+
+    if (Object.hasOwn(HTMLElement.prototype, property)) {
+      owner = HTMLElement.prototype;
+    }
+
+    Object.defineProperty(owner, property, {
+      ...descriptor,
+      get(this: Element) {
+        if (inPanel(this)) {
+          log("read", this, { name: property });
+        }
+
+        return descriptor.get!.call(this);
+      },
+    });
+  }
+
+  const addEventListener = original<EventTarget["addEventListener"]>(
+    EventTarget.prototype,
+    "addEventListener",
+  );
+
+  EventTarget.prototype.addEventListener = function (
+    ...args: Parameters<EventTarget["addEventListener"]>
+  ) {
+    if (args[0] === "beforematch" && this instanceof Element) {
+      log("listener-add", this, { name: "beforematch" });
+    }
+
+    addEventListener.apply(this, args);
+  };
+
+  const removeEventListener = original<EventTarget["removeEventListener"]>(
+    EventTarget.prototype,
+    "removeEventListener",
+  );
+
+  EventTarget.prototype.removeEventListener = function (
+    ...args: Parameters<EventTarget["removeEventListener"]>
+  ) {
+    if (args[0] === "beforematch" && this instanceof Element) {
+      log("listener-remove", this, { name: "beforematch" });
+    }
+
+    removeEventListener.apply(this, args);
+  };
+
+  // Core's bind follows the element's id (`followId`): the exact element's bind marker.
+  const observe = original<MutationObserver["observe"]>(MutationObserver.prototype, "observe");
+
+  MutationObserver.prototype.observe = function (target: Node, options?: MutationObserverInit) {
+    const filter = options?.attributeFilter;
+
+    if (target instanceof Element && filter?.length === 1 && filter[0] === "id") {
+      log("bound", target);
+    }
+
+    observe.call(this, target, options);
+  };
+
+  const focus = original<HTMLElement["focus"]>(HTMLElement.prototype, "focus");
+
+  HTMLElement.prototype.focus = function (options?: FocusOptions) {
+    log("focus", this, { stack: new Error("focus").stack });
+    focus.call(this, options);
+  };
+
+  // A panel's opacity transition finishing, as core sees it: the watch registers on the
+  // `getAnimations()` call core makes, before core's own `finished` callback, so it logs first.
+  Element.prototype.getAnimations = function (options?: GetAnimationsOptions) {
+    const found = getAnimations.call(this, options);
+
+    if (!isPanel(this)) {
+      return found;
+    }
+
+    for (const animation of found) {
+      const transition = animation as CSSTransition;
+      const target = (animation.effect as KeyframeEffect | null)?.target;
+
+      if (
+        transition.transitionProperty !== "opacity" ||
+        target !== this ||
+        watched.has(animation)
+      ) {
+        continue;
+      }
+
+      watched.add(animation);
+      void animation.finished.then(
+        () => log("transition-finished", this),
+        () => log("transition-canceled", this),
+      );
+    }
+
+    return found;
+  };
+
+  // Every opacity transition a panel runs, seen from the page rather than through core: its
+  // `transitionrun`, then how that transition ends. A run and its end share an id (`value`).
+  const ran = new WeakSet<Animation>();
+  let runs = 0;
+
+  addEventListener.call(
+    document,
+    "transitionrun",
+    (event) => {
+      const target = event.target;
+
+      if (
+        !(target instanceof Element) ||
+        !isPanel(target) ||
+        (event as TransitionEvent).propertyName !== "opacity"
+      ) {
+        return;
+      }
+
+      for (const animation of getAnimations.call(target)) {
+        const transition = animation as CSSTransition;
+
+        if (
+          transition.transitionProperty !== "opacity" ||
+          (animation.effect as KeyframeEffect | null)?.target !== target ||
+          ran.has(animation)
+        ) {
+          continue;
+        }
+
+        ran.add(animation);
+        runs += 1;
+
+        const id = runs;
+
+        log("transition-run", target, { value: id });
+        void animation.finished.then(
+          () => log("transition-end", target, { value: id, canceled: false }),
+          () => log("transition-end", target, { value: id, canceled: true }),
+        );
+      }
+    },
+    true,
+  );
+
+  addEventListener.call(
+    document,
+    "click",
+    (event) => {
+      if (event.target instanceof Element) {
+        log("click", event.target.closest("[data-probe]") ?? event.target);
+      }
+    },
+    true,
+  );
+
+  addEventListener.call(document, "ui-sdk-panel-output", (event) => {
+    const { element, ...output } = (event as CustomEvent<PanelOutput>).detail;
+
+    log("output", element ?? undefined, output);
+  });
+
+  let sampling = false;
+  const sample = () => {
+    const snapshots = [];
+
+    for (const panel of panels()) {
+      snapshots.push(snapshot(panel));
+    }
+
+    const controls: Record<string, string> = {};
+
+    for (const element of document.querySelectorAll("[data-probe][aria-controls]")) {
+      controls[element.getAttribute("data-probe")!] = element.getAttribute("aria-controls")!;
+    }
+
+    log("frame", undefined, { panels: snapshots, controls });
+    frame(sample);
+  };
+
+  window.__uiSdkPanels = {
+    remember() {
+      for (const element of document.querySelectorAll("[data-probe]")) {
+        const label = element.getAttribute("data-probe")!;
+
+        serverNodes.set(label, element);
+
+        if (isPanel(element)) {
+          server[label] = serial(element);
+        }
+      }
+    },
+    sameServerNode(label) {
+      const saved = serverNodes.get(label);
+
+      return (
+        saved !== undefined &&
+        saved.isConnected &&
+        document.querySelector(`[data-probe="${label}"]`) === saved
+      );
+    },
+    read() {
+      const current = [];
+
+      for (const panel of panels()) {
+        current.push(snapshot(panel));
+      }
+
+      return structuredClone({ entries, server, current });
+    },
+    sequence: () => seq,
+    mark(name) {
+      log("mark", undefined, { name });
+    },
+    sampleFrames() {
+      if (sampling) {
+        return;
+      }
+
+      sampling = true;
+      frame(sample);
+    },
+    serial,
+  };
+}

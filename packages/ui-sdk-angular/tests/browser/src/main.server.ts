@@ -4,7 +4,7 @@ import { RenderMode, provideServerRendering, withRoutes } from "@angular/ssr";
 import { App } from "./app";
 import { config } from "./config";
 
-const server = mergeApplicationConfig(config, {
+const server = mergeApplicationConfig(config(), {
   providers: [provideServerRendering(withRoutes([{ path: "**", renderMode: RenderMode.Server }]))],
 });
 

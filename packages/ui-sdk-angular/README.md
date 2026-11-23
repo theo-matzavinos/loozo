@@ -2,7 +2,7 @@
 
 Angular directives for [ui-sdk.dev](https://ui-sdk.dev)'s headless core, `@ui-sdk/core`. Core keeps every behavior: keyboard, focus, ARIA, popups and selection. This package puts each of a component's parts on an element you write, one attribute directive per part, and renders core's attributes on the server and in the browser, so the page is correct before it hydrates.
 
-**Status:** experimental. MIT license. It has [Toggle and ToggleGroup](toggle/README.md), [Toolbar](toolbar/README.md), single-value [Select](select/README.md) with its label and groups, [Checkbox and CheckboxGroup](checkbox/README.md), [Switch](switch/README.md) and [RadioGroup](radio/README.md). Checkbox, Switch, RadioGroup and Select take part in native forms and bind to [signal forms](#signal-forms).
+**Status:** experimental. MIT license. It has [Toggle and ToggleGroup](toggle/README.md), [Toolbar](toolbar/README.md), single-value [Select](select/README.md) with its label and groups, [Checkbox and CheckboxGroup](checkbox/README.md), [Switch](switch/README.md), [RadioGroup](radio/README.md), [Tabs](tabs/README.md), [Accordion](accordion/README.md) and [Collapsible](collapsible/README.md). Checkbox, Switch, RadioGroup and Select take part in native forms and bind to [signal forms](#signal-forms).
 
 ## Install
 
@@ -45,17 +45,38 @@ import {
 } from "@loozo/ui-sdk-angular/checkbox";
 import { UiSwitch, UiSwitchInput, UiSwitchThumb } from "@loozo/ui-sdk-angular/switch";
 import { UiRadio, UiRadioGroup, UiRadioIndicator, UiRadioInput } from "@loozo/ui-sdk-angular/radio";
+import {
+  UiTabs,
+  UiTabsIndicator,
+  UiTabsList,
+  UiTabsPanel,
+  UiTabsTab,
+  UiTabsTabIcon,
+} from "@loozo/ui-sdk-angular/tabs";
+import {
+  UiAccordion,
+  UiAccordionHeader,
+  UiAccordionItem,
+  UiAccordionPanel,
+  UiAccordionTrigger,
+} from "@loozo/ui-sdk-angular/accordion";
+import {
+  UiCollapsible,
+  UiCollapsiblePanel,
+  UiCollapsibleTrigger,
+} from "@loozo/ui-sdk-angular/collapsible";
 ```
 
 Each component has its own entry, like core's. The primary entry, `@loozo/ui-sdk-angular`, has the `UiSdkEvent` type, the `UiSdkError` class and the input transforms `optionalBoolean`, `optionalChecked` and `optionalNumber`; its `ɵ`-prefixed exports are internal.
 
 ## How the directives map to core
 
-- A root directive (`uiToggle`, `uiToggleGroup`, `uiToolbar`, `uiSelect`, `uiCheckbox`, `uiCheckboxGroup`, `uiSwitch`, `uiRadioGroup`) owns one core instance. Its inputs are core's options, under core's names, with one exception: core's `readOnly` is written `readonly`, the name native inputs and signal forms use (`[readonly]`, `readonly`); the TypeScript member stays `readOnly`. An unset input (`undefined`) isn't passed to core.
+- A root directive (`uiToggle`, `uiToggleGroup`, `uiToolbar`, `uiSelect`, `uiCheckbox`, `uiCheckboxGroup`, `uiSwitch`, `uiRadioGroup`, `uiTabs`, `uiAccordion`, `uiCollapsible`) owns one core instance. Its inputs are core's options, under core's names, with one exception: core's `readOnly` is written `readonly`, the name native inputs and signal forms use (`[readonly]`, `readonly`); the TypeScript member stays `readOnly`. An unset input (`undefined`) isn't passed to core.
 - Each part directive (`uiSelectTrigger`, `uiSelectItem`, …) is one core slot on its host element. Its inputs are the slot's props.
-- A control inside a group finds the group through Angular's DI, the way core's other adapters use context: a `uiToggle` inside a `uiToggleGroup` or a `uiToolbar`, a `uiToggleGroup` inside a `uiToolbar`, a `uiCheckbox` inside a `uiCheckboxGroup`, a `uiSelectItem` inside a `uiSelectGroup`. Any such directive under the group's element in a template joins it, including one in a `@defer` block of its own.
-- A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component when its input is set, and leaves core in charge while it's `undefined`. `null` is a value: a Select with `[value]="null"` selects nothing and stays controlled. Don't switch a key between controlled and uncontrolled.
-- Each `on<Key>Change` callback is two outputs: `<key>ChangeRequest` first, with `{ value, details }`, where `details.cancel()` refuses the change; then `<key>Change` with the value, unless canceled. `[(value)]` binds the input and the second output.
+- A panel core can leave out of the page is structural: `*uiTabsPanel`, `*uiAccordionPanel` and `*uiCollapsiblePanel` go on the panel's element, which is in the page while core has it there (open, closing until its exit animation ends, kept or findable). Its template renders exactly one unconditional root element; put every `@if` and `@for` inside it. Per-panel options need the `<ng-template>` form, and a structural panel can't be composed through `hostDirectives`. See each component's readme.
+- A control inside a group finds the group through Angular's DI, the way core's other adapters use context: a `uiToggle` inside a `uiToggleGroup` or a `uiToolbar`, a `uiToggleGroup` inside a `uiToolbar`, a `uiCheckbox` inside a `uiCheckboxGroup`, a `uiSelectItem` inside a `uiSelectGroup`, an Accordion's header, trigger and panel inside their `uiAccordionItem` (of the same `uiAccordion`), a `uiTabsTabIcon` inside its `uiTabsTab`. Any such directive under the group's element in a template joins it, including one in a `@defer` block of its own.
+- A controlled key (`pressed`, `checked`, `value`, `open`, `query`) controls the component when its input is set, and leaves core in charge while it's `undefined`. `null` is a value: a Select or Tabs with `[value]="null"` selects nothing and stays controlled. Don't switch a key between controlled and uncontrolled.
+- Each `on<Key>Change` callback of a controlled key is two outputs: `<key>ChangeRequest` first, with `{ value, details }`, where `details.cancel()` refuses the change; then `<key>Change` with the value, unless canceled. `<key>Change` is the proposal, emitted before core commits: a controlled component changes when you write the value back (`[(value)]` does), and an uncontrolled one stores it after your listeners return. Read the committed state from `state()`. Callbacks without a controlled key are one output; the component's readme names it, like an Accordion item's `openChangeRequest` or `openChangeComplete`.
 - Each part with a state in core has a `state` signal, and each directive's `exportAs` is its selector.
 - Style a part by the attributes core writes on it, like `[aria-pressed="true"]` or `[data-highlighted]`.
 - Your attributes win over core's: a static `id`, `aria-label` or `aria-labelledby` on a part's element is the one rendered.
@@ -137,13 +158,15 @@ readonly f = form(this.model, (path) => required(path.terms), { name: "signup" }
 
 Works with `provideClientHydration()`, eager (`withEventReplay()`, `withNoIncrementalHydration()`) or incremental (Angular 22's default), with or without zone.js.
 
-- **Instance ids.** Every root renders `data-ui-sdk-id` (`ui-sdk-s<n>` from the server) and reads it back while hydrating, so the ids core derives part ids from match on both sides, also under `@defer`. A `uiSelectGroup` renders one too, since its labels' ids come from it. A root the browser creates gets `ui-sdk-<n>`.
+- **Instance ids.** Every root renders `data-ui-sdk-id` (`ui-sdk-s<n>` from the server) and reads it back while hydrating, so the ids core derives part ids from match on both sides, also under `@defer`. A `uiSelectGroup` renders one too, since its labels' ids come from it, and so does a `uiAccordionItem` without a `value`, whose made value its parts' ids come from. A root the browser creates gets `ui-sdk-<n>`.
 - **One `APP_ID` per application.** Two Angular applications on one page need distinct `APP_ID`s, or their ids can collide; with a custom `APP_ID`, ids become `ui-sdk-<appId>-…`.
 - **Keep a root and all its parts in one `@defer (hydrate …)` block.** A part in a different hydrate boundary from its root can be unbound while its siblings handle events.
 - **`hydrate on interaction` and a fast first press.** In Chromium, and rarely in WebKit, a press shorter than the block's hydration can open a Select and close it again: Angular replays the press's `pointerdown` after its `click`. See [Select's known limitation](select/README.md#known-limitation).
-- **Authored ids before their references.** A part with a static `id` that other parts point at, like a Select trigger the content's `aria-labelledby` names, must come earlier in the same template than those parts, or sit in an ancestor view. Written after them, the server renders references to the generated id, and core repairs them when the authored part binds.
+- **Authored ids before their references.** A part with a static `id` that other parts point at, like a Select trigger the content's `aria-labelledby` names, should write before those parts: earlier in the same Angular view, in an ancestor view, or in an earlier `@if` or `@for` block of the same parent view as theirs. Source order alone isn't enough: a part inside an `@if` or `@for` writes after the parts of the view around it, and a child component's view writes after all of its parent's blocks, so a tab list moved into its own component can't name panels declared in the parent. So a Tabs tab with an `id` in a `@for`, with its panel static after the list, puts the generated tab id in the panel's server `aria-labelledby`, matching no element. Written after its references, the server can render them with the generated id, and core repairs them when the parts bind. Generated ids always match.
 - **Groups settle some attributes at bind.** Core writes a few attributes only once the parts bind: a grouped checkbox's made `id` and a parent checkbox's `aria-controls`, a parent's checked state without `allValues`, and a Select group's `aria-labelledby` and the content's name once a SelectLabel binds. See the [Checkbox](checkbox/README.md#rules) and [Select](select/README.md#rules) rules. A Toolbar and its toggles render final on the server, unless every item is disabled: then the server renders no tab stop, and the first item gets `tabindex="0"` at bind; see [Toolbar's rules](toolbar/README.md#rules).
 - **A popup that starts open settles at bind.** A Select rendered open is positioned, and renamed with the same name as `aria-label`, when its trigger binds; see [Select's rules](select/README.md#rules).
+- **Panels follow core's presence.** A closed panel in the default mode isn't in the server HTML, only Angular's anchor comment, and its content is created when it opens and destroyed after its exit. `keepMounted` renders it with `hidden`, and `hiddenUntilFound` with `hidden="until-found"`, keeping its content. A panel that opens in the browser has core's attributes and `data-starting-style` by its first frame. Tabs' and Accordion triggers' `aria-controls` appear once the panel they name binds, a server-rendered one included; a Collapsible trigger names its panel on the server while it's open, and a kept or findable closed one at bind.
+- **Kept panels and `display` CSS before bind.** Core's rule that hides `[hidden]` panels arrives when the panel binds, so author CSS that sets `display` on a kept or findable panel shows it until then; scope it with `:not([hidden])`.
 - **Events before the first bind.** Angular replays the events a user makes before a block hydrates; they arrive after the parts bind. A live event that reaches a part before its first bind, as in a block created outside change detection, waits and reaches core once every part of that render pass has bound.
 
 Shadow DOM, slotted content and elements from another realm, like an iframe, aren't supported.

@@ -1,7 +1,7 @@
 {
   "name": "@loozo/ui-sdk-angular",
   "version": "0.0.1",
-  "description": "Angular directives for ui-sdk.dev's headless core: Toggle, ToggleGroup, Toolbar, Select, Checkbox, CheckboxGroup, Switch and RadioGroup, with SSR, hydration and native forms.",
+  "description": "Angular directives for ui-sdk.dev's headless core: Toggle, ToggleGroup, Toolbar, Select, Checkbox, CheckboxGroup, Switch, RadioGroup, Tabs, Accordion and Collapsible, with SSR, hydration and native forms.",
   "bugs": "https://github.com/theo-matzavinos/loozo/issues",
   "license": "MIT",
   "author": "Theophilos Matzavinos",
@@ -40,6 +40,18 @@
     "./toolbar": {
       "types": "./dist/types/loozo-ui-sdk-angular-toolbar.d.ts",
       "default": "./dist/fesm2022/loozo-ui-sdk-angular-toolbar.mjs"
+    },
+    "./tabs": {
+      "types": "./dist/types/loozo-ui-sdk-angular-tabs.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular-tabs.mjs"
+    },
+    "./accordion": {
+      "types": "./dist/types/loozo-ui-sdk-angular-accordion.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular-accordion.mjs"
+    },
+    "./collapsible": {
+      "types": "./dist/types/loozo-ui-sdk-angular-collapsible.d.ts",
+      "default": "./dist/fesm2022/loozo-ui-sdk-angular-collapsible.mjs"
     },
     "./package.json": "./package.json"
   },
