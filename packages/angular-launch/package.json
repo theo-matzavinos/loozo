@@ -63,7 +63,8 @@
     "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test --experimental-test-module-mocks tests/*.test.mjs",
-    "test:localize": "sh ../origami-ui/tests/acceptance/gate-lock.sh node tests/localize.mjs"
+    "test:localize": "sh ../origami-ui/tests/acceptance/gate-lock.sh node tests/localize.mjs",
+    "test:remembered": "sh ../origami-ui/tests/acceptance/gate-lock.sh node tests/remembered.mjs"
   },
   "dependencies": {
     "@angular-devkit/architect": "0.2202.6",

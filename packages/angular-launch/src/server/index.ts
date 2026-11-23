@@ -23,7 +23,8 @@ export type {
   Schema,
 } from "./definitions.js";
 export type { DeclaredFailure } from "./errors.js";
-export type { CookieOptions, ResponseControl } from "./response-effects.js";
+export type { CookieOptions } from "../cookies.js";
+export type { ResponseControl } from "./response-effects.js";
 export type { JsonShape } from "../json.js";
 export type { HandleOptions, RequestScope } from "./dispatch.js";
 export type { Upgrade } from "./upgrade.js";

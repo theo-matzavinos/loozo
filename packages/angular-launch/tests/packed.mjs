@@ -182,7 +182,7 @@ const router=JSON.parse(await readFile(require.resolve('@loozo/angular-router/pa
 const entry=new URL(router.exports['./_generation'].types,'file://'+require.resolve('@loozo/angular-router/package.json'));
 assert.ok((await readFile(entry,'utf8')).includes('discoverLaunchRoutes'));
 assert.equal(typeof discoverLaunchRoutes,'function');assert.equal(typeof createValidationProgram,'function');assert.equal(new RpcError('FORBIDDEN',403).code,'FORBIDDEN');
-assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedirect','defineRoute','frameworkFailures','rpcNavigationErrors']);
+assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedirect','defineRoute','frameworkFailures','rpcNavigationErrors','searchCookies']);
 // The optional peer isn't installed here: the root and server entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
 assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','readCookies','redirect']);

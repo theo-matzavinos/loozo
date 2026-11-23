@@ -1,5 +1,4 @@
-// SP and HTAB only (RFC 6265bis WSP), as browsers trim; String#trim would also strip U+00A0.
-const whitespace = /^[\t ]+|[\t ]+$/g;
+import { parseCookies } from "../cookies.js";
 
 /**
  * Reads the request's cookies from its `Cookie` header.
@@ -20,28 +19,5 @@ const whitespace = /^[\t ]+|[\t ]+$/g;
  * @returns A new map of cookie values by name.
  */
 export function readCookies(request: Request): ReadonlyMap<string, string> {
-  const cookies = new Map<string, string>();
-  const header = request.headers.get("cookie");
-
-  if (header === null) {
-    return cookies;
-  }
-
-  for (const pair of header.split(";")) {
-    const separator = pair.indexOf("=");
-
-    if (separator === -1) {
-      continue;
-    }
-
-    const name = pair.slice(0, separator).replace(whitespace, "");
-
-    if (name === "" || cookies.has(name)) {
-      continue;
-    }
-
-    cookies.set(name, pair.slice(separator + 1).replace(whitespace, ""));
-  }
-
-  return cookies;
+  return parseCookies(request.headers.get("cookie"));
 }

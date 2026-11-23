@@ -158,3 +158,23 @@ await test("published declarations document every public export and member", () 
 
   assert.deepEqual(missing, [], "Published exports and members need documentation");
 });
+
+// searchCookies is a storage adapter in the browser: the docs mustn't say there are none.
+test("the README and SPEC qualify the storage exclusion with searchCookies", async () => {
+  const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+  const spec = await readFile(new URL("../SPEC.md", import.meta.url), "utf8");
+
+  assert.doesNotMatch(readme, /no storage adapters/i);
+  assert.match(
+    readme,
+    /There are no server-side storage adapters; remembered search keys use browser cookies through \[`searchCookies\(\)`\]\(#remembered-search-keys\)\./,
+  );
+  assert.match(
+    readme,
+    /- No server-side storage adapters; persistence is your handler's job\. Remembered search keys use browser cookies through \[`searchCookies\(\)`\]\(#remembered-search-keys\)\./,
+  );
+  assert.match(
+    spec,
+    /- Server-side storage adapters or durability across server restarts; persistence is the handler's job\. \(`searchCookies\(\)` keeps the router's remembered search keys in browser cookies; see §Remembered search keys\.\)/,
+  );
+});

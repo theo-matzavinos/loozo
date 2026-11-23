@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "cli": { "analytics": false },
+  "projects": {
+    "fixture": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@loozo/angular-launch:application",
+          "options": {
+            "tsconfig": "tsconfig.app.json",
+            "scanDirectories": ["src/routes"],
+            "outDirectory": "generated",
+            "browser": "src/main.ts",
+            "server": "src/main.server.ts",
+            "ssr": { "entry": "src/server.ts" },
+            "outputMode": "server",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "outputPath": "dist/production",
+            "optimization": { "scripts": true, "styles": true, "fonts": false },
+            "sourceMap": false,
+            "security": { "allowedHosts": ["127.0.0.1", "localhost"] }
+          },
+          "configurations": {
+            "production": {},
+            "development": {
+              "outputPath": "dist/development",
+              "optimization": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    }
+  }
+}

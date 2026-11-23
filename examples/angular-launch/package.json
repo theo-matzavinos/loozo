@@ -8,7 +8,7 @@
     "check": "ng run todos:build:check",
     "serve": "ng serve",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "verify": "ng run todos:build:verification && node verify.mjs"
+    "verify": "ng run todos:build:verification && ng run todos:build:verification-development && node verify.mjs"
   },
   "dependencies": {
     "@angular/common": "22.3.0",
