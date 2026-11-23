@@ -11239,6 +11239,962 @@ try {
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 
+  // Table, Badge, Page and Empty: a BizneScript list view (#list-views). The server HTML and the
+  // page without scripts, the named scrollers and pagers, the Page header's wrap, every Badge tone's
+  // colors and contrast, the sort glyphs, alignment, sorting by keyboard and pointer with the rows
+  // it shows, the pager's guarded boundaries and the Empty states. Scrolling the tables by keyboard
+  // is consumer-scrolling.mjs's, in every engine.
+  {
+    const frame = "[data-slot=table-frame]";
+    const viewport = `${frame} > [data-slot=scroll-area] > [data-slot=scroll-area-viewport]`;
+    const near = (actual, expected, tolerance, label) =>
+      assert.ok(
+        Math.abs(actual - expected) <= tolerance,
+        `${label}: ${actual} isn't ${expected} ±${tolerance}`,
+      );
+
+    // Resolves any CSS color, oklab() included, to sRGB bytes by painting it.
+    const rgbaIn = (target, color) =>
+      target.evaluate((color) => {
+        const context = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+
+        return [...context.getImageData(0, 0, 1, 1).data];
+      }, color);
+
+    // WCAG 2 contrast of two sRGB colors.
+    const contrast = (first, second) => {
+      const linear = (value) => {
+        const channel = value / 255;
+
+        if (channel <= 0.04045) {
+          return channel / 12.92;
+        }
+
+        return ((channel + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = ([r, g, b]) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+      const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+
+      return (light + 0.05) / (dark + 0.05);
+    };
+
+    // Composites `top` over the opaque `bottom`, both as [r, g, b, a] bytes.
+    const over = (top, bottom) => {
+      const alpha = top[3] / 255;
+      const result = [];
+
+      for (let channel = 0; channel < 3; channel++) {
+        result.push(top[channel] * alpha + bottom[channel] * (1 - alpha));
+      }
+
+      return result;
+    };
+
+    // A pointer click at the box's center, which a locator click skips on an aria-disabled button.
+    const rawClick = async (target, locator) => {
+      await locator.scrollIntoViewIfNeeded();
+
+      const box = await locator.boundingBox();
+
+      await target.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    };
+
+    const lists = [
+      { root: "#budget-list", name: "Budgets", titleId: "budget-list-title" },
+      { root: "#budget-list-empty", name: "Archived budgets", titleId: "budget-list-empty-title" },
+      { root: "#wide-report", name: "Cost centres", titleId: "wide-report-title" },
+      {
+        root: "#wide-report-empty",
+        name: "Closed cost centres",
+        titleId: "wide-report-empty-title",
+      },
+    ];
+    const firstByName = ["Capital expenditure", "Facilities", "Hiring", "Legal"];
+
+    // Each TableFrame's name is on its viewport, a region and a Tab stop, and never on the frame;
+    // the exact-name region is that viewport. Each budget list's pager is named for its list and
+    // sits outside its scroller, right after it.
+    const assertNaming = async (target, phase) => {
+      for (const { root, name, titleId } of [
+        ...lists,
+        { root: "#badges-light", name: "Light budgets", titleId: null },
+      ]) {
+        const scroller = target.locator(`${root} ${viewport}`);
+        const host = target.locator(`${root} ${frame}`);
+        const region = target.getByRole("region", { name, exact: true });
+        let label = name;
+
+        if (titleId) {
+          label = null;
+        }
+
+        assert.equal(await region.count(), 1, `${phase} ${name} regions`);
+        assert.deepEqual(
+          {
+            matched: await region.getAttribute("data-slot"),
+            role: await scroller.getAttribute("role"),
+            tabindex: await scroller.getAttribute("tabindex"),
+            labelledby: await scroller.getAttribute("aria-labelledby"),
+            label: await scroller.getAttribute("aria-label"),
+            hostLabelledby: await host.getAttribute("aria-labelledby"),
+            hostLabel: await host.getAttribute("aria-label"),
+          },
+          {
+            matched: "scroll-area-viewport",
+            role: "region",
+            tabindex: "0",
+            labelledby: titleId,
+            label,
+            hostLabelledby: null,
+            hostLabel: null,
+          },
+          `${phase} ${root} naming`,
+        );
+      }
+
+      for (const name of ["Budgets", "Archived budgets"]) {
+        const pager = target.getByRole("navigation", { name: `${name} pages`, exact: true });
+
+        assert.equal(await pager.count(), 1, `${phase} ${name} pagers`);
+        assert.deepEqual(
+          await pager.evaluate((nav) => ({
+            insideViewport: nav.closest("[data-slot=scroll-area-viewport]") !== null,
+            after: nav.previousElementSibling.getAttribute("data-slot"),
+          })),
+          { insideViewport: false, after: "scroll-area" },
+          `${phase} ${name} pager place`,
+        );
+      }
+    };
+
+    // A table's headers, sort buttons and glyphs, its rows' names and its pager's range, if any:
+    // the budget table's by default.
+    const sortState = (target = page, selector = "#budget-list table") =>
+      target.locator(selector).evaluate((table) => {
+        const headers = [];
+        const rows = [];
+
+        for (const header of table.tHead.rows[0].cells) {
+          const button = header.querySelector("button");
+          const glyph = button?.querySelector("svg");
+          let icon = null;
+
+          if (glyph) {
+            for (const attribute of glyph.getAttributeNames()) {
+              if (/^lucidearrow/i.test(attribute)) {
+                icon = attribute.toLowerCase();
+              }
+            }
+          }
+
+          headers.push({
+            name: header.textContent.trim(),
+            sort: header.getAttribute("aria-sort"),
+            buttonSort: button?.getAttribute("data-sort") ?? null,
+            type: button?.getAttribute("type") ?? null,
+            icon,
+          });
+        }
+
+        for (const row of table.tBodies[0].rows) {
+          rows.push(row.cells[0].textContent.trim());
+        }
+
+        return {
+          headers,
+          rows,
+          range:
+            table.closest("[data-slot=table-frame]").querySelector("output")?.textContent.trim() ??
+            null,
+        };
+      });
+
+    // One sorted header at a time, its button's data-sort and glyph matching, ↕ on the others.
+    const assertSort = (state, sorted, direction, rows, range, label) => {
+      const names = [];
+
+      for (const header of state.headers) {
+        names.push(header.name);
+      }
+
+      assert.deepEqual(names, ["Name", "Status", "Submitted", "Amount", "Actions"], label);
+      assert.deepEqual(state.rows, rows, `${label} rows`);
+      assert.equal(state.range, range, `${label} range`);
+
+      for (const header of state.headers) {
+        if (header.name === "Actions") {
+          assert.deepEqual(
+            [header.sort, header.type, header.icon],
+            [null, null, null],
+            `${label} Actions`,
+          );
+          continue;
+        }
+
+        let sort = null;
+        let icon = "lucidearrowupdown";
+
+        if (header.name === sorted) {
+          sort = direction;
+          icon = "lucidearrowup";
+        }
+
+        if (header.name === sorted && direction === "descending") {
+          icon = "lucidearrowdown";
+        }
+
+        assert.deepEqual(
+          {
+            sort: header.sort,
+            buttonSort: header.buttonSort,
+            type: header.type,
+            icon: header.icon,
+          },
+          { sort, buttonSort: sort, type: "button", icon },
+          `${label} ${header.name}`,
+        );
+      }
+    };
+
+    // Before hydration: the native sections hold the slotted rows and cells, the sort and the
+    // named scrollers are in place, and the Page's title is the author's unnamed section's h2.
+    const listViewsPrerendered = await browser.newPage({
+      javaScriptEnabled: false,
+      deviceScaleFactor: 1,
+    });
+
+    await listViewsPrerendered.goto(base);
+    assert.deepEqual(
+      await listViewsPrerendered.locator("#budget-list table").evaluate((table) => {
+        const head = [];
+        const body = [];
+
+        for (const row of table.tHead.rows) {
+          const cells = [];
+
+          for (const cell of row.cells) {
+            cells.push([
+              cell.localName,
+              cell.getAttribute("data-slot"),
+              cell.getAttribute("scope"),
+            ]);
+          }
+
+          head.push([row.getAttribute("data-slot"), cells]);
+        }
+
+        for (const row of table.tBodies[0].rows) {
+          const cells = [];
+
+          for (const cell of row.cells) {
+            cells.push([cell.localName, cell.getAttribute("data-slot")]);
+          }
+
+          body.push([row.getAttribute("data-slot"), cells]);
+        }
+
+        const sections = [];
+
+        for (const child of table.children) {
+          sections.push([child.localName, child.getAttribute("data-slot")]);
+        }
+
+        return { slot: table.getAttribute("data-slot"), sections, head, body };
+      }),
+      {
+        slot: "table",
+        sections: [
+          ["thead", null],
+          ["tbody", null],
+        ],
+        head: [["table-row", Array(5).fill(["th", "table-column-header", "col"])]],
+        body: Array(4).fill(["table-row", Array(5).fill(["td", "table-cell"])]),
+      },
+      "native table structure",
+    );
+
+    // The server's sort, read as the hydrated checks read it: Name is the only sorted header, its
+    // button has data-sort and ArrowUp, the others ↕ and no data-sort, every button type="button",
+    // and the first page in name order. The light table's static sort too.
+    assertSort(
+      await sortState(listViewsPrerendered),
+      "Name",
+      "ascending",
+      firstByName,
+      "1–4 of 10",
+      "prerendered",
+    );
+    assert.deepEqual(
+      (await sortState(listViewsPrerendered, "#badges-light table:not(#nested-table)")).headers,
+      [
+        {
+          name: "Name",
+          sort: "ascending",
+          buttonSort: "ascending",
+          type: "button",
+          icon: "lucidearrowup",
+        },
+        { name: "Status", sort: null, buttonSort: null, type: "button", icon: "lucidearrowupdown" },
+      ],
+      "prerendered light table sort",
+    );
+    await assertNaming(listViewsPrerendered, "prerendered");
+    assert.deepEqual(
+      await listViewsPrerendered.locator("#budget-list-title").evaluate((title) => {
+        const section = title.closest("section");
+
+        return {
+          tag: title.localName,
+          slot: title.getAttribute("data-slot"),
+          fontSize: getComputedStyle(title).fontSize,
+          label: section.getAttribute("aria-label"),
+          labelledby: section.getAttribute("aria-labelledby"),
+        };
+      }),
+      { tag: "h2", slot: "page-title", fontSize: "20px", label: null, labelledby: null },
+      "prerendered page title",
+    );
+    await listViewsPrerendered.close();
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    await assertNaming(page, "hydrated");
+
+    // The plain Empty in a full-span cell: centered muted text, the visible width less the
+    // cell's padding, no live region; the rich Empty's title is in the foreground color.
+    const archivedEmpty = await page
+      .locator("#budget-list-empty [data-slot=empty]")
+      .evaluate((empty) => {
+        const style = getComputedStyle(empty);
+
+        return {
+          text: empty.textContent.trim(),
+          textAlign: style.textAlign,
+          color: style.color,
+          position: style.position,
+          width: empty.getBoundingClientRect().width,
+          viewportWidth: empty.closest("[data-slot=scroll-area-viewport]").clientWidth,
+          colspan: empty.parentElement.getAttribute("colspan"),
+          role: empty.getAttribute("role"),
+          live: empty.getAttribute("aria-live"),
+          richTitle: getComputedStyle(document.querySelector("#empty-rich [data-slot=empty-title]"))
+            .color,
+        };
+      });
+
+    near(archivedEmpty.width, archivedEmpty.viewportWidth - 24, 1, "archived Empty width");
+    assert.deepEqual(
+      { ...archivedEmpty, width: 0, viewportWidth: 0 },
+      {
+        text: "No budgets match",
+        textAlign: "center",
+        color: "rgb(163, 163, 160)",
+        position: "sticky",
+        width: 0,
+        viewportWidth: 0,
+        colspan: "5",
+        role: null,
+        live: null,
+        richTitle: "rgb(237, 237, 235)",
+      },
+      "archived Empty",
+    );
+
+    // An Empty beside other cells in its row keeps its own layout: the full-span rule skips it.
+    assert.deepEqual(
+      await page.locator("#empty-beside-cells").evaluate((empty) => {
+        const cell = empty.parentElement.getBoundingClientRect();
+        const own = empty.getBoundingClientRect();
+
+        return {
+          position: getComputedStyle(empty).position,
+          fillsCell: Math.abs(own.width - (cell.width - 24)) <= 1,
+        };
+      }),
+      { position: "static", fillsCell: true },
+      "Empty beside other cells",
+    );
+
+    // A table nested in the light frame's cell keeps its own layout: its full-span Empty isn't
+    // sticky and fills its own cell, and its last row keeps its border, while the frame's own
+    // table's last row drops it.
+    assert.deepEqual(
+      await page.locator("#empty-nested").evaluate((empty) => {
+        const cell = empty.parentElement.getBoundingClientRect();
+        const own = empty.getBoundingClientRect();
+        const nested = empty.closest("table");
+        const outer = nested.parentElement.closest("table");
+
+        return {
+          position: getComputedStyle(empty).position,
+          fillsCell: Math.abs(own.width - (cell.width - 24)) <= 1,
+          nestedLastRowBorder: getComputedStyle(nested.tBodies[0].rows[0]).borderBottomWidth,
+          outerLastRowBorder: getComputedStyle(
+            outer.tBodies[0].rows[outer.tBodies[0].rows.length - 1],
+          ).borderBottomWidth,
+        };
+      }),
+      {
+        position: "static",
+        fillsCell: true,
+        nestedLastRowBorder: "1px",
+        outerLastRowBorder: "0px",
+      },
+      "a table nested in a frame's cell",
+    );
+
+    // The Page header: PageActions beside the title block just above the threshold of 16rem, the
+    // gap and their width, and below it as a whole just under it; a long label wraps at phone
+    // width with the README's override. Default padding 20px; p-0 removes it.
+    const headerGeometry = (selector) =>
+      page.locator(selector).evaluate((section) => {
+        const header = section.querySelector("[data-slot=page-header]");
+        const box = (node) => {
+          const { x, y, width, height, right, bottom } = node.getBoundingClientRect();
+
+          return { x, y, width, height, right, bottom };
+        };
+        const { paddingLeft, paddingTop } = getComputedStyle(section);
+
+        return {
+          header: box(header),
+          title: box(header.children[0]),
+          actions: box(header.querySelector("[data-slot=page-actions]")),
+          button: box(header.querySelector("[data-slot=page-actions] button")),
+          clientWidth: header.clientWidth,
+          scrollWidth: header.scrollWidth,
+          paddingLeft,
+          paddingTop,
+        };
+      });
+    const setWidth = (width) =>
+      page.locator("#page-long").evaluate((section, width) => {
+        section.style.width = width;
+      }, width);
+    const budgetPage = "#budget-list [data-slot=page]";
+
+    await setWidth("1200px");
+
+    const unconstrained = await headerGeometry("#page-long");
+    const threshold = 256 + 24 + unconstrained.actions.width;
+
+    await setWidth(`${threshold + 2}px`);
+
+    const beside = await headerGeometry("#page-long");
+
+    await setWidth(`${threshold - 2}px`);
+
+    const below = await headerGeometry("#page-long");
+
+    await setWidth("");
+
+    const desktopBudget = await headerGeometry(budgetPage);
+
+    assert.ok(beside.title.width >= 255, `beside: title block ${beside.title.width}`);
+    near(beside.actions.x - beside.title.right, 24, 1, "beside: gap");
+    assert.ok(beside.actions.y < beside.title.bottom, "beside: actions beside the title block");
+    near(beside.actions.right, beside.header.right, 1, "beside: actions at the end");
+    near(beside.button.height, 32, 0.5, "beside: one-line button");
+    near(below.actions.y - below.title.bottom, 12, 1, "below: row gap");
+    near(below.actions.x, below.header.x, 1, "below: actions at the start");
+    near(below.title.width, below.header.width, 1, "below: full-width title block");
+    assert.ok(desktopBudget.actions.y < desktopBudget.title.bottom, "budget actions beside");
+
+    await page.setViewportSize({ width: 390, height: 720 });
+
+    const phoneBudget = await headerGeometry(budgetPage);
+    const phoneLong = await headerGeometry("#page-long");
+
+    near(phoneLong.header.width, 350, 0.5, "phone header width");
+    assert.ok(phoneLong.actions.y > phoneLong.title.bottom, "phone: actions below");
+    assert.ok(phoneLong.button.right <= phoneLong.header.right + 0.5, "phone: button inside");
+    assert.ok(phoneLong.button.height >= 40, `phone: wrapped label ${phoneLong.button.height}`);
+    assert.ok(phoneLong.scrollWidth <= phoneLong.clientWidth, "phone: header doesn't overflow");
+    assert.ok(phoneBudget.actions.y >= phoneBudget.title.bottom + 11, "phone budget actions below");
+
+    for (const { geometry, padding, label } of [
+      { geometry: desktopBudget, padding: "20px", label: "budget desktop" },
+      { geometry: phoneBudget, padding: "20px", label: "budget phone" },
+      { geometry: unconstrained, padding: "0px", label: "p-0 desktop" },
+      { geometry: phoneLong, padding: "0px", label: "p-0 phone" },
+    ]) {
+      assert.deepEqual(
+        [geometry.paddingTop, geometry.paddingLeft],
+        [padding, padding],
+        `${label} padding`,
+      );
+    }
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Badge: every tone's text and tint equal probes painted with the literal theme values, and
+    // the text reads at 4.5:1 or more over its tint on its backdrop, in the document's theme and in
+    // a light subtree; without --info, info looks like neutral.
+    const tones = ["neutral", "info", "success", "warning", "danger"];
+    const palettes = {
+      dark: {
+        foreground: "#ededeb",
+        neutral: "#a3a3a0",
+        info: "#82b4ec",
+        success: "#7fd49a",
+        warning: "#e9b86a",
+        danger: "#e0906f",
+      },
+      light: {
+        foreground: "#1b1b1b",
+        neutral: "#5b5b58",
+        info: "#1f5f9e",
+        success: "#1d6b37",
+        warning: "#80560a",
+        danger: "#b8421a",
+      },
+    };
+    const badgeColors = (id, palette, sampleTones, missingInfo) =>
+      page.locator(`#${id}`).evaluate(
+        (sample, { palette, sampleTones, missingInfo }) => {
+          const context = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+          const rgba = (color) => {
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+
+            return [...context.getImageData(0, 0, 1, 1).data];
+          };
+          const result = [];
+
+          for (const tone of sampleTones) {
+            const badge = sample.querySelector(`[data-tone="${tone}"]`);
+
+            if (!badge) {
+              result.push({ tone, missing: true });
+              continue;
+            }
+
+            const style = getComputedStyle(badge);
+            let backdrop = null;
+
+            for (let node = badge.parentElement; node && !backdrop; node = node.parentElement) {
+              const ground = rgba(getComputedStyle(node).backgroundColor);
+
+              if (ground[3] === 255) {
+                backdrop = ground;
+              }
+            }
+
+            let token = palette[tone];
+
+            if (missingInfo && tone === "info") {
+              token = palette.neutral;
+            }
+
+            const probe = document.createElement("span");
+
+            probe.style.color = `color-mix(in oklab, ${token} 80%, ${palette.foreground})`;
+            probe.style.backgroundColor = `color-mix(in oklab, ${token} 12%, transparent)`;
+            badge.after(probe);
+
+            const expected = getComputedStyle(probe);
+            const entry = {
+              tone,
+              color: rgba(style.color),
+              tint: rgba(style.backgroundColor),
+              expectedColor: rgba(expected.color),
+              expectedTint: rgba(expected.backgroundColor),
+              backdrop,
+            };
+
+            probe.remove();
+            result.push(entry);
+          }
+
+          return result;
+        },
+        { palette, sampleTones, missingInfo },
+      );
+    const assertBadges = async (theme) => {
+      for (const [id, palette] of [
+        ["badges-background", palettes[theme]],
+        ["badges-surface", palettes[theme]],
+        ["badges-light-background", palettes.light],
+        ["badges-light-surface", palettes.light],
+        ["badges-no-info", palettes[theme]],
+      ]) {
+        const missingInfo = id === "badges-no-info";
+        let sampleTones = tones;
+
+        if (missingInfo) {
+          sampleTones = ["neutral", "info"];
+        }
+
+        const entries = await badgeColors(id, palette, sampleTones, missingInfo);
+
+        for (const entry of entries) {
+          const label = `${theme} ${id} ${entry.tone}`;
+
+          assert.equal(entry.missing, undefined, `${label} is rendered`);
+
+          for (let channel = 0; channel < 4; channel++) {
+            near(entry.color[channel], entry.expectedColor[channel], 1, `${label} text`);
+            near(entry.tint[channel], entry.expectedTint[channel], 1, `${label} tint`);
+          }
+
+          assert.ok(entry.tint[3] > 0, `${label} tint is painted`);
+
+          const ratio = contrast(entry.color, over(entry.tint, entry.backdrop));
+
+          assert.ok(ratio >= 4.5, `${label} contrast ${ratio.toFixed(2)}`);
+        }
+
+        if (missingInfo) {
+          assert.deepEqual(
+            [entries[1].color, entries[1].tint],
+            [entries[0].color, entries[0].tint],
+            `${theme} info without --info looks neutral`,
+          );
+        }
+      }
+    };
+
+    assert.equal(
+      await page.locator("#badges-no-info [data-tone=info]").count(),
+      1,
+      "the info Badge keeps its tone without --info",
+    );
+    await assertBadges("dark");
+    await page.evaluate(() => document.documentElement.classList.add("light"));
+    await assertBadges("light");
+    await page.evaluate(() => document.documentElement.classList.remove("light"));
+    await page.emulateMedia({ forcedColors: "active" });
+
+    const forcedBadge = await styleOf("#badges-background [data-tone=info]", [
+      "borderTopColor",
+      "borderTopStyle",
+      "borderTopWidth",
+    ]);
+
+    assert.notEqual(forcedBadge.borderTopColor, "rgba(0, 0, 0, 0)", "forced colors outline color");
+    assert.notEqual(forcedBadge.borderTopStyle, "none", "forced colors outline style");
+    assert.ok(
+      Number.parseFloat(forcedBadge.borderTopWidth) > 0,
+      `forced colors outline width ${forcedBadge.borderTopWidth}`,
+    );
+    await page.emulateMedia({ forcedColors: "none" });
+
+    // The unsorted ↕ glyph is the label's full muted color, 3:1 or more on the frame's surface, in
+    // the dark document, in a light subtree and in the light document. The sort button's color
+    // transition runs 120ms after a theme switch, so this waits up to 2s for the settled color.
+    await page.mouse.move(0, 0);
+
+    for (const [root, theme, expected] of [
+      ["#budget-list", "dark", "rgb(163, 163, 160)"],
+      ["#badges-light", "dark", "rgb(91, 91, 88)"],
+      ["#budget-list", "light", "rgb(91, 91, 88)"],
+    ]) {
+      await page.evaluate(
+        (light) => document.documentElement.classList.toggle("light", light),
+        theme === "light",
+      );
+
+      const glyph = page
+        .locator(root)
+        .getByRole("button", { name: "Status", exact: true })
+        .locator("svg");
+
+      // Polled from Node, each read raced against a Node timer, so a page that stops rendering or
+      // responding fails the run instead of holding the gate lock.
+      const readColor = () =>
+        Promise.race([
+          glyph.evaluate((svg) => getComputedStyle(svg).color),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`${root} ${theme} glyph color read timed out`)),
+              1000,
+            ),
+          ),
+        ]);
+      const deadline = Date.now() + 2000;
+      let settled = await readColor();
+
+      while (settled !== expected && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        settled = await readColor();
+      }
+
+      assert.equal(settled, expected, `${root} ${theme} glyph color settles`);
+
+      const look = await glyph.evaluate((svg) => ({
+        color: getComputedStyle(svg).color,
+        opacity: getComputedStyle(svg).opacity,
+        surface: getComputedStyle(svg.closest("[data-slot=table-frame]")).backgroundColor,
+      }));
+      const ratio = contrast(await rgbaIn(page, look.color), await rgbaIn(page, look.surface));
+
+      assert.equal(look.opacity, "1", `${root} ${theme} glyph opacity`);
+      assert.ok(ratio >= 3, `${root} ${theme} glyph contrast ${ratio.toFixed(2)}`);
+    }
+
+    await page.evaluate(() => document.documentElement.classList.remove("light"));
+
+    // Alignment: Amount is end-aligned with tabular figures, its sort icon leading; Name is
+    // start-aligned, also under an inherited text-end; the last body row has no bottom border.
+    const budgetTable = page.getByRole("table", { name: "Budgets", exact: true });
+
+    assert.equal(await budgetTable.count(), 1, "one Budgets table");
+    assert.deepEqual(
+      [...(await budgetTable.ariaSnapshot()).matchAll(/columnheader "([^"]+)"/g)].map(
+        (match) => match[1],
+      ),
+      ["Name", "Status", "Submitted", "Amount", "Actions"],
+      "accessible column headers",
+    );
+
+    const alignment = await budgetTable.evaluate((table) => {
+      const align = (cell) => {
+        const style = getComputedStyle(cell);
+
+        return {
+          dataAlign: cell.getAttribute("data-align"),
+          textAlign: style.textAlign,
+          fontSize: style.fontSize,
+          numeric: style.fontVariantNumeric,
+        };
+      };
+      const [name, , , amount] = table.tBodies[0].rows[0].cells;
+      const amountHeader = table.tHead.rows[0].cells[3];
+      const button = amountHeader.querySelector("button");
+      let label;
+
+      for (const node of button.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+          label = node;
+        }
+      }
+
+      const range = document.createRange();
+
+      range.selectNodeContents(label);
+
+      const inherited = document.querySelector("#badges-light table");
+
+      return {
+        name: align(name),
+        amount: align(amount),
+        amountHeader: align(amountHeader),
+        iconRight: button.querySelector("svg").getBoundingClientRect().right,
+        labelLeft: range.getBoundingClientRect().left,
+        lastRowBorder: getComputedStyle(table.tBodies[0].rows[3]).borderBottomWidth,
+        inheritedCell: align(inherited.tBodies[0].rows[0].cells[0]),
+        inheritedHeader: align(inherited.tHead.rows[0].cells[0]),
+      };
+    });
+
+    assert.deepEqual(
+      [alignment.name.dataAlign, alignment.name.textAlign],
+      ["start", "start"],
+      "Name cell",
+    );
+    assert.deepEqual(
+      [alignment.amount.dataAlign, alignment.amount.textAlign, alignment.amount.numeric],
+      ["end", "end", "tabular-nums"],
+      "Amount cell",
+    );
+    assert.deepEqual(
+      [
+        alignment.amountHeader.dataAlign,
+        alignment.amountHeader.textAlign,
+        alignment.amountHeader.fontSize,
+      ],
+      ["end", "end", "12px"],
+      "Amount header",
+    );
+    assert.ok(alignment.iconRight < alignment.labelLeft, "the end column's icon leads");
+    assert.equal(alignment.lastRowBorder, "0px", "the last body row has no bottom border");
+
+    // Rows grouped in several bodies keep the line between groups: only the last body's last row
+    // drops it. A copy of the body is appended for the measurement and removed again.
+    const grouped = await page.evaluate(() => {
+      const table = document.querySelector("#budget-list table");
+      const second = table.tBodies[0].cloneNode(true);
+
+      table.append(second);
+
+      const borders = {
+        firstGroupEnd: getComputedStyle(table.tBodies[0].rows[3]).borderBottomWidth,
+        lastGroupEnd: getComputedStyle(second.rows[3]).borderBottomWidth,
+      };
+
+      // An empty trailing body, a last group filtered to no rows, leaves the last row with rows
+      // borderless.
+      const empty = document.createElement("tbody");
+
+      table.append(empty);
+      borders.endBeforeEmptyBody = getComputedStyle(second.rows[3]).borderBottomWidth;
+      empty.remove();
+      second.remove();
+
+      return borders;
+    });
+
+    assert.deepEqual(
+      grouped,
+      { firstGroupEnd: "1px", lastGroupEnd: "0px", endBeforeEmptyBody: "0px" },
+      "grouped bodies keep the separator between groups, and an empty last body adds none",
+    );
+    assert.deepEqual(
+      [alignment.inheritedCell.dataAlign, alignment.inheritedCell.textAlign],
+      ["start", "start"],
+      "a start cell under an inherited text-end",
+    );
+    assert.equal(alignment.inheritedHeader.textAlign, "start", "a header under text-end");
+
+    // Sorting by keyboard and pointer: each step shows its rows, the view returns to page 1 on a
+    // new sort, and missing names and dates sort last in both directions. Each step waits for the
+    // sort and the range it expects before reading.
+    const budgetList = page.locator("#budget-list");
+    const budgetButton = (name) => budgetList.getByRole("button", { name, exact: true });
+    const settledOn = (sorted, direction, range) =>
+      page.waitForFunction(
+        ({ sorted, direction, range }) => {
+          const header = document.querySelector("#budget-list th[aria-sort]");
+
+          return (
+            header?.textContent.trim() === sorted &&
+            header.getAttribute("aria-sort") === direction &&
+            document.querySelector("#budget-list output").textContent.trim() === range
+          );
+        },
+        { sorted, direction, range },
+      );
+
+    await budgetList.scrollIntoViewIfNeeded();
+    assertSort(await sortState(), "Name", "ascending", firstByName, "1–4 of 10", "initial");
+
+    for (const { action, sorted, direction, rows, range } of [
+      {
+        action: async () => {
+          await budgetButton("Name").focus();
+          await page.keyboard.press("Enter");
+        },
+        sorted: "Name",
+        direction: "descending",
+        rows: ["Travel", "Training", "Software licences", "Research"],
+        range: "1–4 of 10",
+      },
+      {
+        action: () => budgetButton("Amount").click(),
+        sorted: "Amount",
+        direction: "ascending",
+        rows: ["Untitled draft", "Facilities", "Training", "Legal"],
+        range: "1–4 of 10",
+      },
+      {
+        action: () => budgetButton("Submitted").click(),
+        sorted: "Submitted",
+        direction: "ascending",
+        rows: ["Legal", "Travel", "Marketing", "Hiring"],
+        range: "1–4 of 10",
+      },
+      {
+        action: () => budgetButton("Submitted").click(),
+        sorted: "Submitted",
+        direction: "descending",
+        rows: ["Research", "Facilities", "Hiring", "Marketing"],
+        range: "1–4 of 10",
+      },
+      {
+        action: async () => {
+          await budgetButton("Next").click();
+          await settledOn("Submitted", "descending", "5–8 of 10");
+          await budgetButton("Next").click();
+        },
+        sorted: "Submitted",
+        direction: "descending",
+        rows: ["Untitled draft", "Software licences"],
+        range: "9–10 of 10",
+      },
+      {
+        action: () => budgetButton("Name").click(),
+        sorted: "Name",
+        direction: "ascending",
+        rows: firstByName,
+        range: "1–4 of 10",
+      },
+    ]) {
+      const label = `${sorted} ${direction} ${range}`;
+
+      await action();
+      await settledOn(sorted, direction, range);
+      assertSort(await sortState(), sorted, direction, rows, range, label);
+
+      if (sorted === "Name" && direction === "descending") {
+        assert.equal(
+          await budgetButton("Name").evaluate((button) => document.activeElement === button),
+          true,
+          "Name keeps focus after Enter",
+        );
+      }
+    }
+
+    // The pager's boundaries: Previous and Next stay focusable while disabled, so a key or a raw
+    // pointer click still fires (click), and the view's guard keeps the range.
+    const previous = budgetButton("Previous");
+    const next = budgetButton("Next");
+    const range = budgetList.locator("output");
+    const atBoundary = async (button, press, text, label) => {
+      await button.focus();
+      await press();
+      await rendered();
+      assert.deepEqual(
+        {
+          text: (await range.textContent()).trim(),
+          ariaDisabled: await button.getAttribute("aria-disabled"),
+          disabled: await button.getAttribute("disabled"),
+          focused: await button.evaluate((node) => document.activeElement === node),
+        },
+        { text, ariaDisabled: "true", disabled: null, focused: true },
+        label,
+      );
+    };
+    const enter = () => page.keyboard.press("Enter");
+
+    await atBoundary(previous, enter, "1–4 of 10", "Previous by Enter on page 1");
+    await atBoundary(previous, () => rawClick(page, previous), "1–4 of 10", "Previous by pointer");
+    await next.focus();
+    await enter();
+    await settledOn("Name", "ascending", "5–8 of 10");
+    await enter();
+    await settledOn("Name", "ascending", "9–10 of 10");
+    assert.equal(
+      await next.evaluate((node) => document.activeElement === node),
+      true,
+      "Next keeps focus on reaching the last page",
+    );
+    await atBoundary(next, enter, "9–10 of 10", "Next by Enter on the last page");
+    await atBoundary(next, () => rawClick(page, next), "9–10 of 10", "Next by pointer");
+
+    const archivedPager = page.locator("#budget-list-empty nav");
+
+    assert.equal((await archivedPager.locator("output").textContent()).trim(), "No budgets");
+    assert.deepEqual(
+      await archivedPager.locator("button").evaluateAll((buttons) => {
+        const states = [];
+
+        for (const button of buttons) {
+          states.push(button.getAttribute("aria-disabled"));
+        }
+
+        return states;
+      }),
+      ["true", "true"],
+      "the archived pager's buttons",
+    );
+  }
+
   assert.deepEqual(errors, [], "console errors or warnings");
   console.log("Chromium smoke passed:", JSON.stringify(geometry));
 } finally {

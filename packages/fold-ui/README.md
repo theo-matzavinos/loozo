@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. A few parts render markup of their own, such as Dialog's close button and Select's chevron; a Calendar renders its whole header and grid. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, OtpField, Slider, FileField, Select and Combobox, Tabs, Tooltip and Popover, Menu, Toast, ScrollArea, Avatar, Progress and Meter, Calendar, and DateField, TimeField, DateTimeField and DatePicker. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, OtpField, Slider, FileField, Select and Combobox, Tabs, Tooltip and Popover, Menu, Toast, ScrollArea, Avatar, Progress and Meter, Page, Table, Badge and Empty, Calendar, and DateField, TimeField, DateTimeField and DatePicker. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -51,11 +51,12 @@ ng generate @loozo/fold-ui:add --names menu
 ng generate @loozo/fold-ui:add --names toggle toggle-group toolbar
 ng generate @loozo/fold-ui:add --names toast
 ng generate @loozo/fold-ui:add --names scroll-area avatar progress meter
+ng generate @loozo/fold-ui:add --names page table badge empty
 ng generate @loozo/fold-ui:add --names calendar
 ng generate @loozo/fold-ui:add --names date-field date-picker
 ```
 
-NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar, Progress and Meter import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar`, `/progress` and `/meter`, which no published Origami has yet (npm has 0.0.4). Select, Popover, Dialog and Sheet scroll in a ScrollArea, so adding one adds `scroll-area` and needs `/scroll-area` too. Tabs and Tooltip import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar, Progress and Meter import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar`, `/progress` and `/meter`, which no published Origami has yet (npm has 0.0.4). Select, Popover, Dialog and Sheet scroll in a ScrollArea, so adding one adds `scroll-area` and needs `/scroll-area` too. So does Table, whose TableFrame scrolls in one. Tabs and Tooltip import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Toggle and ToggleGroup import only what 0.0.4 has. Toolbar imports `OrigamiToolbarMenuTrigger` from `@loozo/origami-ui/toolbar`, which no published Origami has yet, so `add toolbar` doesn't build on 0.0.4 even without a Menu; its popup triggers sit in fold's Popover and Menu, which need `/scroll-area` too. All three are tested with this repository's Origami, built from source, not with 0.0.4.
 
@@ -104,7 +105,7 @@ A component that's only a dependency is always kept when its folder exists. To r
 
 ## Theming
 
-`theme.css` holds fifteen color tokens, `--radius`, the soft edge shadow `--edge` and the dialog scrim `--scrim`, then maps them to Tailwind with `@theme inline`. Dark is the default theme, on `:root` and `.dark`; a `.light` class swaps every token, for the whole page or for one subtree:
+`theme.css` holds sixteen color tokens, `--radius`, the soft edge shadow `--edge` and the dialog scrim `--scrim`, then maps them to Tailwind with `@theme inline`. Dark is the default theme, on `:root` and `.dark`; a `.light` class swaps every token, for the whole page or for one subtree:
 
 ```html
 <html class="light"></html>
@@ -119,6 +120,8 @@ To re-theme, change the token values in your copy; when you add a text size, rad
 - the Hanken Grotesk variable font, imported from `@fontsource-variable/hanken-grotesk`.
 
 Tailwind's default colors and `text-*` sizes stay available.
+
+**Existing themes.** A `theme.css` copied before the `--info` token existed lacks it, so an info [Badge](#badge) looks neutral, and `text-info` and `bg-info` don't exist, until you add its three lines: `--info: #82b4ec;` under `:root, .dark`, `--info: #1f5f9e;` under `.light`, and `--color-info: var(--info);` in `@theme inline`. Neither `ng add` nor `add` changes a theme you already have.
 
 ## Class merging and slots
 
@@ -158,6 +161,8 @@ State is styled from the attributes Origami sets: a disabled button has `data-di
 A Calendar root's slot is `calendar`, whichever of the four it is; inside it are `calendar-header` (with `calendar-previous`, `calendar-heading`, `calendar-view-switch` and `calendar-next`), `calendar-grid`, `calendar-weekday`, `calendar-cell` with `calendar-cell-label` (the chip) inside, and CalendarRange's `calendar-prompt`. A cell has Origami's `aria-selected`, `data-selected`, `data-today`, `data-outside`, `data-disabled`, `data-current`, `data-range-start`, `data-range-end`, `data-in-range` and `data-preview`; the grid has `aria-invalid`, `aria-readonly` and `aria-disabled`. fold adds two presence attributes from CalendarRange's `state.anchor()`: `data-anchor` on the pending first day's cell and `data-pending` on the grid while a first day is pending. They're `""` or absent, never `"false"`, so style with `[data-pending]` and `:not([data-pending])`. While the grid has `data-pending`, the committed range's band, end fills, rounding and forced-colors rail caps yield to the square preview.
 
 Toggle's slot is `toggle`. ToggleGroup's are `toggle-group`, for both roots, and `toggle-group-item`, with `toggle-group-indicator` (the dot) inside. Toolbar's are `toolbar`, `toolbar-separator`, `toolbar-button`, `toolbar-toggle`, `toolbar-toggle-group` (for both groups), `toolbar-radio-group`, `toolbar-popover-trigger` and `toolbar-menu-trigger`; the items inside its groups keep `toggle-group-item` and `radio-group-item`. A Toggle, ToolbarToggle or ToggleGroupItem has Origami's `aria-pressed` and, while on, `data-pressed`, plus `data-disabled`; a ToggleGroup root has `data-orientation` and `data-disabled`, and fold adds `data-indicator` to a Single root with `indicator`. A Toolbar has `data-orientation` and `aria-orientation`; its separator has the perpendicular `aria-orientation`, and fold mirrors the Toolbar's `data-orientation` onto ToolbarRadioGroup, which Origami gives none.
+
+Table's parts are `table-frame`, `table`, `table-row`, `table-column-header`, `table-sort-button` (with `table-sort-icon`, the arrow) and `table-cell`, and `table-pager`; TableFrame renders a ScrollArea, so its `scroll-area…` slots are there too. Badge's is `badge`. Page's are `page`, `page-header`, `page-title`, `page-description` and `page-actions`; Empty's are `empty`, `empty-title`, `empty-description` and `empty-actions`. A TableColumnHeader has `aria-sort` while sorted and `data-align`, its TableSortButton `data-sort` while its column is sorted, a TableCell `data-align`, and a Badge `data-tone`.
 
 ## Button
 
@@ -1858,6 +1863,197 @@ This carries the status words that colour can't, and it avoids reading `#m.state
 - **Values** clamp to `[min, max]`, a value that isn't finite renders as `min`, and a `max` below `min` is raised to it; see [Origami's values table](../origami-ui/meter/README.md#values).
 - **Replacing Options** in your copy of Meter or MeterRing works as [Origami's README](../origami-ui/meter/README.md#replacing-options) describes: fold reads them no earlier than Origami does.
 
+## Page
+
+```ts
+import { Button } from "#ui/button";
+import { PageParts } from "#ui/page";
+```
+
+The actions below are [Button](#button)s, so the example also needs `button` added: `ng generate @loozo/fold-ui:add --names page button`.
+
+`Page` is a titled page frame made of directive parts on elements you write: a 20px-padded column with a header and your content. fold sets no landmark, role, name or heading level. The header puts the title block at the start and the actions at the end while both fit on one line, and wraps the actions below the title block, as a whole, when they don't:
+
+<!-- prettier-ignore -->
+```html
+<main foldPage>
+  <header foldPageHeader>
+    <div> <!-- the title block -->
+      <h1 foldPageTitle id="budgets-title">Budgets</h1>
+      <p foldPageDescription>Acme Ltd · fiscal year 2026</p>
+    </div>
+    <div foldPageActions>
+      <button foldButton>Export</button>
+      <button foldButton variant="primary">New budget</button>
+    </div>
+  </header>
+  …
+</main>
+
+<!-- Without a description, the title can be the header's direct child. -->
+<header foldPageHeader>
+  <h1 foldPageTitle>Budgets</h1>
+  <div foldPageActions>…</div>
+</header>
+```
+
+- `Page`: the frame, `flex flex-col gap-5 p-5`. It takes `class`.
+- `PageHeader`: the title row. Every child except PageActions is a title block that grows from 16rem and never shrinks below it beside the actions, so the actions wrap exactly when 16rem, the 24px gap and their own width don't fit. It takes `class`.
+- `PageTitle`: your heading element, usually an `<h1>`, at the 20px `text-headline` size; a long word wraps anywhere. The heading level is yours. It takes `class`.
+- `PageDescription`: a muted line under the title, at most 68 characters wide. It takes `class`.
+- `PageActions`: a wrapping row of buttons at the header's end. It never shrinks into the title block, and when it's alone on its line it stays inside the header, where its own buttons wrap. It takes `class`.
+
+- **The title block.** Put PageTitle and PageDescription in one element of yours, usually a `<div>`, so they stay one block: the actions then center against both, and the order is title, description, actions at every width. Without the wrapper, the description sits beside the title on a wide screen. Write the title block before PageActions; the narrow layout follows the DOM order.
+- **In a padded shell**, such as an app layout that already pads its outlet, write `<section foldPage class="p-0">`.
+- **Landmarks.** `<main foldPage>` needs no name. A `<section foldPage>` stays a plain section unless you name it; don't give it the same name as a [Table](#table) region inside it, or the landmark list shows two of them.
+- **Long labels.** fold's Button doesn't wrap its label, so one label wider than the header, at phone width or in translation, overflows it. Give that Button the classes Toast's action uses; a label that fits looks the same with them, one 32px line:
+
+  ```html
+  <button
+    foldButton
+    variant="primary"
+    class="h-auto min-h-8 max-w-full py-1 text-start whitespace-normal [overflow-wrap:anywhere]"
+  >
+    Alle verbleibenden Budgetentwürfe zur Genehmigung einreichen
+  </button>
+  ```
+
+## Table
+
+```ts
+import { CurrencyPipe } from "@angular/common";
+import { Button } from "#ui/button";
+import { EmptyParts } from "#ui/empty";
+import { TableParts } from "#ui/table";
+```
+
+The example below also uses [Button](#button) for the row action and the pager, [Empty](#empty) for the empty row and Angular's `CurrencyPipe`, so it needs `ng generate @loozo/fold-ui:add --names table button empty` and all four in the component's `imports`. Without `Button`, the pager's `focusableWhenDisabled` has no effect and focus drops at the first or last page.
+
+`Table` styles a native `<table>` with directive parts, inside a bordered `TableFrame` that scrolls it sideways in a [ScrollArea](#scrollarea) and holds a `TablePager` below it. The view owns every bit of state, the rows, the sort and the page; the parts only reflect it:
+
+<!-- prettier-ignore -->
+```html
+<div foldTableFrame [aria-labelledby]="titleId">
+  <table foldTable [attr.aria-labelledby]="titleId">
+    <thead>
+      <tr foldTableRow>
+        <th foldTableColumnHeader [sort]="sortOf('name')">
+          <button foldTableSortButton (click)="toggleSort('name')">Name</button>
+        </th>
+        <th foldTableColumnHeader align="end" [sort]="sortOf('amount')">
+          <button foldTableSortButton (click)="toggleSort('amount')">Amount</button>
+        </th>
+        <th foldTableColumnHeader align="end"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (budget of visible(); track budget.id) {
+        <tr foldTableRow>
+          <td foldTableCell>{{ budget.name }}</td>
+          <td foldTableCell align="end">{{ budget.amount | currency: "EUR" }}</td>
+          <td foldTableCell align="end"><button foldButton size="sm">Submit</button></td>
+        </tr>
+      } @empty {
+        <tr foldTableRow>
+          <td foldTableCell colspan="3"><div foldEmpty>No budgets match</div></td>
+        </tr>
+      }
+    </tbody>
+  </table>
+  <nav foldTablePager aria-label="Budgets pages">
+    <output>{{ rangeText() }}</output>
+    <button foldButton size="sm" [disabled]="!hasPrevious()" focusableWhenDisabled (click)="previous()">Previous</button>
+    <button foldButton size="sm" [disabled]="!hasNext()" focusableWhenDisabled (click)="next()">Next</button>
+  </nav>
+</div>
+```
+
+- `TableFrame`: an element, usually a `<div>`, around the table and its pager: a rounded surface with a 1px border. The table scrolls sideways in a horizontal ScrollArea; the pager stays below it. Write the table as the frame's direct child: the frame's own styles, the last row's border and the full-span Empty, reach only that table, not one inside a wrapper element. It takes `aria-labelledby`, `aria-label` and `class`.
+- `Table`: a native `<table>`, full width with collapsed borders. Name it with `aria-labelledby` or `aria-label`. It takes `class`. `<thead>`, `<tbody>` and `<tfoot>` stay plain native elements.
+- `TableRow`: a native `<tr>` with a 1px bottom border; the frame drops it from the last row of its own table's last `<tbody>` that has rows, so rows grouped in several bodies keep the line between groups, even when the last group is empty. It takes `class`.
+- `TableColumnHeader`: a native `<th>`, with `scope="col"`, muted 12px text. It takes `align` (`start` by default, or `end`), `sort` (`ascending`, `descending`, or `null` by default for unsorted), which it reflects as `aria-sort`, and `class`. It exports the `TableAlign` and `TableSort` types.
+- `TableSortButton`: a native `<button>` inside a TableColumnHeader, with `type="button"`: its label and an arrow, ↑ or ↓ for the header's `sort`, or ↕ while unsorted, in the label's muted color, so a sortable column shows without hover. The sorted column's label is in the foreground color. In an end-aligned column the arrow leads. It reads its header and writes nothing: your `(click)` changes the view's sort. Outside a TableColumnHeader it fails with NG0201. It takes `class`.
+- `TableCell`: a native `<td>`. It takes `align` (`start` by default, or `end`, with tabular figures for money and numbers) and `class`. Give a column's header and cells the same `align`.
+- `TablePager`: a native `<nav>` at the frame's bottom: a row of muted 12px text with tabular figures, its first child, such as an `<output>`, at the start, unless it's a button or a link, which stays at the end with the other buttons. The name, the text, the buttons and their checks are yours. It takes `class`.
+
+- **Sorting.** The view keeps one sort, binds it to each sortable header's `sort` and changes it in the buttons' `(click)`; fold doesn't sort. One header carries `aria-sort` at a time because the view keeps one key. Whether a screen reader announces the new `aria-sort` while focus stays on the button varies by reader; for an announcement, add a polite status text of your own. A click before hydration is lost unless the app enables Angular's event replay.
+- **Paging.** Give the pager buttons `focusableWhenDisabled`, so the one you just pressed keeps focus at the first or last page instead of dropping it to `<body>`. A focusable disabled button still fires `(click)`, so each handler checks its boundary:
+
+  ```ts
+  protected next(): void {
+    if (!this.hasNext()) {
+      return;
+    }
+
+    this.page.update((page) => page + 1);
+  }
+  ```
+
+  `<output>` is a polite status, so a screen reader hears the new range. When a page has more than one list, name each pager for its list, such as "Budgets pages" and "Archived budgets pages".
+
+- **While loading.** The header and the pager describe the rows on screen: keep the old rows and their sort and range until the response arrives, or show a pending state of your own first. A failed request leaves the last rows. Loading and failure aren't the Empty state: an `@empty` branch over a list that starts as `[]` shows "No budgets match" before the first response, so branch on the request's status first.
+- **Action columns.** A header without text, such as over row buttons, has no name; write visually hidden text in it, as above.
+- **Naming.** Name the frame with `[aria-labelledby]` (an element's id, usually the page title's) or `[aria-label]`, as inputs: the name moves to the scrolling viewport, which becomes a named region, and never stays on the frame. Static names work as plain attributes too: `aria-labelledby="budgets-title"`. `[attr.aria-labelledby]` on the frame writes to the frame itself and leaves the focusable viewport unnamed.
+- **A Tab stop.** The viewport is always a Tab stop, so the keyboard reaches and scrolls a wide table before and after hydration. When the table fits, such as on a desktop, the stop remains: Tab goes from the control before the frame to the scroller, then to the first sort button.
+- **Empty rows.** An Empty that is the direct child of a body row's only cell, as in the `@empty` row above, stays inside the visible width while a wide table scrolls: it's as wide as the viewport less the cell's 12px padding on each side, and sticky 12px from its start. The cell must span every column and keep TableCell's padding, and the table must be the frame's direct child, as above. An Empty in a row with other cells, or in a table nested in a cell, keeps its own layout.
+- **Width.** The frame's scroller is a size container, so a frame that sizes to its content, such as in a flex row without a basis, `w-fit` or `inline-block`, takes its pager's width instead of its table's. Give such a frame a width: `w-full` or `basis-full`.
+- **Content doesn't wrap.** A sideways-scrolling table sizes to its content, so cell text never wraps; a long name widens the table, which scrolls.
+- **Overflow.** The frame clips what overflows it. Row-action popups such as Menu and Popover are in the top layer, which escapes it.
+
+[ScrollArea](#scrollarea) describes the scroller's thumbs.
+
+## Badge
+
+```ts
+import { Badge } from "#ui/badge";
+```
+
+`Badge` is a status label: a 20px pill of 12px text in a soft tint of its tone. Its text carries the status, so color is never the only cue, and it isn't a live region:
+
+```html
+<span foldBadge>Draft</span>
+<span foldBadge tone="info">Submitted by Ada Lovelace</span>
+<span foldBadge tone="success">BUD-2026-0042</span>
+<span foldBadge tone="warning">Over limit</span>
+<span foldBadge tone="danger">Rejected</span>
+```
+
+`Badge` goes on an HTML element, usually a `<span>`. It takes `tone` (`neutral` by default, `info`, `success`, `warning` or `danger`) and `class`, and sets `data-tone`.
+
+- **Colors.** The tint is the tone at 12%, and the text is 80% tone and 20% foreground. With the shipped palette the text reads at 4.5:1 or more on the background and on a surface, in both themes and in a `.light` subtree. A re-themed palette carries no contrast guarantee: check yours.
+- **Forced colors.** The tint drops, and the Badge keeps an outline in the system text color.
+- **No wrapping.** A long label keeps one line, so in a table it widens its column.
+
+## Empty
+
+```ts
+import { Button } from "#ui/button";
+import { EmptyParts } from "#ui/empty";
+```
+
+The second example's action is a [Button](#button), so it also needs `button` added: `ng generate @loozo/fold-ui:add --names empty button`.
+
+`Empty` is an empty-state block: centered, muted text, with an optional title, description and actions. Plain projected text works alone:
+
+```html
+<div foldEmpty>No budgets match</div>
+
+<div foldEmpty>
+  <h2 foldEmptyTitle>No budgets yet</h2>
+  <p foldEmptyDescription>Create the first budget for fiscal year 2026; it starts as a draft.</p>
+  <div foldEmptyActions><button foldButton variant="primary">New budget</button></div>
+</div>
+```
+
+- `Empty`: the block, with 40px of space above and below. It takes `class`.
+- `EmptyTitle`: the title in the foreground color, at the 15px `text-title` size. The heading level is yours. It takes `class`.
+- `EmptyDescription`: muted text, at most 48 characters wide. It takes `class`.
+- `EmptyActions`: a centered, wrapping row of buttons or links. It takes `class`.
+
+- **Not a live region.** An Empty that replaces rows isn't announced; the change that emptied the list, such as a search, says so.
+- **Not loading.** Loading or a failed request isn't the empty state; see [Table](#table)'s "While loading".
+- **In a table**, put the Empty inside a cell that spans every column, as [Table](#table)'s Empty rows describe, never on the cell itself: both bind the element's classes.
+
 ## Calendar
 
 ```ts
@@ -2085,6 +2281,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - No replacing or deduplicating a toast by id, hotkey, promise or loading toasts, swipe, or placement other than the bottom corners. Outside Chromium, the deck's heights snap instead of animating (no `interpolate-size`; the offsets and scale still animate), and when the front toast closes, the next one snaps to its full height once the exit ends.
 - No ScrollArea hide-delay input, corner, scroll shadows or `cdkScrollable`; its root's layout is fold's. No Avatar groups, "+N" or initials helper; a class-sized avatar doesn't pick its radius from its size. No Progress label or value part, buffer, segments, vertical bar or animated value; the unknown sweep runs left to right in right-to-left text. Avatar's delay and Progress's sweep override only with an important utility.
 - No Meter label or value part on the bar, vertical bar, animated value, chart integration or region announcements. Regions are visual only, computed in fold from native `<meter>`'s rules.
+- No table caption, row header, footer or totals styling, sticky header, row selection, clickable rows, `align="center"`, or sorting and paging behavior, which the view owns; no data grid. No Badge sizes, dot, solid style or icon-only badge. No Page breadcrumbs, back link or tabs, and no Empty icon.
 - A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
 - One month at a time in a Calendar: no two months side by side (Origami proposal `03a47789`), week numbers (`3428bbc6`), presets (`6f9f9519`) or month and year dropdowns (the heading's drill-down only). The months and years views have three columns. Custom cell content, such as prices or event dots, means editing your copy of `calendar-grid.ts`, which `add --existing overwrite` replaces.
 - No typed range entry (Origami proposal `b5089365`) or time in the date picker's popup (`55f79d26`); no multiple, range, month or date-and-time pickers yet; no clear button (call `clear()`). A click on a date field's empty end or a separator focuses no segment, and the field-shape popup is anchored to its icon button.

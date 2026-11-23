@@ -157,6 +157,10 @@ ng([
   "avatar",
   "progress",
   "calendar",
+  "table",
+  "badge",
+  "page",
+  "empty",
 ]);
 
 const installed = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -166,6 +170,7 @@ assert.deepEqual(installed.imports, { "#ui/*": "./src/ui/*/index.ts" });
 assert.deepEqual(folders.sort(), [
   "alert-dialog",
   "avatar",
+  "badge",
   "button",
   "calendar",
   "checkbox",
@@ -174,6 +179,7 @@ assert.deepEqual(folders.sort(), [
   "date-field",
   "date-picker",
   "dialog",
+  "empty",
   "field",
   "file-field",
   "input",
@@ -181,6 +187,7 @@ assert.deepEqual(folders.sort(), [
   "meter",
   "number-field",
   "otp-field",
+  "page",
   "popover",
   "popup",
   "progress",
@@ -190,6 +197,7 @@ assert.deepEqual(folders.sort(), [
   "sheet",
   "slider",
   "switch",
+  "table",
   "tabs",
   "textarea",
   "theme.css",
