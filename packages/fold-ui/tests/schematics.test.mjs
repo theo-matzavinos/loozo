@@ -695,6 +695,23 @@ describe("add", () => {
       readText(tree, "src/ui/date-picker/date-picker-trigger.ts"),
       /selector: "button\[zzDatePickerTrigger\]"/,
     );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-multiple.ts"),
+      /selector: "\[zzDatePickerMultiple\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-range.ts"),
+      /selector: "\[zzDatePickerRange\]"/,
+    );
+    assert.match(readText(tree, "src/ui/date-picker/month-picker.ts"), /exportAs: "zzMonthPicker"/);
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-time-picker.ts"),
+      /selector: "\[zzDateTimePicker\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-footer.ts"),
+      /selector: "\[zzDatePickerFooter\]"/,
+    );
     assert.match(readText(tree, "src/ui/date-field/date-field.ts"), /exportAs: "zzDateField"/);
     assert.match(
       readText(tree, "src/ui/date-field/date-field-input.ts"),
