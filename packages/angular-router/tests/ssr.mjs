@@ -2975,7 +2975,8 @@ try {
         'import type { ApplicationConfig } from "@angular/core";',
         `import { InjectionToken, PLATFORM_ID, PendingTasks, RESPONSE_INIT, inject, provideEnvironmentInitializer, type ApplicationConfig } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
-import { EventType, Router } from "@angular/router";
+import { EventType, ROUTER_CONFIGURATION, Router } from "@angular/router";
+import { REQUEST } from "@angular/core";
 import type { SearchStorage } from "@loozo/angular-router";
 
 // The store's adapter, so the adapter sequence drives the same instance and effective map.
@@ -2987,6 +2988,16 @@ const proofStorage = new InjectionToken<SearchStorage>("proof storage", {
       .replace(
         "    provideSearchStorage(cookieSearchStorage),\n",
         `    provideSearchStorage(() => inject(proofStorage)),
+    // A server render of a URL marked \`eager\` updates the URL eagerly.
+    {
+      provide: ROUTER_CONFIGURATION,
+      useFactory: () => {
+        const request = inject(REQUEST, { optional: true });
+        const eager = request !== null && new URL(request.url).searchParams.has("eager");
+
+        return { urlUpdateStrategy: eager ? "eager" : "deferred" };
+      },
+    },
     provideEnvironmentInitializer(() => {
       const response = inject(RESPONSE_INIT, { optional: true });
       const router = inject(Router);
@@ -3191,9 +3202,17 @@ const proofStorage = new InjectionToken<SearchStorage>("proof storage", {
     const aliased = await observe("aliased", "/old-order/42", "search.orders.pageSize=50");
     const aliasedBare = await observe("aliasedBare", "/old-order/42");
 
+    // The same with eager URL updates, which move Location to the alias's target first.
+    const aliasedEager = await observe(
+      "aliasedEager",
+      "/old-order/42?eager=1",
+      "search.orders.pageSize=50",
+    );
+
     for (const [response, cookies] of [
       [aliased, [deletion]],
       [aliasedBare, []],
+      [aliasedEager, [deletion]],
     ]) {
       assert.equal(response.status, 404, label);
       assert.equal(response.location, null, label);

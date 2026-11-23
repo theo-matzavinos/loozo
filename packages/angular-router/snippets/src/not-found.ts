@@ -1,5 +1,5 @@
 import { Location } from "@angular/common";
-import { RESPONSE_INIT, inject } from "@angular/core";
+import { REQUEST, RESPONSE_INIT, inject } from "@angular/core";
 import { RedirectCommand, Router, type NavigationError } from "@angular/router";
 import { currentSearchRestore } from "../generated/routes.generated.js";
 import { MissingResource } from "./missing-resource.js";
@@ -23,13 +23,20 @@ export function notFoundErrors(error: NavigationError): RedirectCommand | undefi
   }
 
   const response = inject(RESPONSE_INIT, { optional: true });
+  const request = inject(REQUEST, { optional: true });
   let browserUrl = error.url;
 
-  // On the server, keep the requested URL: a typed redirect may have changed error.url, and
-  // Angular answers any other final URL with a redirect.
   if (response !== null) {
     response.status = 404;
-    browserUrl = inject(Location).path(true);
+  }
+
+  // On the server, keep the requested URL: a typed redirect may have changed error.url, and
+  // Angular answers any other final URL with a redirect. Read the request, not Location, which
+  // eager URL updates have moved to the redirect's target already.
+  if (request !== null) {
+    const { pathname, search } = new URL(request.url);
+
+    browserUrl = inject(Location).normalize(pathname) + search;
   }
 
   return new RedirectCommand(router.parseUrl("/not-found"), { browserUrl });
