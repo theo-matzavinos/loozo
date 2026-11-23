@@ -2405,7 +2405,7 @@ test("TO18: a throwing add changes nothing: invalid durations, the region's inva
   await expect(page.getByTestId("region").locator("li")).toHaveCount(0);
 });
 
-test("TO19: falsifier — a modal's close releases a held toast that a focus listener replaced during the same release, after a limit close: it runs the replacement's duration, read at its turn, not the one it was held with", async ({
+test("TO19: falsifier — a modal's close releases a held toast that a focus listener replaced during the same release, after a limit close: it runs the replacement's duration, read at its turn, not the one it was held with; one the listener closes and adds again waits behind the older held toasts", async ({
   page,
 }, info) => {
   await fixture(page, "toast", info);
@@ -2450,6 +2450,49 @@ test("TO19: falsifier — a modal's close releases a held toast that a focus lis
   await page.clock.runFor(1);
   await page.clock.runFor(100);
   await expect(page.getByTestId("lifetime-toast-1-Lb2")).toHaveCount(0);
+
+  // Part 2, limit 3: the first limit close's focus listener closes the waiting `held-b` under a
+  // modal and adds it again, as the newest; the next limit close's listener opens the modal and
+  // leaves it open, holding the rest of the batch. The older L7 took the second turn, not Lb2.
+  await script(page, "lifetime-mount");
+  await script(page, "lifetime-add");
+  await script(page, "lifetime-add");
+  await script(page, "lifetime-add");
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-region-state")).toHaveText("L5 L4 L3");
+  await page.getByTestId("lifetime-close-L3").focus();
+  await page.getByTestId("lifetime-region").evaluate((region) => {
+    region.addEventListener(
+      "focus",
+      () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="lifetime-requeue-held"]')!.click();
+        region.addEventListener(
+          "focus",
+          () => {
+            document
+              .querySelector<HTMLButtonElement>('[data-testid="lifetime-dialog-open"]')!
+              .click();
+          },
+          { once: true },
+        );
+        document.querySelector<HTMLButtonElement>('[data-testid="lifetime-close-L4"]')!.focus();
+      },
+      { once: true },
+    );
+  });
+
+  await script(page, "lifetime-dialog-open");
+  await script(page, "lifetime-dialog-add");
+  await script(page, "lifetime-dialog-add-held");
+  await script(page, "lifetime-dialog-add");
+  await script(page, "lifetime-dialog-close");
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-dialog")).toHaveJSProperty("open", true);
+  await expect(page.getByTestId("lifetime-region-state")).toHaveText("L7 L6 L5");
+  await script(page, "lifetime-dialog-close");
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-region-state")).toHaveText("Lb2 L7 L6");
+  await expect(page.getByTestId("lifetime-toast-2-Lb2")).toHaveAttribute("data-open", "true");
 });
 
 test("TO20: falsifier — a replace that removes the focused Reload of a shown toast resumes its time once the replacement renders, also when the removal comes from an after-render write that follows a replace keeping that Reload", async ({

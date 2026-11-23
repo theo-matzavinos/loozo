@@ -90,7 +90,8 @@ export class ToastLifetimeRegion {
  * Mounts lifetime regions on demand and arms a focus listener, on the return target or on the
  * region host, that destroys the region synchronously inside its close's focus move, and with
  * a replacement mounts a new region on the same toaster that registers at once. A plain modal
- * `<dialog>` holds the toasts added from inside it; `held-b` is one a control outside replaces.
+ * `<dialog>` holds the toasts added from inside it; `held-b` is one a control outside replaces, or
+ * closes and adds again under that dialog.
  */
 @Component({
   selector: "acceptance-toast-lifetime",
@@ -122,6 +123,9 @@ export class ToastLifetimeRegion {
     </button>
     <button type="button" data-testid="lifetime-replace-held" (click)="replaceHeld()">
       Replace held-b with Lb2, 1600 ms
+    </button>
+    <button type="button" data-testid="lifetime-requeue-held" (click)="requeueHeld(dialog)">
+      Under the modal dialog, close held-b and add it again as Lb2, 1600 ms
     </button>
     <button type="button" data-testid="lifetime-dialog-open" (click)="dialog.showModal()">
       Open a modal dialog
@@ -175,6 +179,14 @@ export class ToastLifetime {
 
   replaceHeld(): void {
     this.#toasts.add({ title: "Lb2" }, { id: "held-b", duration: 1600 });
+  }
+
+  /** Holds the toasts with the dialog while it closes `held-b` and adds it again as the newest. */
+  requeueHeld(dialog: HTMLDialogElement): void {
+    dialog.showModal();
+    this.#toasts.close("held-b");
+    this.replaceHeld();
+    dialog.close();
   }
 
   arm(target: "return" | "host", replace: boolean): void {

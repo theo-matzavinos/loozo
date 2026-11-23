@@ -95,7 +95,7 @@ To set `duration` and `limit` for the whole application, wrap the region in your
 
 ## Closing and removal
 
-A toast closes when its time runs out, on its Close button, on `close(id)` and by the limit. Its State `open()` turns false, its composed Presence runs the exit (`data-leaving`), and once the exit settles the region drops the record, which removes the element from your `@for`. Without an animation, also under reduced-motion CSS, it's removed at once. While its exit runs, the toast is `inert`. A toast closed before its `ogToast` registers, that is before Angular renders it, such as one you `close` right after `add`, is dropped at once and never renders. Adding again with its id during the exit brings it back as the newest: when Angular keeps its element, the exit reverses into an entrance.
+A toast closes when its time runs out, on its Close button, on `close(id)` and by the limit. Its State `open()` turns false, its composed Presence runs the exit (`data-leaving`), and once the exit settles the region drops the record, which removes the element from your `@for`. Without an animation, also under reduced-motion CSS, it's removed at once. While its exit runs, the toast is `inert`. A toast closed before its `ogToast` registers, that is before Angular renders it, such as one you `close` right after `add`, is dropped at once and never renders. Adding again with its id during the exit brings it back as the newest: when Angular keeps its element, the exit reverses into an entrance. Adding several closing toasts again in one turn can make Angular's keyed reorder move another toast's element too, which loses focus inside that toast.
 
 There is no Escape, swipe or hotkey.
 

@@ -93,6 +93,17 @@ function assertLimit(limit: number): void {
   }
 }
 
+/** The oldest waiting entry, in the store's order, or null. */
+function oldestWaiting<T>(store: ToastStore<T>): ToastEntry<T> | null {
+  for (const entry of store.entries()) {
+    if (entry.status === "waiting") {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
 /**
  * @internal The nearest toast region: release, timers, pause, limit and focus for the one toaster
  * bound to it. Not exported as an application authoring API.
@@ -391,19 +402,7 @@ export class ToastRegionContext<T> {
       return;
     }
 
-    const entries: ToastEntry<T>[] = [];
-
-    for (const entry of store.entries()) {
-      if (entry.status === "waiting") {
-        entries.push(entry);
-      }
-    }
-
-    if (entries.length === 0) {
-      return;
-    }
-
-    if (this.#held()) {
+    if (oldestWaiting(store) === null || this.#held()) {
       return;
     }
 
@@ -418,22 +417,21 @@ export class ToastRegionContext<T> {
 
     assertLimit(limit);
 
-    for (const waiting of entries) {
-      const id = waiting.record.id;
-
+    for (;;) {
       // A previous record's limit close moves focus, whose listeners may destroy or replace the
-      // region, close or replace this record, open a modal dialog or move focus out of the region.
-      if (this.#destroyed || this.#held()) {
+      // region, open a modal dialog, replace a waiting record, or close one and add its id again
+      // as the newest: each turn takes the oldest record waiting now, with its duration.
+      if (this.#destroyed) {
         return;
       }
 
-      // Read now, not when the batch started: a focus listener may have replaced this record.
-      const entry = store.find(id);
+      const entry = oldestWaiting(store);
 
-      if (entry?.status !== "waiting") {
-        continue;
+      if (entry === null || this.#held()) {
+        return;
       }
 
+      const id = entry.record.id;
       const timer: Timer = { remaining: entry.duration ?? fallback, startedAt: 0, handle: null };
 
       store.setStatus(id, "shown");
