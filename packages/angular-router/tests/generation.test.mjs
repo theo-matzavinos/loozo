@@ -668,12 +668,15 @@ test("routes.generated.ts exports RouteTypes and a typed injectActiveRoute witho
   return injectGeneratedActiveRoute<RouteTypes>();
 }`,
   );
-  // The hydration provider sits next to the routes and the reader it seeds.
+  // The hydration and search storage providers and the restore hook sit next to the routes.
   assert.deepEqual(
     file.statements
       .filter((statement) => ts.isExportDeclaration(statement))
       .map((statement) => statement.getText(file)),
-    ["export { provideActiveRouteHydration } from '@loozo/angular-router/_generated';"],
+    [
+      "export { provideActiveRouteHydration } from '@loozo/angular-router/_generated';",
+      "export { currentSearchRestore, provideSearchStorage } from '@loozo/angular-router/_generated';",
+    ],
   );
   // The child's record lives in its parent's children table; RouteTypes above stays global.
   assert.match(

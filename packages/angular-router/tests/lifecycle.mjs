@@ -3936,6 +3936,268 @@ try {
   await new Promise((resolve) => launchServer.close(resolve));
 }
 
+// Remembered search keys (SPEC §7): the restore hook (currentSearchRestore), the storage
+// provider and adapters, the per-chain id check and commit writes, in a built browser app.
+const { openRemembered, rememberedFixture, reset, summary } = await import("./remembered.mjs");
+const { buildFixture: buildRemembered, staticServer: rememberedServer } =
+  await import("./sibling-groups.mjs");
+const rememberedApp = await rememberedFixture(evidence);
+
+await buildRemembered(rememberedApp, { statsJson: false });
+
+const rememberedHost = await rememberedServer(rememberedApp);
+const rememberedBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+const remembered = {};
+
+try {
+  const { tab, errors, close } = await openRemembered(rememberedBrowser, rememberedHost.base);
+
+  async function enter(url, { memory = {}, controls = {}, extras } = {}) {
+    await reset(tab, { memory, controls });
+
+    const result = await tab.evaluate(
+      ([target, options]) => window.remember.go(target, options),
+      [url, extras],
+    );
+
+    return tab.evaluate((value) => {
+      const proof = window.remember;
+
+      return {
+        result: value,
+        url: proof.router.url,
+        location: location.pathname + location.search + location.hash,
+        entry: history.state?.entry ?? null,
+        rendered: [...document.querySelectorAll("p[id]")].map((node) => node.id),
+        handled: proof.handled,
+        starts: proof.events.filter((event) => event.type === "NavigationStart").length,
+        ops: proof.ops,
+        memory: Object.fromEntries(proof.memory),
+      };
+    }, result);
+  }
+
+  // Outside a navigation there's nothing to retry.
+  remembered.idle = await tab.evaluate(() => window.remember.restore() === undefined);
+  assert.equal(remembered.idle, true);
+
+  // A restored value whose data is gone: the handler forgets it and retries the original URL,
+  // which commits with the fallback; the caller's state, unrelated query and fragment survive.
+  const bad = await enter("/recover?origin=kept#top", {
+    memory: { "recover.size": "99" },
+    extras: { state: { entry: "go" } },
+  });
+
+  remembered.bad = bad;
+  assert.equal(bad.result, true);
+  assert.equal(bad.url, "/recover?origin=kept#top");
+  assert.equal(bad.entry, "go");
+  assert.equal(bad.starts, 3);
+  assert.deepEqual(bad.rendered, ["-shell", "-shell-density", "-shell-density-recover"]);
+  assert.equal(bad.handled.length, 1);
+  assert.equal(bad.handled[0].restore, "/recover?origin=kept#top");
+  assert.equal(bad.handled[0].after, true);
+  assert.deepEqual(summary(bad.handled[0].forgot).ops, ["forget recover.size"]);
+  // The retry reads nothing; its commit forgets the absent keys.
+  assert.deepEqual(summary(bad.ops).ops, [
+    "read density",
+    "read recover.size",
+    "forget recover.size",
+    "forget density",
+    "forget recover.size",
+  ]);
+  assert.deepEqual(bad.memory, {});
+
+  // A stale view does nothing once its chain ended.
+  remembered.stale = await tab.evaluate(() => {
+    const before = window.remember.ops.length;
+
+    window.remember.views.at(-1).forget();
+
+    return window.remember.ops.length - before;
+  });
+  assert.equal(remembered.stale, 0);
+
+  // A page missing anyway: one retry, then the handler's normal not-found at the original URL.
+  const missing = await enter("/recover/42", { memory: { "recover.size": "50" } });
+  const missingAgain = await enter("/recover/42");
+
+  remembered.missing = { first: missing, second: missingAgain };
+  assert.equal(missing.starts, 4);
+  // The handler's not-found page renders at the original address.
+  assert.equal(missing.location, "/recover/42");
+  assert.equal(missing.url, "/not-found");
+  assert.deepEqual(missing.rendered, ["-shell", "-shell-not-found"]);
+  assert.deepEqual(
+    missing.handled.map((entry) => entry.restore),
+    ["/recover/42", null],
+  );
+  assert.deepEqual(missing.memory, {});
+  assert.equal(missingAgain.starts, 2);
+  assert.deepEqual(
+    missingAgain.handled.map((entry) => entry.restore),
+    [null],
+  );
+
+  // Two owners restored in one redirect: the retry forgets both.
+  const twoOwners = await enter("/recover", {
+    memory: { density: "compact", "recover.size": "99" },
+  });
+
+  remembered.twoOwners = twoOwners;
+  assert.equal(twoOwners.url, "/recover");
+  assert.equal(twoOwners.starts, 3);
+  assert.deepEqual(summary(twoOwners.handled[0].forgot).ops.sort(), [
+    "forget density",
+    "forget recover.size",
+  ]);
+  assert.deepEqual(twoOwners.memory, {});
+
+  // An explicit value restores nothing, so the handler gets no restore and the value stays.
+  const explicit = await enter("/recover?size=99", { memory: { "recover.size": "50" } });
+
+  remembered.explicit = explicit;
+  assert.equal(explicit.starts, 2);
+  assert.deepEqual(
+    explicit.handled.map((entry) => entry.restore),
+    [null],
+  );
+  assert.deepEqual(explicit.memory, { "recover.size": "50" });
+
+  // Commits: a value is written, the fallback and an invalid value are forgotten, a refused
+  // navigation writes nothing, and a navigation started from a NavigationEnd ends at its value.
+  const commits = {};
+
+  for (const url of ["/recover?size=30", "/recover?size=20", "/recover?size=abc"]) {
+    commits[url] = summary((await enter(url, { memory: { "recover.size": "50" } })).ops).ops;
+  }
+
+  commits.refused = summary((await enter("/denied", { memory: { "recover.size": "50" } })).ops).ops;
+  await reset(tab, {});
+  await tab.evaluate(async () => {
+    window.remember.reentrant = "/recover?size=40";
+    await window.remember.go("/recover?size=30");
+  });
+  await tab.waitForFunction(() => window.remember.router.url === "/recover?size=40");
+  commits.reentrant = {
+    ops: summary(await tab.evaluate(() => window.remember.ops)).ops,
+    memory: await tab.evaluate(() => Object.fromEntries(window.remember.memory)),
+  };
+  remembered.commits = commits;
+  assert.deepEqual(commits["/recover?size=30"], [
+    "read density",
+    "forget density",
+    "write recover.size=30",
+  ]);
+  assert.deepEqual(commits["/recover?size=20"], [
+    "read density",
+    "forget density",
+    "forget recover.size",
+  ]);
+  assert.deepEqual(commits["/recover?size=abc"], [
+    "read density",
+    "forget density",
+    "forget recover.size",
+  ]);
+  assert.deepEqual(commits.refused, []);
+  assert.deepEqual(commits.reentrant.memory, { "recover.size": "40" });
+
+  // A storage adapter whose read throws fails the restoring navigation.
+  await reset(tab, { memory: { "orders.pageSize": "50" } });
+
+  const thrown = await tab.evaluate(async () => {
+    window.remember.storageMode = "throw-read";
+
+    return window.remember.go("/orders");
+  });
+
+  remembered.thrown = thrown;
+  assert.equal(thrown, "error: storage read failed");
+
+  // Two keys of one chain under one id: the lazily loaded child's destination fails the entering
+  // navigation before any guard or storage operation.
+  const duplicate = await enter("/dup/child", { memory: { "dup.id": "1" } });
+
+  remembered.duplicate = duplicate;
+  assert.equal(
+    duplicate.result,
+    'error: Remembered search id "dup.id" is used by two and by one, inherited from "/dup"',
+  );
+  assert.deepEqual(duplicate.ops, []);
+  assert.deepEqual(errors, []);
+  await close();
+
+  // Without provideSearchStorage(): the navigation fails once every guard accepted, a refusing
+  // guard still wins, routes without a remembered key work, and the hook returns undefined.
+  const bare = await openRemembered(rememberedBrowser, rememberedHost.base, {
+    storageKind: "none",
+  });
+  const missingProvider = await bare.tab.evaluate(async () => {
+    const proof = window.remember;
+
+    proof.calls = [];
+
+    const failed = await proof.go("/orders");
+    const guards = proof.calls.map(([label]) => label);
+
+    proof.controls = { owner: "false" };
+
+    const refused = await proof.go("/orders");
+
+    proof.controls = {};
+
+    return {
+      failed,
+      guards,
+      refused,
+      plain: await proof.go("/not-found"),
+      hook: proof.restore() ?? null,
+    };
+  });
+
+  remembered.missingProvider = missingProvider;
+  assert.deepEqual(missingProvider, {
+    failed: "error: Remembered search keys need provideSearchStorage(): orders.pageSize",
+    guards: ["guard:owner", "guard:child", "guard:leaf"],
+    refused: false,
+    plain: true,
+    hook: null,
+  });
+  await bare.close();
+
+  // Storage the browser blocks reads nothing and keeps nothing; navigation works.
+  const blocked = await openRemembered(rememberedBrowser, rememberedHost.base, {
+    storageKind: "local",
+    init: () => {
+      Object.defineProperty(window, "localStorage", {
+        get() {
+          throw new DOMException("blocked", "SecurityError");
+        },
+      });
+    },
+  });
+  const blockedSeen = await blocked.tab.evaluate(async () => ({
+    explicit: await window.remember.go("/orders?pageSize=50"),
+    outside: await window.remember.go("/outside"),
+    entry: await window.remember.go("/orders"),
+    url: window.remember.router.url,
+  }));
+
+  remembered.blocked = { ...blockedSeen, errors: blocked.errors };
+  assert.deepEqual(remembered.blocked, {
+    explicit: true,
+    outside: true,
+    entry: true,
+    url: "/orders",
+    errors: [],
+  });
+  await blocked.close();
+} finally {
+  await writeFile(join(evidence, "remembered.json"), JSON.stringify(remembered, null, 2));
+  await rememberedBrowser.close();
+  await rememberedHost.close();
+}
+
 console.log(
-  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching/route-copy/extension-handle proof passed",
+  "Native lifecycle/signals/ancestry/own-data/inherited-data/iframe-Promise/redirect/thenable/matching/route-copy/extension-handle/remembered-search proof passed",
 );

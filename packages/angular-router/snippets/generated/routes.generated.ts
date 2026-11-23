@@ -3,6 +3,7 @@ import type { Signal } from '@angular/core';
 import type { Routes } from '@angular/router';
 import { record, nativeOptions, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
+import { route as route_inbox_route } from "../src/routes/inbox/route.generated.js";
 import { route as route_products_$productId_route } from "../src/routes/products/$productId/route.generated.js";
 import { route as route_projects_route } from "../src/routes/projects/route.generated.js";
 import { route as route_reports_$reportId_route } from "../src/routes/reports/$reportId/route.generated.js";
@@ -11,6 +12,7 @@ import type { route as route_projects_$projectId_route } from "../src/routes/pro
 import type { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
 import type { route as route_teams_$teamId_members_$memberId_route } from "../src/routes/teams/$teamId/members/$memberId/route.generated.js";
 import { destination as destination_$segments___route } from "../src/routes/$segments[]/destination.generated.js";
+import { destination as destination_inbox_route } from "../src/routes/inbox/destination.generated.js";
 import { destination as destination_products_$productId_route } from "../src/routes/products/$productId/destination.generated.js";
 import { destination as destination_projects_route } from "../src/routes/projects/destination.generated.js";
 import { destination as destination_reports_$reportId_route } from "../src/routes/reports/$reportId/destination.generated.js";
@@ -25,6 +27,10 @@ export const routes: Routes = [{ path: "teams/:teamId/old-items/:id",
 pathMatch: 'full',
 ...record(destination_teams_$teamId_old_items_$id_route),
 redirectTo: lazyRedirect(() => import("../src/routes/teams/$teamId/old-items/$id/route.generated.js")) },
+{ path: "inbox",
+...record(destination_inbox_route),
+...callbacks(route_inbox_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/inbox/page") },
 { path: "products/:productId",
 ...record(destination_products_$productId_route),
 ...callbacks(route_products_$productId_route),
@@ -50,6 +56,7 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 /** Each generated primary-outlet route's types by id: its schema and, when it has one, its `..` destination. */
 export type RouteTypes = {
 "src/routes/$segments[]/route.ts": { schema: RouteSchema<typeof route_$segments___route> };
+"src/routes/inbox/route.ts": { schema: RouteSchema<typeof route_inbox_route> };
 "src/routes/products/$productId/route.ts": { schema: RouteSchema<typeof route_products_$productId_route> };
 "src/routes/projects/$projectId/route.ts": { schema: RouteSchema<typeof route_projects_$projectId_route>; up: typeof destination_projects_route };
 "src/routes/projects/route.ts": { schema: RouteSchema<typeof route_projects_route> };
@@ -76,3 +83,4 @@ export function injectActiveRoute(): Signal<ActiveRoute | undefined> {
   return injectGeneratedActiveRoute<RouteTypes>();
 }
 export { provideActiveRouteHydration } from '@loozo/angular-router/_generated';
+export { currentSearchRestore, provideSearchStorage } from '@loozo/angular-router/_generated';

@@ -1,13 +1,12 @@
 import {
   destinationRecord,
-  isArrayCodec,
   isRetained,
   type AnyRoute,
   type Destination,
   type ParamCodec,
 } from "@loozo/angular-router/_core";
 import type { NavigationState } from "./base.js";
-import { parse } from "./inputs.js";
+import { ownerOf, presentValue } from "./search-keys.js";
 
 /** A retained key a destination inherits or declares, and the declaration that owns it. */
 interface RetainedKey {
@@ -94,54 +93,4 @@ function retainedKeys(target: Destination<AnyRoute>): readonly RetainedKey[] {
   retainedKeyCache.set(target, keys);
 
   return keys;
-}
-
-// Search keys are inherited unchanged, so the walk always ends at the declaring ancestor.
-function ownerOf(destination: Destination<AnyRoute>, key: string): Destination<AnyRoute> {
-  let owner = destination;
-
-  for (;;) {
-    const { url } = destinationRecord(owner);
-
-    if (Object.hasOwn(url.localSearch, key) || !url.parent) {
-      return owner;
-    }
-
-    owner = url.parent;
-  }
-}
-
-/** A present valid value of one key, parsed by §4's rules, or undefined. */
-function presentValue(codec: ParamCodec<any>, raws: readonly string[]): unknown {
-  if (isArrayCodec(codec)) {
-    if (raws.length === 0) {
-      return undefined;
-    }
-
-    const values: unknown[] = [];
-
-    for (const raw of raws) {
-      const result = parse(codec, raw);
-
-      if ("cause" in result) {
-        return undefined;
-      }
-
-      values.push(result.value);
-    }
-
-    return values;
-  }
-
-  if (raws.length !== 1) {
-    return undefined;
-  }
-
-  const result = parse(codec, raws[0]);
-
-  if ("cause" in result) {
-    return undefined;
-  }
-
-  return result.value;
 }

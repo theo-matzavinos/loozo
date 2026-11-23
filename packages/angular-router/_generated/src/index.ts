@@ -3,6 +3,8 @@ export { owned } from "./owned.js";
 export { effectivePath, nativePath } from "./native-path.js";
 export { injectGeneratedActiveRoute } from "./active.js";
 export { provideActiveRouteHydration } from "./hydration.js";
+export { currentSearchRestore, provideSearchStorage } from "./search-store.js";
+export { storedText, storedValues } from "./remembered.js";
 export { injectNavigationState } from "./base.js";
 export type { NavigationState } from "./base.js";
 export { compose } from "./compose.js";

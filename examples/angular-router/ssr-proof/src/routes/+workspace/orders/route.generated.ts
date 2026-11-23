@@ -1,7 +1,32 @@
-import { defineRoute } from "@loozo/angular-router";
-import { route as workspace } from "../route.generated.js";
+import {
+  defineRoute,
 
-/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination, workspace).resolve({ label: () => "orders" });
+
+
+
+} from "@loozo/angular-router";
+import { route as workspace } from "../route.generated.js";
+import { MissingResource } from "../../../missing-resource.js";
+
+// The page size is retained by links and remembered between visits. Its rows and title read the
+// page size, so they rerun when only the query changes, such as when the page size is cleared.
+/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination, workspace)
+
+
+
+  .runGuardsAndResolvers("paramsOrQueryParamsChange")
+  .resolve({
+    label: () => "orders",
+    // The proof's stand-in for data that no longer exists at one page size.
+    rows: ({ search }) => {
+      if (search.pageSize === 99) {
+        throw new MissingResource(`No page of ${search.pageSize} orders`);
+      }
+
+      return `${search.pageSize} rows`;
+    },
+  })
+  .title(({ search }) => `Orders (${search.pageSize})`);
 import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
 import { destination as routegen$destination } from "./destination.generated.js";
 import { destination as routegen$up } from "../../+home/destination.generated.js";

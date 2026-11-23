@@ -6,7 +6,7 @@
     "build.ms": 8000,
     "typecheck.ngcMs": 3000,
     "typecheck.instantiations": 192000,
-    "bundle.initial.raw": 245000,
+    "bundle.initial.raw": 250000,
     "bundle.initial.gzip": 75000,
     "bundle.initial.brotli": 67000,
     "bundle.initial.files": 1,

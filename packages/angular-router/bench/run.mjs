@@ -1,4 +1,4 @@
-// The scale benchmark: node bench/run.mjs [--workload router|launch] plus the shared flags
+// The scale benchmark: node bench/run.mjs [--workload router|remembered|launch] plus the shared flags
 // ([--scenarios 100,300,1000] [--out <dir>] [--samples <name>=<count>,…] [--timeout <seconds>]
 // [--check [file]] [--deterministic]). The router workload's samples are
 // generate=3,edits=3,build=1,ngc=3,tsc=1,boot=10,cold=10,warm=30, the Launch workload's
@@ -76,6 +76,35 @@ const workloads = {
       runtime: runtimeConditions.router,
     },
   },
+  // The router workload with a retained and a remembered key on every block root and session
+  // storage: it boots with the page size, warm round trips stay inside the owner and write it,
+  // and the cold navigation enters another block, which restores it.
+  remembered: {
+    name: "remembered",
+    createConsumer,
+    writeFixture: (consumer, routes) => writeFixture(consumer, routes, { remembered: true }),
+    generator: "generate.mjs",
+    budgets: "remembered-budgets.json",
+    serve: false,
+    samples: { generate: 3, build: 1, ngc: 3, tsc: 1, boot: 10, cold: 10, warm: 30 },
+    runtime: (options) => measureRouterRuntime(options, { bootSearch: "?pageSize=50" }),
+    setup: async ({ deterministic }) => {
+      if (!deterministic) {
+        await requireChromium();
+      }
+    },
+    built: [
+      join(packageDirectory, "node/src/generation/generate.js"),
+      join(packageDirectory, "dist/fesm2022/loozo-angular-router.mjs"),
+    ],
+    conditions: {
+      firstGeneration:
+        "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited internal generate() without persistent compiler state.",
+      build:
+        "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
+      runtime: `${runtimeConditions.router} The remembered workload boots at ?pageSize=50, its warm links carry pageSize=50, and its cold navigation enters another block root without it, which restores it from sessionStorage.`,
+    },
+  },
   launch: {
     name: "launch",
     createConsumer: createLaunchConsumer,
@@ -119,7 +148,7 @@ function takeWorkload(argv) {
       console.error(
         `--workload takes ${Object.keys(workloads).join(" or ")}, got "${value}"
 
-Usage: node bench/run.mjs [--workload router|launch] [shared flags; see tools/bench/README.md]`,
+Usage: node bench/run.mjs [--workload router|remembered|launch] [shared flags; see tools/bench/README.md]`,
       );
       process.exit(2);
     }
@@ -222,7 +251,7 @@ async function buildOutput(consumer) {
 }
 
 // Bootstrap, cold and warm navigation in Chromium against the router build's browser files.
-async function measureRouterRuntime({ consumer, run }) {
+async function measureRouterRuntime({ consumer, run }, { bootSearch = "" } = {}) {
   const { samples, timeoutMs, record, result } = run;
   const output = await buildOutput(consumer);
   const singleBlock = result.fixture.blocks === 1;
@@ -231,6 +260,7 @@ async function measureRouterRuntime({ consumer, run }) {
   const navigation = await measureNavigation(join(output, "browser"), {
     samples: navigationSamples,
     timeoutMs,
+    bootSearch,
   });
   const { values } = navigation;
 

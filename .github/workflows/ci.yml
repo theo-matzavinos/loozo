@@ -448,6 +448,7 @@ jobs:
         run: |
           pnpm --filter @loozo/angular-router run build
           pnpm --dir packages/angular-router run bench --deterministic --check --out "$RUNNER_TEMP/bench/router"
+          pnpm --dir packages/angular-router run bench --workload remembered --scenarios 100 --deterministic --check --out "$RUNNER_TEMP/bench/remembered"
       - if: env.REACHED == 'true' && matrix.workload == 'launch'
         run: |
           pnpm --filter @loozo/angular-router --filter @loozo/angular-launch run build

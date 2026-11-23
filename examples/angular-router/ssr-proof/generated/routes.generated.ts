@@ -1,15 +1,17 @@
 // @loozo/angular-router routegen: owned routes.generated.ts
 import type { Signal } from '@angular/core';
 import type { Routes } from '@angular/router';
-import { record, callbacks, owned, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
+import { record, callbacks, owned, redirect, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route__workspace_route } from "../src/routes/+workspace/route.generated.js";
 import { route as route_handle_only_$id_route } from "../src/routes/handle-only/$id/route.generated.js";
+import { route as route_old_orders_route } from "../src/routes/old-orders/route.generated.js";
 import { route as route_other_route } from "../src/routes/other/route.generated.js";
 import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
 import type { route as route__home_route } from "../src/routes/+home/route.generated.js";
 import type { route as route__workspace_orders_$id_route } from "../src/routes/+workspace/orders/$id/route.generated.js";
 import type { route as route__workspace_orders_route } from "../src/routes/+workspace/orders/route.generated.js";
 import type { route as route_login_route } from "../src/routes/login/route.generated.js";
+import type { route as route_not_found_route } from "../src/routes/not-found/route.generated.js";
 import type { route as route_other_child_route } from "../src/routes/other/child/route.generated.js";
 import type { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
 import { destination as destination__home_route } from "../src/routes/+home/destination.generated.js";
@@ -17,6 +19,8 @@ import type { destination as destination__workspace_orders_route } from "../src/
 import { destination as destination__workspace_route } from "../src/routes/+workspace/destination.generated.js";
 import { destination as destination_handle_only_$id_route } from "../src/routes/handle-only/$id/destination.generated.js";
 import { destination as destination_login_route } from "../src/routes/login/destination.generated.js";
+import { destination as destination_not_found_route } from "../src/routes/not-found/destination.generated.js";
+import { destination as destination_old_orders_route } from "../src/routes/old-orders/destination.generated.js";
 import { destination as destination_other_route } from "../src/routes/other/destination.generated.js";
 import { destination as destination_teams_$teamId_items_$id_legacy_route } from "../src/routes/teams/$teamId/items/$id/legacy/destination.generated.js";
 import { destination as destination_teams_$teamId_old_items_$id_route } from "../src/routes/teams/$teamId/old-items/$id/destination.generated.js";
@@ -26,7 +30,11 @@ import { destination as destination_teams_$teamId_route } from "../src/routes/te
  * Generated native Angular route configuration; install with provideRouter(routes).
  * Regenerate through the router's Architect companions instead of editing this file.
  */
-export const routes: Routes = [{ path: "teams/:teamId/items/:id/legacy",
+export const routes: Routes = [{ path: "old-orders",
+pathMatch: 'full',
+...record(destination_old_orders_route),
+redirectTo: redirect(route_old_orders_route) },
+{ path: "teams/:teamId/items/:id/legacy",
 pathMatch: 'full',
 ...record(destination_teams_$teamId_items_$id_legacy_route),
 redirectTo: lazyRedirect(() => import("../src/routes/teams/$teamId/items/$id/legacy/route.generated.js")) },
@@ -50,6 +58,9 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 { path: "login",
 ...record(destination_login_route, destination__home_route),
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/login/page") },
+{ path: "not-found",
+...record(destination_not_found_route, destination__home_route),
+loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/not-found/page") },
 { path: "other",
 ...record(destination_other_route, destination__home_route),
 ...callbacks(route_other_route),
@@ -68,6 +79,7 @@ export type RouteTypes = {
 "src/routes/+workspace/route.ts": { schema: RouteSchema<typeof route__workspace_route> };
 "src/routes/handle-only/$id/route.ts": { schema: RouteSchema<typeof route_handle_only_$id_route>; up: typeof destination__home_route };
 "src/routes/login/route.ts": { schema: RouteSchema<typeof route_login_route>; up: typeof destination__home_route };
+"src/routes/not-found/route.ts": { schema: RouteSchema<typeof route_not_found_route>; up: typeof destination__home_route };
 "src/routes/other/child/route.ts": { schema: RouteSchema<typeof route_other_child_route>; up: typeof destination_other_route };
 "src/routes/other/route.ts": { schema: RouteSchema<typeof route_other_route>; up: typeof destination__home_route };
 "src/routes/teams/$teamId/items/$id/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_items_$id_route>; up: typeof destination_teams_$teamId_route };
@@ -91,3 +103,4 @@ export function injectActiveRoute(): Signal<ActiveRoute | undefined> {
   return injectGeneratedActiveRoute<RouteTypes>();
 }
 export { provideActiveRouteHydration } from '@loozo/angular-router/_generated';
+export { currentSearchRestore, provideSearchStorage } from '@loozo/angular-router/_generated';

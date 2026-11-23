@@ -524,6 +524,67 @@ try {
     await view.close();
   }
 
+  // A remembered key in session storage: the server can't read it, so it renders the default
+  // view; the browser's initial navigation restores it with both outlets on the restored URL,
+  // keeping the server's nodes and the active-route seed, with no error and no other document.
+  {
+    const view = await session("remembered");
+
+    await view.page.addInitScript(() => {
+      if (sessionStorage.getItem("search:products.view") === null) {
+        sessionStorage.setItem("search:products.view", "table");
+      }
+    });
+    await view.open("/products/(list//detail:item/3)", { holdScripts: true });
+
+    const ids = ["products", "list", "item", "products-view", "item-id"];
+    const server = await view.page.evaluate((ids) => {
+      window.proofNodes = ids.map((id) => document.getElementById(id));
+
+      return {
+        view: document.getElementById("products-view").textContent,
+        active: document.getElementById("active-route").textContent,
+      };
+    }, ids);
+
+    view.release();
+    await view.page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+
+    const observation = await view.observe("session restore", {
+      server,
+      retained: await view.page.evaluate(
+        (ids) => ids.map((id, index) => window.proofNodes[index] === document.getElementById(id)),
+        ids,
+      ),
+      client: await view.page.evaluate(() => ({
+        view: document.getElementById("products-view").textContent,
+        itemId: document.getElementById("item-id").textContent,
+        firstClient: window.proofFirstClient,
+        stored: sessionStorage.getItem("search:products.view"),
+      })),
+    });
+
+    await view.page.screenshot({ path: join(media, "remembered-session-restore.png") });
+    clean(observation);
+    assert.deepEqual(observation.server, { view: "default", active: "list" });
+    assert.equal(observation.routerUrl, "/products/(list//detail:item/3)?view=table");
+    assert.equal(observation.href, "/products/(list//detail:item/3)?view=table");
+    assert.equal(observation.documents, 1);
+    assert.deepEqual(observation.retained, [true, true, true, true, true]);
+    assert.equal(observation.shown["active-route"], "list");
+    assert.deepEqual(observation.client, {
+      view: "table",
+      itemId: "3",
+      firstClient: {
+        hrefs: observation.client.firstClient.hrefs,
+        active: "list",
+        committed: false,
+      },
+      stored: "table",
+    });
+    await view.close();
+  }
+
   // R1-F1: the server, the first client render while the initial navigation is held, and the
   // commit agree on every composed link; then each link clicked before the commit.
   const held = "/products/(list//detail:item/3)(chat:chat/7)?sort=price&hold=1";

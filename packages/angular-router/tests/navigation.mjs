@@ -2827,6 +2827,688 @@ try {
   await retainedHost.close();
 }
 
+// Remembered search keys (SPEC §7): the restore runs first in the resolve phase, after every guard
+// of the whole tree, and never touches storage while a guard is pending; every scheduled resolver
+// and title runs once, on the restored URL; history follows Angular's redirect rules; a chain
+// restores each id once and forgets only on its own failure.
+const { openRemembered, rememberedFixture, reset, summary } = await import("./remembered.mjs");
+const { buildFixture: buildRemembered, staticServer: rememberedServer } =
+  await import("./sibling-groups.mjs");
+const rememberedApp = await rememberedFixture(evidence);
+
+await buildRemembered(rememberedApp, { statsJson: false });
+
+const rememberedHost = await rememberedServer(rememberedApp);
+const rememberedBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+const remembered = {};
+
+try {
+  const { tab, errors, close } = await openRemembered(rememberedBrowser, rememberedHost.base);
+
+  // One navigation from /outside to `url`, with `memory` stored and `controls` set.
+  async function enter(url, { memory = { "orders.pageSize": "50" }, controls = {}, extras } = {}) {
+    await reset(tab, { memory, controls });
+
+    const result = await tab.evaluate(
+      ([target, options]) => window.remember.go(target, options),
+      [url, extras],
+    );
+
+    return tab.evaluate((value) => {
+      const proof = window.remember;
+
+      return {
+        result: value,
+        url: proof.router.url,
+        calls: proof.calls,
+        ops: proof.ops,
+        starts: proof.events.filter((event) => event.type === "NavigationStart").length,
+        memory: Object.fromEntries(proof.memory),
+      };
+    }, result);
+  }
+
+  // The whole-tree guard barrier: each guard, each outcome, valid and invalid storage.
+  const guards = {};
+
+  for (const label of ["leaf", "owner", "ancestor", "child"]) {
+    for (const decision of ["true", "false", "redirect", "error"]) {
+      for (const stored of ["50", "bad"]) {
+        const controls = { [label]: decision };
+
+        // A reused ancestor's guard runs only under a policy that schedules it.
+        if (label === "ancestor") {
+          controls.policy = "always";
+        }
+
+        const seen = await enter("/orders", { memory: { "orders.pageSize": stored }, controls });
+
+        guards[`${label} ${decision} ${stored}`] = {
+          result: seen.result,
+          url: seen.url,
+          ...summary(seen.ops),
+        };
+      }
+    }
+  }
+
+  remembered.guards = guards;
+
+  for (const label of ["leaf", "owner", "ancestor", "child"]) {
+    const row = (decision, stored) => guards[`${label} ${decision} ${stored}`];
+
+    assert.deepEqual(row("true", "50"), {
+      result: true,
+      url: "/orders?pageSize=50",
+      ops: ["read orders.pageSize", "write orders.pageSize=50"],
+      duringGuard: false,
+    });
+    assert.deepEqual(row("true", "bad"), {
+      result: true,
+      url: "/orders",
+      ops: ["read orders.pageSize", "forget orders.pageSize", "forget orders.pageSize"],
+      duringGuard: false,
+    });
+
+    for (const stored of ["50", "bad"]) {
+      assert.deepEqual(row("false", stored), {
+        result: false,
+        url: "/outside",
+        ops: [],
+        duringGuard: false,
+      });
+      assert.deepEqual(row("redirect", stored), {
+        result: true,
+        url: "/outside?guard=redirect",
+        ops: [],
+        duringGuard: false,
+      });
+      assert.deepEqual(row("error", stored), {
+        result: `error: guard ${label}`,
+        url: "/outside",
+        ops: [],
+        duringGuard: false,
+      });
+    }
+  }
+
+  // Latched guards: nothing is read until the guard settles; then the restore reads and the
+  // commit writes.
+  const latched = {};
+
+  for (const label of ["leaf", "owner", "ancestor", "child"]) {
+    const controls = { [label]: "pending" };
+
+    if (label === "ancestor") {
+      controls.policy = "always";
+    }
+
+    await reset(tab, { memory: { "orders.pageSize": "50" }, controls });
+
+    const done = tab.evaluate(() => window.remember.go("/orders"));
+
+    await tab.waitForFunction((name) => window.remember.waits.has(name), label);
+
+    const held = await tab.evaluate(() => [...window.remember.ops]);
+
+    await tab.evaluate((name) => window.remember.waits.get(name)(), label);
+
+    const result = await done;
+    const after = await tab.evaluate(() => ({
+      url: window.remember.router.url,
+      ops: window.remember.ops,
+    }));
+
+    latched[label] = { held: summary(held).ops, result, url: after.url, ...summary(after.ops) };
+    assert.deepEqual(latched[label], {
+      held: [],
+      result: true,
+      url: "/orders?pageSize=50",
+      ops: ["read orders.pageSize", "write orders.pageSize=50"],
+      duringGuard: false,
+    });
+  }
+
+  remembered.latched = latched;
+
+  // Placement: authored string, integer, `__restore` and symbol keys and dynamic titles on the
+  // ancestor, the owner and the page never run on the bare URL; each scheduled one runs once on
+  // the restored URL. Native rerun policies decide whether the reused ancestor is scheduled.
+  const placement = {};
+
+  for (const policy of ["default", "always", "query", "skip-restored"]) {
+    const seen = await enter("/orders", { controls: { policy } });
+    const callbacks = [];
+
+    for (const [label, url] of seen.calls) {
+      if (label.startsWith("resolve:") || label.startsWith("title:")) {
+        callbacks.push(`${label} ${url}`);
+      }
+    }
+
+    placement[policy] = { url: seen.url, callbacks: callbacks.sort(), ...summary(seen.ops) };
+  }
+
+  remembered.placement = placement;
+
+  const restoredCallbacks = [
+    "resolve:leaf /orders?pageSize=50",
+    "resolve:owner:0 /orders?pageSize=50",
+    "resolve:owner:__restore /orders?pageSize=50",
+    "resolve:owner:first /orders?pageSize=50",
+    "resolve:owner:symbol /orders?pageSize=50",
+    "title:leaf /orders?pageSize=50",
+    "title:owner /orders?pageSize=50",
+  ];
+  const ancestorCallbacks = [
+    "resolve:ancestor /orders?pageSize=50",
+    "title:ancestor /orders?pageSize=50",
+  ];
+
+  for (const policy of ["default", "skip-restored"]) {
+    assert.deepEqual(placement[policy].callbacks, restoredCallbacks, policy);
+  }
+
+  for (const policy of ["always", "query"]) {
+    assert.deepEqual(
+      placement[policy].callbacks,
+      [...ancestorCallbacks, ...restoredCallbacks].sort(),
+      policy,
+    );
+  }
+
+  for (const policy of Object.keys(placement)) {
+    assert.equal(placement[policy].url, "/orders?pageSize=50", policy);
+    assert.deepEqual(
+      placement[policy].ops,
+      ["read orders.pageSize", "write orders.pageSize=50"],
+      policy,
+    );
+  }
+
+  // A query-only clear inside the owner schedules nothing and forgets; a child navigation inside
+  // it then reads nothing.
+  await reset(tab, { from: "/orders?pageSize=50" });
+  await tab.evaluate(() => window.remember.go("/orders"));
+
+  const cleared = await tab.evaluate(() => ({
+    url: window.remember.router.url,
+    calls: window.remember.calls.filter(([label]) => !label.startsWith("guard:")),
+    ops: window.remember.ops,
+  }));
+
+  await tab.evaluate(() => {
+    window.remember.ops = [];
+    window.remember.memory.set("orders.pageSize", "70");
+  });
+  await tab.evaluate(() => window.remember.go("/orders/detail"));
+
+  const inside = await tab.evaluate(() => ({
+    url: window.remember.router.url,
+    ops: window.remember.ops,
+  }));
+
+  remembered.cleared = { cleared, inside };
+  assert.deepEqual(cleared.calls, []);
+  assert.equal(cleared.url, "/orders");
+  assert.deepEqual(summary(cleared.ops).ops, ["forget orders.pageSize"]);
+  assert.equal(inside.url, "/orders/detail");
+  assert.deepEqual(summary(inside.ops).ops, ["forget orders.pageSize"]);
+
+  // A named-outlet branch takes part in the barrier: its guard refusing, or requiring the key,
+  // refuses the original URL untouched; accepting, both outlets land on the restored URL and the
+  // branch's resolver and title run once, there.
+  const branchUrl = "/orders/(detail:item/3)";
+  const branch = {};
+
+  for (const decision of ["false", "requires-key", "true"]) {
+    const seen = await enter(branchUrl, { controls: { branch: decision } });
+
+    branch[decision] = {
+      result: seen.result,
+      url: seen.url,
+      branchCalls: seen.calls
+        .filter(([label]) => label === "resolve:branch" || label === "title:branch")
+        .map(([label, url]) => `${label} ${url}`),
+      ...summary(seen.ops),
+    };
+  }
+
+  remembered.branch = branch;
+
+  for (const decision of ["false", "requires-key"]) {
+    assert.deepEqual(
+      branch[decision],
+      { result: false, url: "/outside", branchCalls: [], ops: [], duringGuard: false },
+      decision,
+    );
+  }
+
+  assert.deepEqual(branch.true, {
+    result: true,
+    url: "/orders/(detail:item/3)?pageSize=50",
+    branchCalls: [
+      "resolve:branch /orders/(detail:item/3)?pageSize=50",
+      "title:branch /orders/(detail:item/3)?pageSize=50",
+    ],
+    ops: ["read orders.pageSize", "write orders.pageSize=50"],
+    duringGuard: false,
+  });
+
+  // The owner's canActivateChild accepts the primary child and refuses, or requires the key for,
+  // only the named-outlet child: the original URL is refused untouched and nothing is restored.
+  const branchOnly = {};
+
+  for (const decision of ["branch-false", "branch-requires-key"]) {
+    const seen = await enter(branchUrl, { controls: { child: decision } });
+
+    branchOnly[decision] = {
+      result: seen.result,
+      url: seen.url,
+      starts: seen.starts,
+      childChecks: seen.calls
+        .filter(([label]) => label === "guard:child")
+        .map(([, url, outlet]) => `${outlet} ${url}`),
+      restoredCalls: seen.calls.filter(([, url]) => String(url).includes("pageSize")).length,
+      ...summary(seen.ops),
+    };
+  }
+
+  remembered.branchOnly = branchOnly;
+
+  for (const decision of ["branch-false", "branch-requires-key"]) {
+    assert.deepEqual(
+      branchOnly[decision],
+      {
+        result: false,
+        url: "/outside",
+        starts: 1,
+        childChecks: ["primary /orders/(detail:item/3)", "detail /orders/(detail:item/3)"],
+        restoredCalls: 0,
+        ops: [],
+        duringGuard: false,
+      },
+      decision,
+    );
+  }
+
+  // A child whose canMatch refuses: recognition fails before any restore.
+  const rejected = await enter("/orders/reject");
+
+  remembered.rejected = rejected;
+  assert.match(String(rejected.result), /^error: /);
+  assert.deepEqual(rejected.ops, []);
+
+  // A lone pathless owner whose children don't match /unknown, and a sibling pathless group that
+  // owns /profile: neither restores the owner's key nor touches storage.
+  const unknown = await enter("/unknown", { memory: { density: "compact" } });
+  const profile = await enter("/profile", { memory: { density: "compact" } });
+
+  remembered.recognition = { unknown, profile };
+  assert.match(String(unknown.result), /^error: NG04002: Cannot match any routes/);
+  assert.equal(unknown.starts, 1);
+  assert.deepEqual(unknown.ops, []);
+  assert.equal(profile.result, true);
+  assert.equal(profile.url, "/profile");
+  assert.equal(profile.starts, 1);
+  assert.deepEqual(profile.ops, []);
+  assert.deepEqual(profile.memory, { density: "compact" });
+
+  // History (Angular's redirect rules, the navigation's state kept): RouterLink and navigate add
+  // one entry after the origin; replaceUrl replaces the origin; Back reaches the origin. A fresh
+  // tab, so its history is far from Chromium's 50-entry cap.
+  const historyTab = await openRemembered(rememberedBrowser, rememberedHost.base);
+  const { tab: historyPage } = historyTab;
+
+  async function historyRow(start, page = historyPage) {
+    await reset(page, { memory: { "orders.pageSize": "50" } });
+    await page.evaluate(() => window.remember.go("/outside?origin=1"));
+
+    const before = await page.evaluate(() => history.length);
+
+    await start();
+    await page.waitForFunction(() => window.remember.router.url === "/orders?pageSize=50");
+
+    const after = await page.evaluate(() => ({
+      added: history.length,
+      entry: history.state?.entry ?? null,
+      location: location.pathname + location.search,
+    }));
+
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => window.remember.router.url !== "/orders?pageSize=50");
+
+    const back = await page.evaluate(() => window.remember.router.url);
+
+    return { added: after.added - before, entry: after.entry, location: after.location, back };
+  }
+
+  const histories = {
+    link: await historyRow(() => historyPage.click("#orders-link")),
+    navigate: await historyRow(() =>
+      historyPage.evaluate(() => {
+        void window.remember.go("/orders", { state: { entry: "navigate" } });
+      }),
+    ),
+    replace: await historyRow(() =>
+      historyPage.evaluate(() => {
+        void window.remember.go("/orders", { replaceUrl: true, state: { entry: "replace" } });
+      }),
+    ),
+  };
+
+  remembered.histories = histories;
+  assert.deepEqual(histories.link, {
+    added: 1,
+    entry: "link",
+    location: "/orders?pageSize=50",
+    back: "/outside?origin=1",
+  });
+  assert.deepEqual(histories.navigate, {
+    added: 1,
+    entry: "navigate",
+    location: "/orders?pageSize=50",
+    back: "/outside?origin=1",
+  });
+  assert.equal(histories.replace.added, 0);
+  assert.equal(histories.replace.entry, "replace");
+  assert.notEqual(histories.replace.back, "/outside?origin=1");
+
+  // One run with eager URL updates: Angular shows the bare URL at the start and the restore's
+  // redirect replaces it, so the history and the caller's state come out the same.
+  const eagerTab = await openRemembered(rememberedBrowser, rememberedHost.base, {
+    urlUpdateStrategy: "eager",
+  });
+  const eager = {
+    link: await historyRow(() => eagerTab.tab.click("#orders-link"), eagerTab.tab),
+    navigate: await historyRow(
+      () =>
+        eagerTab.tab.evaluate(() => {
+          void window.remember.go("/orders", { state: { entry: "navigate" } });
+        }),
+      eagerTab.tab,
+    ),
+  };
+
+  remembered.eagerHistories = eager;
+  assert.deepEqual(eager, { link: histories.link, navigate: histories.navigate });
+  assert.deepEqual(eagerTab.errors, []);
+  await eagerTab.close();
+
+  // Back into an older bare entry of the owner restores it and replaces that entry's URL.
+  await reset(historyPage, {});
+  await historyPage.evaluate(async () => {
+    const { go } = window.remember;
+
+    await go("/orders");
+    await go("/outside");
+    await go("/orders?pageSize=70");
+    await go("/outside");
+  });
+
+  const length = await historyPage.evaluate(() => history.length);
+
+  await historyPage.evaluate(() => history.go(-3));
+  await historyPage.waitForFunction(() => window.remember.router.url === "/orders?pageSize=70");
+
+  const older = await historyPage.evaluate(() => ({
+    location: location.pathname + location.search,
+    length: history.length,
+  }));
+
+  remembered.older = older;
+  assert.deepEqual(older, { location: "/orders?pageSize=70", length });
+  assert.deepEqual(historyTab.errors, []);
+  await historyTab.close();
+
+  // Two owners whose guards redirect to each other's bare URL: two restores, each id once, the
+  // bare /a commits and forgets a; b keeps its value.
+  const chain = await enter("/a", { memory: { a: "1", b: "2" } });
+
+  remembered.chain = chain;
+  assert.equal(chain.url, "/a");
+  assert.deepEqual(summary(chain.ops).ops, ["read a", "read b", "forget a"]);
+  assert.deepEqual(chain.memory, { b: "2" });
+
+  // A pending restored resolver superseded by an independent entry, an unrelated refusal, an
+  // unrelated failure and abort(): only the independent entry restores again; nothing forgets.
+  async function supersede(next) {
+    await reset(tab, {
+      memory: { "orders.pageSize": "50" },
+      controls: { "resolve:owner:first": "pending" },
+    });
+
+    const first = tab.evaluate(() => window.remember.go("/orders"));
+
+    await tab.waitForFunction(() => window.remember.waits.has("resolve:owner:first"));
+    await tab.evaluate(next);
+
+    const result = await first;
+    // The committed state: after a refused navigation, Angular's router.url can name its target.
+    const after = await tab.evaluate(() => ({
+      url: window.remember.router.routerState.snapshot.url,
+      ops: window.remember.ops,
+      memory: Object.fromEntries(window.remember.memory),
+    }));
+
+    return { result, url: after.url, memory: after.memory, ...summary(after.ops) };
+  }
+
+  const superseded = {
+    entry: await supersede(() => window.remember.go("/orders")),
+    refusal: await supersede(() => window.remember.go("/denied")),
+    error: await supersede(() => window.remember.go("/broken")),
+    abort: await supersede(() => window.remember.router.currentNavigation().abort()),
+  };
+
+  remembered.superseded = superseded;
+  assert.deepEqual(superseded.entry, {
+    result: false,
+    url: "/orders?pageSize=50",
+    memory: { "orders.pageSize": "50" },
+    ops: ["read orders.pageSize", "read orders.pageSize", "write orders.pageSize=50"],
+    duringGuard: false,
+  });
+
+  for (const name of ["refusal", "error", "abort"]) {
+    assert.deepEqual(
+      superseded[name],
+      {
+        result: false,
+        url: "/outside",
+        memory: { "orders.pageSize": "50" },
+        ops: ["read orders.pageSize"],
+        duringGuard: false,
+      },
+      name,
+    );
+  }
+
+  // The restored attempt's guard sends it back to the page it came from, a continuation Angular
+  // skips before it starts: that ends the chain and keeps the value. A fresh entry then restores
+  // again, and an unrelated refusal or error forgets nothing.
+  async function skippedThen(next) {
+    await reset(tab, {
+      memory: { "orders.pageSize": "50" },
+      controls: { owner: "home-when-restored" },
+    });
+
+    const skipped = await tab.evaluate(async () => {
+      const proof = window.remember;
+      const result = await proof.go("/orders");
+      const events = proof.events.map((event) => event.type);
+
+      proof.controls = {};
+      proof.events = [];
+
+      return { result, url: proof.router.url, last: events.at(-1), events };
+    });
+    const result = await tab.evaluate(next);
+    const after = await tab.evaluate(() => ({
+      url: window.remember.router.routerState.snapshot.url,
+      ops: window.remember.ops,
+      memory: Object.fromEntries(window.remember.memory),
+    }));
+
+    return { skipped, result, url: after.url, memory: after.memory, ...summary(after.ops) };
+  }
+
+  const afterSkip = {
+    entry: await skippedThen(() => window.remember.go("/orders")),
+    refusal: await skippedThen(() => window.remember.go("/denied")),
+    error: await skippedThen(() => window.remember.go("/broken")),
+  };
+
+  remembered.afterSkip = afterSkip;
+
+  for (const name of Object.keys(afterSkip)) {
+    const { skipped } = afterSkip[name];
+
+    assert.equal(skipped.result, false, name);
+    assert.equal(skipped.url, "/outside", name);
+    assert.equal(skipped.last, "NavigationSkipped", name);
+    assert.equal(skipped.events.filter((type) => type === "NavigationStart").length, 2, name);
+  }
+
+  assert.deepEqual(
+    { ...afterSkip.entry, skipped: undefined },
+    {
+      skipped: undefined,
+      result: true,
+      url: "/orders?pageSize=50",
+      memory: { "orders.pageSize": "50" },
+      ops: ["read orders.pageSize", "read orders.pageSize", "write orders.pageSize=50"],
+      duringGuard: false,
+    },
+  );
+  assert.deepEqual(
+    { ...afterSkip.refusal, skipped: undefined },
+    {
+      skipped: undefined,
+      result: false,
+      url: "/outside",
+      memory: { "orders.pageSize": "50" },
+      ops: ["read orders.pageSize"],
+      duringGuard: false,
+    },
+  );
+  assert.deepEqual(
+    { ...afterSkip.error, skipped: undefined },
+    {
+      skipped: undefined,
+      result: "error: unrelated failure",
+      url: "/outside",
+      memory: { "orders.pageSize": "50" },
+      ops: ["read orders.pageSize"],
+      duringGuard: false,
+    },
+  );
+
+  // A key named `__proto__`, scalar and array: the restore's redirect carries it as an own query
+  // key, the URL serializes it, and the commit stores it again.
+  const proto = {};
+
+  for (const [path, id, stored] of [
+    ["/proto", "proto.scalar", "owned"],
+    ["/proto-list", "proto.list", "a&b%26c"],
+  ]) {
+    await reset(tab, { memory: { [id]: stored } });
+
+    const result = await tab.evaluate((url) => window.remember.go(url), path);
+    const seen = await tab.evaluate(() => {
+      const proof = window.remember;
+      let route = proof.router.routerState.snapshot.root;
+
+      while (route.firstChild) {
+        route = route.firstChild;
+      }
+
+      return {
+        url: proof.router.url,
+        own: Object.hasOwn(route.queryParams, "__proto__"),
+        value: route.queryParams["__proto__"],
+        prototype: Object.getPrototypeOf(route.queryParams) === Object.prototype,
+        ops: proof.ops,
+      };
+    });
+
+    proto[path] = { result, ...seen, ops: summary(seen.ops).ops };
+  }
+
+  remembered.proto = proto;
+  assert.deepEqual(proto["/proto"], {
+    result: true,
+    url: "/proto?__proto__=owned",
+    own: true,
+    value: "owned",
+    prototype: true,
+    ops: ["read proto.scalar", "write proto.scalar=owned"],
+  });
+  assert.deepEqual(proto["/proto-list"], {
+    result: true,
+    url: "/proto-list?__proto__=a&__proto__=b%26c",
+    own: true,
+    value: ["a", "b&c"],
+    prototype: true,
+    ops: ["read proto.list", "write proto.list=a&b%26c"],
+  });
+
+  // A spelling the codec accepts as an alias is stored as the codec writes it, and comes back
+  // that way.
+  const alias = await enter("/orders?pageSize=0x32", { memory: {} });
+
+  await tab.evaluate(() => window.remember.go("/outside"));
+
+  const aliasBack = await tab.evaluate(async () => ({
+    result: await window.remember.go("/orders"),
+    url: window.remember.router.url,
+  }));
+
+  remembered.alias = { alias, aliasBack };
+  assert.equal(alias.url, "/orders?pageSize=0x32");
+  assert.deepEqual(summary(alias.ops).ops, ["write orders.pageSize=50"]);
+  assert.deepEqual(aliasBack, { result: true, url: "/orders?pageSize=50" });
+
+  // A resolver that gives no data for the restored URL fails the chain, which forgets.
+  const empty = await enter("/orders", { controls: { "resolve:owner:first": "empty" } });
+
+  remembered.empty = empty;
+  assert.equal(empty.result, false);
+  assert.equal(empty.url, "/outside");
+  assert.deepEqual(summary(empty.ops).ops, ["read orders.pageSize", "forget orders.pageSize"]);
+  await tab.screenshot({ path: join(evidence, "remembered.png") });
+  assert.deepEqual(errors, []);
+  await close();
+
+  // Browser storage built in: a browser-only entry restores from localStorage.
+  const local = await openRemembered(rememberedBrowser, rememberedHost.base, {
+    storageKind: "local",
+  });
+
+  await local.tab.evaluate(() => localStorage.setItem("search:orders.pageSize", "50"));
+
+  const localResult = await local.tab.evaluate(() => window.remember.go("/orders"));
+  const localSeen = await local.tab.evaluate(() => ({
+    url: window.remember.router.url,
+    stored: localStorage.getItem("search:orders.pageSize"),
+    commits: window.remember.events.filter((event) => event.type === "NavigationEnd").length,
+  }));
+
+  remembered.local = { result: localResult, ...localSeen };
+  assert.deepEqual(remembered.local, {
+    result: true,
+    url: "/orders?pageSize=50",
+    stored: "50",
+    commits: 2,
+  });
+  assert.deepEqual(local.errors, []);
+  await local.close();
+} finally {
+  await writeFile(join(evidence, "remembered.json"), JSON.stringify(remembered, null, 2));
+  await rememberedBrowser.close();
+  await rememberedHost.close();
+}
+
 // Sibling pathless groups (SPEC §10): each URL reaches the group whose routes own it, and a group
 // that doesn't own it calls no matching guard and loads no table. Each URL opens cold, so its
 // guard calls, evaluated modules and table requests are its own.
@@ -3003,5 +3685,5 @@ try {
 }
 
 console.log(
-  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges, per-route stability, route children and sibling pathless groups proof passed",
+  "Public generated navigation typing, destination identity across trees, exact native Promise/UrlTree/RouterLink, behavior options, selector exclusions, '..' edges, per-route stability, route children, retained and remembered search keys and sibling pathless groups proof passed",
 );

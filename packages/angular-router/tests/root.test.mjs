@@ -12,6 +12,7 @@ import {
   destinationRecord,
   isArrayCodec,
   isRetained,
+  rememberedId,
   routeContributions,
   routeMetadata,
   routeOf,
@@ -38,6 +39,7 @@ test("plain Node public namespace and concrete product consumer", () => {
     "enumParam",
     "localeUrls",
     "numberParam",
+    "remembered",
     "retained",
     "serverRoutePath",
     "stringParam",
@@ -1844,6 +1846,278 @@ test("retained wraps a search codec outermost and keeps its fallback and array b
     name: "TypeError",
     message: "Codec must have callable parse and stringify methods",
   });
+});
+
+test("remembered marks a search codec outermost with a storage id, in either order with retained", () => {
+  const { remembered, retained } = root;
+  const pageSize = retained(remembered(withFallback(numberParam, 20), "orders.pageSize"));
+  const tags = remembered(retained(arrayParam(enumParam(["news", "guides"]))), "orders.tags");
+  const sort = remembered(enumParam(["newest", "oldest"]), "orders_sort-2");
+  const list = defineRoute("orders", { search: { pageSize, tags, sort } });
+
+  // Reads, fallbacks, arrays and retention are the wrapped codec's.
+  assert.equal(rememberedId(pageSize), "orders.pageSize");
+  assert.equal(rememberedId(tags), "orders.tags");
+  assert.equal(rememberedId(sort), "orders_sort-2");
+  assert.equal(rememberedId(stringParam), undefined);
+  assert.equal(codecFallback(pageSize)?.value, 20);
+  assert.equal(isRetained(pageSize) && isRetained(tags), true);
+  assert.equal(isRetained(sort), false);
+  assert.equal(isArrayCodec(tags), true);
+  assert.equal(pageSize.parse("50"), 50);
+  assert.equal(
+    createUrl(list, { search: { pageSize: 50, tags: ["news"], sort: "oldest" } }),
+    "/orders?pageSize=50&sort=oldest&tags=news",
+  );
+
+  for (const id of ["", "orders page size", "orders/size", "é", "a;b", "a=b"]) {
+    assert.throws(() => remembered(numberParam, id), {
+      name: "TypeError",
+      message: `Remembered search id must match /^[A-Za-z0-9._-]+$/: ${JSON.stringify(id)}`,
+    });
+  }
+
+  assert.throws(() => remembered(numberParam), {
+    name: "TypeError",
+    message: "Remembered search id must match /^[A-Za-z0-9._-]+$/: undefined",
+  });
+  assert.throws(() => remembered(sort, "again"), {
+    name: "TypeError",
+    message: "remembered cannot wrap a codec that is already remembered",
+  });
+  assert.throws(() => remembered(pageSize, "again"), {
+    name: "TypeError",
+    message: "remembered cannot wrap a codec that is already remembered",
+  });
+  assert.throws(() => retained(pageSize), {
+    name: "TypeError",
+    message: "retained cannot wrap a codec that is already retained",
+  });
+  assert.throws(() => withFallback(sort, "newest"), {
+    name: "TypeError",
+    message: "withFallback cannot wrap a remembered codec",
+  });
+  assert.throws(() => arrayParam(sort), {
+    name: "TypeError",
+    message: "arrayParam cannot wrap a remembered codec",
+  });
+  assert.throws(() => defineRoute("items/$id", { params: { id: remembered(numberParam, "id") } }), {
+    name: "TypeError",
+    message: "remembered codecs are search-only",
+  });
+  assert.throws(() => remembered({ parse: () => 1 }, "id"), {
+    name: "TypeError",
+    message: "Codec must have callable parse and stringify methods",
+  });
+});
+
+test("one route and its ancestors can't remember two keys under one id", () => {
+  const { remembered } = root;
+
+  // A local pair.
+  assert.throws(
+    () =>
+      defineRoute("orders", {
+        search: {
+          pageSize: remembered(numberParam, "orders.size"),
+          limit: remembered(numberParam, "orders.size"),
+        },
+      }),
+    {
+      name: "TypeError",
+      message: 'Remembered search id "orders.size" is used by limit and by pageSize',
+    },
+  );
+
+  // An ancestor's key, through a pathless ancestor in between, for routes and destinations.
+  const workspace = defineRoute("", { search: { density: remembered(stringParam, "density") } });
+  const orders = defineRoute("orders/$id", {
+    parent: workspace,
+    params: { id: numberParam },
+    search: { pageSize: remembered(numberParam, "orders.size") },
+  });
+  const layout = defineRoute("", { parent: orders });
+
+  assert.throws(
+    () =>
+      defineRoute("archive", {
+        parent: layout,
+        search: { limit: remembered(numberParam, "orders.size") },
+      }),
+    {
+      name: "TypeError",
+      message:
+        'Remembered search id "orders.size" is used by limit and by pageSize, inherited from "/orders/$id"',
+    },
+  );
+  assert.throws(
+    () =>
+      defineRoute("archive", {
+        parent: layout,
+        search: { size: remembered(numberParam, "density") },
+      }),
+    {
+      name: "TypeError",
+      message: 'Remembered search id "density" is used by size and by density, inherited from "/"',
+    },
+  );
+
+  const workspaceDestination = defineDestination(
+    "",
+    { search: { density: remembered(stringParam, "density") } },
+    "remember-workspace",
+  );
+
+  assert.throws(
+    () =>
+      defineDestination(
+        "orders",
+        { parent: workspaceDestination, search: { size: remembered(numberParam, "density") } },
+        "remember-orders",
+      ),
+    {
+      name: "TypeError",
+      message: 'Remembered search id "density" is used by size and by density, inherited from "/"',
+    },
+  );
+
+  // Unrelated subtrees may share an id on purpose, and one route may remember several keys.
+  defineRoute("a", { search: { size: remembered(numberParam, "shared.size") } });
+  defineRoute("b", {
+    search: {
+      size: remembered(numberParam, "shared.size"),
+      sort: remembered(stringParam, "b.sort"),
+    },
+  });
+});
+
+test("remembered values are stored as their codec writes them, encoded and joined with &", async () => {
+  const { remembered } = root;
+  const { storedText, storedValues } = await import("@loozo/angular-router/_generated");
+  const size = remembered(withFallback(numberParam, 20), "size");
+  const tags = remembered(arrayParam(stringParam), "tags");
+  const name = remembered(stringParam, "name");
+
+  // Commit: a present valid value that isn't its fallback is stored; anything else is forgotten.
+  assert.equal(storedText(size, ["50"]), "50");
+  assert.equal(storedText(size, ["20"]), undefined);
+  assert.equal(storedText(size, []), undefined);
+  assert.equal(storedText(size, ["abc"]), undefined);
+  assert.equal(storedText(size, ["50", "60"]), undefined);
+  assert.equal(storedText(tags, ["news", "guides"]), "news&guides");
+  assert.equal(storedText(tags, ["a&b", "50%", "x y"]), "a%26b&50%25&x%20y");
+  assert.equal(storedText(tags, []), undefined);
+  assert.equal(storedText(name, [""]), "");
+  assert.equal(storedText(name, ["a&b=c; d"]), "a%26b%3Dc%3B%20d");
+  // The parsed value is written back by the codec: an alias is stored in its canonical form.
+  assert.equal(storedText(size, ["0x32"]), "50");
+  assert.equal(storedText(size, [" 5e1 "]), "50");
+  assert.equal(storedText(remembered(arrayParam(numberParam), "sizes"), ["0x10", "1e1"]), "16&10");
+  // Each value is written through stringify, and its text must be a string.
+  const loud = remembered(
+    { parse: (raw) => raw, stringify: (value) => value.toUpperCase() },
+    "loud",
+  );
+  const broken = remembered({ parse: (raw) => raw, stringify: () => 5 }, "broken");
+
+  assert.equal(storedText(loud, ["quiet"]), "QUIET");
+  assert.throws(() => storedText(broken, ["x"]), {
+    name: "TypeError",
+    message: "Codec stringify must return a string",
+  });
+
+  // Restore: text that reads as a present valid value gives its URL values back.
+  assert.deepEqual(storedValues(size, "50"), ["50"]);
+  assert.deepEqual(storedValues(tags, "news&guides"), ["news", "guides"]);
+  assert.deepEqual(storedValues(tags, "a%26b&50%25&x%20y"), ["a&b", "50%", "x y"]);
+  assert.deepEqual(storedValues(name, ""), [""]);
+  assert.deepEqual(storedValues(name, "a%26b%3Dc%3B%20d"), ["a&b=c; d"]);
+  // A stored fallback-equal value is still a value; the next commit forgets it.
+  assert.deepEqual(storedValues(size, "20"), ["20"]);
+  // Malformed percent-encoding, a repeated scalar and a value the codec rejects read as nothing.
+  assert.equal(storedValues(size, "bad%zz"), undefined);
+  assert.equal(storedValues(size, "abc"), undefined);
+  assert.equal(storedValues(size, "50&60"), undefined);
+  assert.equal(storedValues(tags, "ok&%"), undefined);
+});
+
+test("primary resolvers and titles call the restore gate first; branches and stamps don't see it", async () => {
+  await import("@angular/compiler");
+
+  const { remembered } = root;
+  const { Injector, runInInjectionContext } = await import("@angular/core");
+  const { callbacks, record, resolverKeys } = await import("@loozo/angular-router/_generated");
+  const owner = defineDestination(
+    "orders",
+    { search: { pageSize: remembered(withFallback(numberParam, 20), "orders.pageSize") } },
+    "gate-orders",
+  );
+  const plain = defineDestination("plain", {}, "gate-plain");
+  const branch = defineDestination(
+    "item/$id",
+    { params: { id: numberParam }, outlet: "detail" },
+    "gate-branch",
+  );
+  const symbol = Symbol("authored");
+  const calls = [];
+  const ownerCopy = routeOf(defineRoute, owner)
+    .resolve({
+      0: () => calls.push("0"),
+      label: () => calls.push("label"),
+      [symbol]: () => calls.push("symbol"),
+    })
+    .title(() => "Orders");
+  const native = callbacks(ownerCopy);
+  const gateKeys = Reflect.ownKeys(native.resolve).filter(
+    (key) => ![symbol, "0", "label"].includes(key),
+  );
+
+  // Authored keys are kept, and one module-private symbol entry is added: never stamped.
+  assert.equal(gateKeys.length, 1);
+  assert.equal(typeof gateKeys[0], "symbol");
+  assert.deepEqual(resolverKeys(native), ["0", "label", symbol]);
+  // A record without a remembered key and no authored resolver gets no resolve map.
+  assert.equal(callbacks(routeOf(defineRoute, plain)).resolve, undefined);
+  // A named-outlet record isn't gated: its resolver runs without any injection context.
+  const branchCopy = routeOf(defineRoute, branch).resolve({ value: () => "branch" });
+  const branchSnapshot = {
+    routeConfig: { ...record(branch) },
+    url: [{ path: "item" }, { path: "3" }],
+    queryParamMap: { getAll: () => [] },
+  };
+
+  branchSnapshot.pathFromRoot = [branchSnapshot];
+  assert.equal(callbacks(branchCopy).resolve.value(branchSnapshot, {}), "branch");
+
+  // A target with a remembered key and no provideSearchStorage(): the gate fails the navigation
+  // before calling the callback.
+  const snapshot = {
+    routeConfig: { ...record(owner), ...native },
+    url: [{ path: "orders" }],
+    queryParamMap: { getAll: () => [], has: () => false },
+    outlet: "primary",
+    children: [],
+  };
+
+  snapshot.pathFromRoot = [snapshot];
+
+  const state = { root: { routeConfig: null, children: [snapshot] }, url: "/orders" };
+  const injector = Injector.create({ providers: [] });
+
+  for (const key of Reflect.ownKeys(native.resolve)) {
+    assert.throws(
+      () => runInInjectionContext(injector, () => native.resolve[key](snapshot, state)),
+      {
+        name: "Error",
+        message: "Remembered search keys need provideSearchStorage(): orders.pageSize",
+      },
+    );
+  }
+
+  assert.throws(() => runInInjectionContext(injector, () => native.title(snapshot, state)), {
+    message: "Remembered search keys need provideSearchStorage(): orders.pageSize",
+  });
+  assert.deepEqual(calls, []);
 });
 
 test("link and navigate copy an omitted retained key from the current URL inside its owner", async () => {

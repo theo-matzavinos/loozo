@@ -119,7 +119,7 @@ await test("published root declarations retain documentation for every supported
 
   const exports = checker.getExportsOfModule(root);
 
-  assert.equal(exports.length, 18);
+  assert.equal(exports.length, 21);
 
   const missing = [];
 
@@ -209,5 +209,17 @@ await test("checked-in generated application exports carry documentation", async
 
       assert.ok(node && documented(node), `Missing documentation for ${name}`);
     }
+  }
+});
+
+await test("the ssr-proof app runs the README's remembered-key recipes as written", async () => {
+  for (const name of ["search-cookies.ts", "not-found.ts", "missing-resource.ts"]) {
+    const snippet = await readFile(new URL(`../snippets/src/${name}`, import.meta.url), "utf8");
+    const proof = await readFile(
+      new URL(`../../../examples/angular-router/ssr-proof/src/${name}`, import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(proof, snippet, name);
   }
 });

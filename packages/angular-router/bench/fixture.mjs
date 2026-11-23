@@ -90,7 +90,14 @@ export default class Page {
 // The shell reads the deepest active route and narrows it to g0000/$id with is(). Its bench links
 // are the runtime phase's navigations: cold to the last block's static/l1, an unvisited branch,
 // and warm between g0000's static/l0 and static/l1.
-function shellSource(lastBlock) {
+function shellSource(lastBlock, { remembered = false } = {}) {
+  // The remembered workload's warm links carry a page size, so each warm commit writes it.
+  let warmQuery = "";
+
+  if (remembered) {
+    warmQuery = ' [queryParams]="{ pageSize: 50 }"';
+  }
+
   return `import { Component, computed } from "@angular/core";
 import { RouterLink, RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/routes.generated.js";
@@ -99,7 +106,7 @@ import { destination as selected } from "./routes/g0000/$id/destination.generate
 @Component({
   selector: "proof-app",
   imports: [RouterLink, RouterOutlet],
-  template: \`<p>{{ id() }} {{ title() }}</p><button (click)="next()">Next</button><a data-bench="cold" routerLink="/${lastBlock}/static/l1">Cold</a><a data-bench="warm-a" routerLink="/g0000/static/l0">Warm A</a><a data-bench="warm-b" routerLink="/g0000/static/l1">Warm B</a><router-outlet />\`,
+  template: \`<p>{{ id() }} {{ title() }}</p><button (click)="next()">Next</button><a data-bench="cold" routerLink="/${lastBlock}/static/l1">Cold</a><a data-bench="warm-a" routerLink="/g0000/static/l0"${warmQuery}>Warm A</a><a data-bench="warm-b" routerLink="/g0000/static/l1"${warmQuery}>Warm B</a><router-outlet />\`,
 })
 export default class Shell {
   readonly active = injectActiveRoute();
@@ -135,9 +142,30 @@ performance.mark("bench:bootstrap");
 void bootstrapApplication(Shell, { providers: [provideRouter(routes)] });
 `;
 
+// The remembered workload's entry: the same, with session storage for remembered keys.
+const rememberedMainSource = `import { bootstrapApplication } from "@angular/platform-browser";
+import { provideRouter } from "@angular/router";
+import Shell from "./shell.js";
+import { provideSearchStorage, routes } from "../generated/routes.generated.js";
+
+performance.mark("bench:bootstrap");
+void bootstrapApplication(Shell, {
+  providers: [provideRouter(routes), provideSearchStorage("session")],
+});
+`;
+
+// The remembered workload's block roots own a retained view and a remembered page size; every
+// block shares the id, so an entry into another block restores the page size stored on g0000.
+const rememberedSearch = `{
+  search: {
+    view: retained(enumParam(["list", "board"])),
+    pageSize: remembered(withFallback(numberParam, 20), "bench.pageSize"),
+  },
+}`;
+
 // Writes src/routes, src/shell.ts and src/main.ts into a consumer whose copied routes were
-// excluded.
-export async function writeFixture(consumer, routes) {
+// excluded. With `remembered`, the remembered workload's variant (see bench/README.md).
+export async function writeFixture(consumer, routes, { remembered = false } = {}) {
   async function write(path, source) {
     const file = join(consumer, path);
 
@@ -166,13 +194,21 @@ export async function writeFixture(consumer, routes) {
 }
 `,
     );
+    let facts = "{}";
+    let codecs = "";
+
+    if (remembered) {
+      facts = rememberedSearch;
+      codecs = ", enumParam, numberParam, remembered, retained, withFallback";
+    }
+
     await write(
       `${root}/route.ts`,
-      `import { defineRoute } from "@loozo/angular-router";
+      `import { defineRoute${codecs} } from "@loozo/angular-router";
 import { allowed } from "./guard-helper.js";
 import { value } from "./resolver-helper.js";
 
-export default defineRoute("${name}", {})
+export default defineRoute("${name}", ${facts})
   .canMatch([() => allowed()])
   .resolve({ value: () => value() })
   .title(() => "${name}");
@@ -222,8 +258,13 @@ export default defineRoute("detail", { parent });
     );
   }
 
-  await write("src/shell.ts", shellSource(blockName(blocks - 1)));
-  await write("src/main.ts", mainSource);
+  await write("src/shell.ts", shellSource(blockName(blocks - 1), { remembered }));
+
+  if (remembered) {
+    await write("src/main.ts", rememberedMainSource);
+  } else {
+    await write("src/main.ts", mainSource);
+  }
 
   return {
     declarations: routes,
@@ -235,5 +276,6 @@ export default defineRoute("detail", { parent });
     titled: blocks * 2,
     resolvers: blocks + 1,
     maxDepth: 3,
+    rememberedOwners: remembered ? blocks : 0,
   };
 }
