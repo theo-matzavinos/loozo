@@ -60,7 +60,7 @@ function scroll(option: HTMLElement, content: HTMLElement): void {
   const bounds = box.getBoundingClientRect();
   const rect = option.getBoundingClientRect();
   const current = box.scrollTop;
-  const estimate = landing(box, bounds.top, rect, current, bounds.height / box.offsetHeight);
+  const estimate = landing(box, bounds, rect, current, bounds.height / box.offsetHeight);
 
   if (estimate === current) {
     return;
@@ -77,7 +77,7 @@ function scroll(option: HTMLElement, content: HTMLElement): void {
   }
 
   const shift = rect.top - option.getBoundingClientRect().top;
-  const exact = landing(box, bounds.top, rect, current, shift / moved);
+  const exact = landing(box, bounds, rect, current, shift / moved);
 
   if (exact !== landed) {
     box.scrollTo({ top: exact, behavior: "instant" });
@@ -85,13 +85,13 @@ function scroll(option: HTMLElement, content: HTMLElement): void {
 }
 
 /**
- * The whole `scrollTop` that shows an option painted at `rect` while `box`, painted from `top`,
+ * The whole `scrollTop` that shows an option painted at `rect` while `box`, painted at `bounds`,
  * was at `current`, given `scale` painted pixels per layout pixel: `current` when the option was
  * shown or the scale isn't positive.
  */
 function landing(
   box: HTMLElement,
-  top: number,
+  bounds: DOMRect,
   rect: DOMRect,
   current: number,
   scale: number,
@@ -100,8 +100,10 @@ function landing(
     return current;
   }
 
-  const start = top + box.clientTop * scale;
-  const end = start + box.clientHeight * scale;
+  // The painted edges, less the scaled insets: the client metrics are rounded, which a large
+  // scale would magnify. The bottom inset is the border plus any classic horizontal scrollbar.
+  const start = bounds.top + box.clientTop * scale;
+  const end = bounds.bottom - (box.offsetHeight - box.clientTop - box.clientHeight) * scale;
   // How far the option's top and bottom edges lay outside the scrollport, in layout pixels.
   const above = (start - rect.top) / scale;
   const below = (rect.bottom - end) / scale;

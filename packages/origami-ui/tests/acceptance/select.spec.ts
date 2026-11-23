@@ -595,6 +595,67 @@ test("Z6: under a half scale and a fractional height, opening, End and Home keep
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
 });
 
+test("Z6: enlarged by `scale: 4` with a fractional height, opening, End, Home and ArrowDown keep the active option inside the painted list", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const trigger = page.getByTestId("long-trigger");
+  const content = page.getByTestId("long-content");
+
+  // A 51.5 px padding box whose `clientHeight` rounds to 52: an edge rebuilt from it lies two
+  // painted pixels below the real one at this scale, so the reveal must use the painted edge.
+  await page.addStyleTag({
+    content:
+      '[data-testid="long-content"] { scale: 4; transform-origin: top left; max-block-size: 43.5px !important; }',
+  });
+
+  /** How far the option's painted box lies outside the list's painted padding box, in px. */
+  const miss = (item: number) =>
+    page.evaluate(
+      ([list, target]) => {
+        const box = document.querySelector<HTMLElement>(`[data-testid="${list}"]`);
+        const node = document.querySelector<HTMLElement>(`[data-testid="${target}"]`);
+
+        if (box === null || node === null) {
+          return Infinity;
+        }
+
+        const style = getComputedStyle(box);
+        const outer = box.getBoundingClientRect();
+        const top = outer.top + parseFloat(style.borderTopWidth) * 4;
+        const bottom = outer.bottom - parseFloat(style.borderBottomWidth) * 4;
+        const inner = node.getBoundingClientRect();
+
+        return Math.max(0, top - inner.top, inner.bottom - bottom);
+      },
+      ["long-content", `long-${item}`],
+    );
+
+  await trigger.scrollIntoViewIfNeeded();
+
+  const scrollY = await page.evaluate(() => window.scrollY);
+
+  await trigger.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+
+  for (const [key, item] of [
+    ["ArrowDown", 80],
+    ["End", 111],
+    ["Home", 1],
+    ["ArrowDown", 2],
+    ["ArrowDown", 3],
+    ["ArrowDown", 4],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expectOpen(trigger, content);
+    await expectActive(trigger, page.getByTestId(`long-${item}`), content);
+    await expect.poll(() => miss(item), `${key} to Option ${item}`).toBeLessThanOrEqual(0.5);
+  }
+
+  expect(await content.evaluate((node) => getComputedStyle(node).scale)).toBe("4");
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+});
+
 test("Z6: under `zoom: 0.5` and an odd height without a scrollbar gutter, opening, End and Home land the active option at the painted list's edge", async ({
   page,
   browserName,
