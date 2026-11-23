@@ -173,6 +173,35 @@ test("a cookie over 4,096 bytes isn't written, and the old value is forgotten wi
   assert.equal(setCookies(response).length, 2);
 });
 
+test("an oversized value already stored is forgotten on an equal write, not kept", (t) => {
+  t.mock.method(console, "warn", () => undefined);
+
+  // Stored earlier with a shorter lifetime, so its cookie fit then; with the default it doesn't.
+  const text = "b".repeat(4096 - `search.todos.filter=; ${kept}`.length + 1);
+  const { storage, response } = serverStorage({ cookie: `search.todos.filter=${text}` });
+
+  storage.write("todos.filter", text);
+
+  assert.deepEqual(setCookies(response), [`search.todos.filter=; ${expired}`]);
+  assert.equal(storage.read("todos.filter"), undefined);
+});
+
+test("a render that uses the storage varies on Cookie, once; one that doesn't, doesn't", () => {
+  const used = serverStorage({
+    cookie: "search.todos.pageSize=50",
+    response: { headers: new Headers({ vary: "Accept-Encoding" }) },
+  });
+
+  used.storage.read("todos.pageSize");
+  used.storage.write("todos.pageSize", "100");
+  used.storage.forget("todos.sort");
+  assert.equal(used.response.headers.get("vary"), "Accept-Encoding, Cookie");
+
+  const unused = serverStorage({ cookie: "search.todos.pageSize=50" });
+
+  assert.equal(unused.response.headers.get("vary"), null);
+});
+
 test("without a request it reads nothing, and without RESPONSE_INIT it sends nothing", () => {
   const prerender = serverStorage();
 

@@ -1,13 +1,8 @@
-import {
-  numberParam,
-  remembered,
-  retained,
-  stringParam,
-  withFallback,
-} from "@loozo/angular-router";
+import { remembered, retained, stringParam, withFallback } from "@loozo/angular-router";
 import { defineRoute } from "@loozo/angular-launch";
 import { notFound } from "@loozo/angular-launch/server";
 import { filterSchema, idSchema, titleSchema } from "../../../todo-input.server";
+import { pageSizeParam } from "../../../todo-page-size";
 import parent from "../route";
 
 // The list's filters by name. "archived" was one until it was removed, so a remembered
@@ -22,7 +17,7 @@ const filters = new Map([
 export default defineRoute("todos", {
   parent,
   search: {
-    pageSize: retained(remembered(withFallback(numberParam, 20), "todos.pageSize")),
+    pageSize: retained(remembered(withFallback(pageSizeParam, 20), "todos.pageSize")),
     filter: retained(remembered(withFallback(stringParam, "all"), "todos.filter")),
   },
 })

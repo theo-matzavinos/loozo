@@ -1,11 +1,10 @@
 import { Component, computed, signal } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { injectMutation, injectQuery, type QueryClient } from "@tanstack/angular-query";
+import { pageSizes } from "../../../todo-page-size";
 import { injectRoute, type Remote } from "./route.generated";
 
 type Todo = Awaited<ReturnType<Remote["todos"]["list"]>>["todos"][number];
-
-const pageSizes = [10, 20, 50];
 
 @Component({
   selector: "launch-todos",

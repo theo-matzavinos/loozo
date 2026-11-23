@@ -39,7 +39,8 @@ const oneYear = 60 * 60 * 24 * 365;
  * the response leaves in the browser: every write and forget updates that, and appends a
  * `Set-Cookie` to `RESPONSE_INIT`'s headers, next to the cookies procedures set. A value
  * equal to what's there already isn't written again, so pages that change nothing send no
- * `Set-Cookie`. In the browser it reads and writes `document.cookie` the same way. Without a
+ * `Set-Cookie`. A page that uses it gets `Vary: Cookie`, so shared caches keep each visitor's
+ * page to that visitor. In the browser it reads and writes `document.cookie` the same way. Without a
  * request, such as while Angular prerenders, it reads nothing, and without `RESPONSE_INIT` it
  * sends nothing. A value whose cookie would pass 4,096 bytes isn't stored: its old value is
  * forgotten, and development builds warn.
@@ -89,16 +90,14 @@ export function searchCookies({
       read: (id) => cookies.read(prefix + id),
       write: (id, text) => {
         const name = prefix + id;
-
-        if (cookies.read(name) === text) {
-          return;
-        }
-
         const cookie = serializeCookie(name, text, kept);
 
-        // Cookie text is ASCII, so its length is its size in bytes.
+        // Cookie text is ASCII, so its length is its size in bytes. Checked before the equality
+        // shortcut, so an oversized value is never kept, whatever is stored already.
         if (cookie.length <= largestCookie) {
-          cookies.set(name, text, cookie);
+          if (cookies.read(name) !== text) {
+            cookies.set(name, text, cookie);
+          }
 
           return;
         }
@@ -148,33 +147,42 @@ function browserCookies(document: Document): Cookies {
 // What this response leaves in the browser: the request's cookies, then every write and forget.
 function responseCookies(request: Request | null, response: ResponseInit | null): Cookies {
   const effective = parseCookies(request?.headers.get("cookie") ?? null);
+  let varied = false;
 
-  function send(cookie: string): void {
+  // Angular builds the page response, and its redirects, from these headers. It creates them as
+  // Headers; keep that object, as the rendering backend does for procedures' cookies.
+  function headers(): Headers | undefined {
     if (response === null) {
-      return;
+      return undefined;
     }
 
-    // Angular builds the page response, and its redirects, from these headers. It creates them
-    // as Headers; keep that object, as the rendering backend does for procedures' cookies.
-    let headers = response.headers;
-
-    if (!(headers instanceof Headers)) {
-      headers = new Headers(headers);
-      response.headers = headers;
+    if (!(response.headers instanceof Headers)) {
+      response.headers = new Headers(response.headers);
     }
 
-    headers.append("set-cookie", cookie);
+    return response.headers;
+  }
+
+  // A page that uses remembered values answers each visitor's cookies: a redirect, the fallback
+  // page or a Set-Cookie. Angular merges this into its redirects' Vary.
+  function use(): Map<string, string> {
+    if (!varied) {
+      varied = true;
+      headers()?.append("vary", "Cookie");
+    }
+
+    return effective;
   }
 
   return {
-    read: (name) => effective.get(name),
+    read: (name) => use().get(name),
     set: (name, value, cookie) => {
-      effective.set(name, value);
-      send(cookie);
+      use().set(name, value);
+      headers()?.append("set-cookie", cookie);
     },
     delete: (name, cookie) => {
-      effective.delete(name);
-      send(cookie);
+      use().delete(name);
+      headers()?.append("set-cookie", cookie);
     },
   };
 }

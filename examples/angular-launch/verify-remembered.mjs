@@ -84,6 +84,7 @@ export async function verifyRemembered({ base, build, browser, evidence, checks 
       path,
       status: response.status,
       location: response.headers.get("location"),
+      vary: response.headers.get("vary"),
       setCookies: response.headers.getSetCookie(),
       bytes: text.length,
       view: view(text),
@@ -105,6 +106,7 @@ export async function verifyRemembered({ base, build, browser, evidence, checks 
 
     assert.equal(first.status, 302);
     assert.equal(first.location, "/todos?pageSize=50");
+    assert.match(first.vary ?? "", /(?:^|,\s*)Cookie(?:\s*,|$)/);
     assert.equal(first.bytes, 0);
     assert.equal(first.setCookies.length, 1, `entry ${time}`);
     assert.match(first.setCookies[0], /^proof-seen=\d+; /);
@@ -115,6 +117,40 @@ export async function verifyRemembered({ base, build, browser, evidence, checks 
     assert.equal(restored.view, "All · 50 per page · comfortable");
     assert.deepEqual(rememberedCookies(restored.setCookies), []);
   }
+
+  checks.push(
+    label("a page that uses a remembered value answers with Vary: Cookie, its redirect included"),
+  );
+
+  // A page size the list doesn't offer, typed or remembered, reads as 20 and isn't remembered.
+  const typedSize = jar({ "proof-user": "alice", [pageSize]: "50" });
+  const zero = await enter("/todos?pageSize=0", typedSize);
+
+  assert.equal(zero.status, 200);
+  assert.equal(zero.view, "All · 20 per page · comfortable");
+  assert.deepEqual(rememberedCookies(zero.setCookies), [deletion(pageSize)]);
+
+  const storedSize = jar({ "proof-user": "alice", [pageSize]: "0" });
+
+  for (const time of [1, 2]) {
+    const bare = await enter("/todos", storedSize);
+
+    assert.equal(bare.status, 200, `entry ${time}`);
+    assert.equal(bare.location, null, `entry ${time}`);
+    assert.equal(bare.view, "All · 20 per page · comfortable", `entry ${time}`);
+
+    if (time === 1) {
+      assert.deepEqual(rememberedCookies(bare.setCookies), [deletion(pageSize)]);
+    } else {
+      assert.deepEqual(rememberedCookies(bare.setCookies), []);
+    }
+  }
+
+  checks.push(
+    label(
+      "an unsupported page size, typed (?pageSize=0) or remembered, renders 20 per page and deletes the remembered cookie, so the next bare /todos stays at 20",
+    ),
+  );
 
   checks.push(
     label(
