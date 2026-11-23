@@ -15,6 +15,7 @@ import {
   submit,
   validate,
 } from "@angular/forms/signals";
+import type { OrigamiDateRange } from "@loozo/origami-ui/calendar";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
 import { OrigamiMeter, OrigamiMeterOptions } from "@loozo/origami-ui/meter";
 import { AlertDialogParts } from "#ui/alert-dialog";
@@ -36,7 +37,13 @@ import {
   TimeField,
   provideDateFieldPlaceholders,
 } from "#ui/date-field";
-import { DatePickerParts } from "#ui/date-picker";
+import {
+  DatePickerMultipleParts,
+  DatePickerParts,
+  DatePickerRangeParts,
+  DateTimePickerParts,
+  MonthPickerParts,
+} from "#ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -882,6 +889,529 @@ export class DateEntries {
       });
       required(path.due, { message: "Choose a due date." });
       readonly(path.validFrom);
+    },
+  );
+}
+
+// DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker. The light looks come from
+// `.light` on the section, which the smoke adds at runtime.
+@Component({
+  selector: "app-more-date-pickers",
+  imports: [
+    Button,
+    DatePickerMultipleParts,
+    DatePickerRangeParts,
+    DatePipe,
+    DateTimePickerParts,
+    DialogParts,
+    Field,
+    FieldError,
+    FieldLabel,
+    FormField,
+    MonthPickerParts,
+  ],
+  template: `
+    <section id="more-date-pickers" class="grid max-w-3xl grid-cols-2 items-start gap-5 p-5">
+      <div zzField id="dpm-field">
+        <span zzFieldLabel>Holidays</span>
+        <div
+          zzDatePickerMultiple
+          [formField]="more.holidays"
+          [(open)]="holidaysOpen"
+          #holidays="zzDatePickerMultiple"
+          id="dpm"
+        >
+          <button zzDatePickerTrigger>
+            @switch (holidays.state.value().length) {
+              @case (0) {
+                Choose days
+              }
+              @case (1) {
+                1 day
+              }
+              @default {
+                {{ holidays.state.value().length }} days
+              }
+            }
+          </button>
+          <div zzDatePickerContent #content="zzDatePickerContent">
+            @if (content.state.open()) {
+              <div
+                zzCalendarMultiple
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+              <div zzDatePickerFooter>
+                <button zzButton size="sm" (click)="holidaysOpen.set(false)" id="dpm-done">
+                  Done
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+      <div
+        zzDatePickerMultiple
+        [(value)]="noDays"
+        #noDaysPicker="zzDatePickerMultiple"
+        id="dpm-empty"
+      >
+        <button zzDatePickerTrigger>
+          @if (noDaysPicker.state.value().length === 0) {
+            Choose days
+          } @else {
+            {{ noDaysPicker.state.value().length }} days
+          }
+        </button>
+        <div zzDatePickerContent #noDaysContent="zzDatePickerContent">
+          @if (noDaysContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <!-- The list text (D3-B) truncates in 200px. -->
+      <div class="w-50 max-w-full">
+        <div zzDatePickerMultiple [value]="listDays" #list="zzDatePickerMultiple" id="dpm-list">
+          <button zzDatePickerTrigger>
+            @for (day of list.state.value(); track day; let last = $last) {
+              {{ day | date: "d MMM" }}{{ last ? "" : ", " }}
+            }
+          </button>
+          <div zzDatePickerContent #listContent="zzDatePickerContent">
+            @if (listContent.state.open()) {
+              <div
+                zzCalendarMultiple
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzDatePickerMultiple [value]="crossDays" #cross="zzDatePickerMultiple" id="dpm-cross">
+        <button zzDatePickerTrigger>{{ cross.state.value().length }} days</button>
+        <div zzDatePickerContent #crossContent="zzDatePickerContent">
+          @if (crossContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <div zzDatePickerMultiple readonly [value]="oneDay" id="dpm-readonly">
+        <button zzDatePickerTrigger>1 day</button>
+        <div zzDatePickerContent #readonlyDaysContent="zzDatePickerContent">
+          @if (readonlyDaysContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <div zzDatePickerMultiple disabled [value]="oneDay" id="dpm-disabled">
+        <button zzDatePickerTrigger>1 day</button>
+        <div zzDatePickerContent #disabledDaysContent="zzDatePickerContent">
+          @if (disabledDaysContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+
+      <div zzField #stayField="zzField" id="dpr-field">
+        <span zzFieldLabel>Stay</span>
+        <div zzDatePickerRange [formField]="more.stay" #stay="zzDatePickerRange" id="dpr">
+          <button zzDatePickerTrigger>
+            @if (stay.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            } @else {
+              Choose dates
+            }
+          </button>
+          <div zzDatePickerContent #stayContent="zzDatePickerContent">
+            @if (stayContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (stayField.state.errorsShown()) {
+          <p zzFieldError>{{ stayField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzField #checkInField="zzField" id="dpr-required-field">
+        <span zzFieldLabel>Check-in</span>
+        <div
+          zzDatePickerRange
+          [formField]="more.checkIn"
+          #checkIn="zzDatePickerRange"
+          id="dpr-required"
+        >
+          <button zzDatePickerTrigger>
+            @if (checkIn.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            } @else {
+              Choose dates
+            }
+          </button>
+          <div zzDatePickerContent #checkInContent="zzDatePickerContent">
+            @if (checkInContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (checkInField.state.errorsShown()) {
+          <p zzFieldError id="dpr-required-error">{{ checkInField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzDatePickerRange [(value)]="noRange" #noRangePicker="zzDatePickerRange" id="dpr-empty">
+        <button zzDatePickerTrigger>
+          @if (noRangePicker.state.value(); as range) {
+            {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+          } @else {
+            Choose dates
+          }
+        </button>
+        <div zzDatePickerContent #noRangeContent="zzDatePickerContent">
+          @if (noRangeContent.state.open()) {
+            <div
+              zzCalendarRange
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <!-- A range across three months truncates in 160px. -->
+      <div class="w-40 max-w-full">
+        <div zzDatePickerRange [value]="crossRange" #crossStay="zzDatePickerRange" id="dpr-cross">
+          <button zzDatePickerTrigger>
+            @if (crossStay.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            }
+          </button>
+          <div zzDatePickerContent #crossStayContent="zzDatePickerContent">
+            @if (crossStayContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzField id="dpr-readonly-schema-field">
+        <span zzFieldLabel>Booked stay</span>
+        <div
+          zzDatePickerRange
+          [formField]="more.bookedStay"
+          #booked="zzDatePickerRange"
+          id="dpr-readonly-schema"
+        >
+          <button zzDatePickerTrigger>
+            @if (booked.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            }
+          </button>
+          <div zzDatePickerContent #bookedContent="zzDatePickerContent">
+            @if (bookedContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzDatePickerRange disabled [value]="novemberStay" id="dpr-disabled-focusable">
+        <button zzDatePickerTrigger focusableWhenDisabled>3 Nov 2026 – 10 Nov 2026</button>
+        <div zzDatePickerContent #disabledStayContent="zzDatePickerContent">
+          @if (disabledStayContent.state.open()) {
+            <div
+              zzCalendarRange
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <div zzDialog>
+        <button zzDialogTrigger id="dpr-dialog-trigger">Edit stay</button>
+        <dialog zzDialogContent id="dpr-dialog-content">
+          <div zzDialogHeader>
+            <h2 zzDialogTitle>Edit stay</h2>
+          </div>
+          <div zzDialogBody>
+            <div
+              zzDatePickerRange
+              [(value)]="dialogStay"
+              #dialogRange="zzDatePickerRange"
+              id="dpr-dialog"
+            >
+              <button zzDatePickerTrigger>
+                @if (dialogRange.state.value(); as range) {
+                  {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+                } @else {
+                  Choose dates
+                }
+              </button>
+              <div zzDatePickerContent #dialogRangeContent="zzDatePickerContent">
+                @if (dialogRangeContent.state.open()) {
+                  <div
+                    zzCalendarRange
+                    today="2026-10-27"
+                    [weekStart]="1"
+                    selectedDescription="selected"
+                  ></div>
+                }
+              </div>
+            </div>
+          </div>
+        </dialog>
+      </div>
+
+      <div zzField id="dmp-field">
+        <span zzFieldLabel>Billing month</span>
+        <div zzMonthPicker [formField]="more.billing" #billing="zzMonthPicker" id="dmp">
+          <button zzDatePickerTrigger>
+            {{ (billing.state.value() | date: "MMMM y") ?? "Choose a month" }}
+          </button>
+          <div zzDatePickerContent #billingContent="zzDatePickerContent">
+            @if (billingContent.state.open()) {
+              <div
+                zzMonthCalendar
+                today="2026-10-27"
+                maxMonth="2026-12"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzMonthPicker [(value)]="noMonth" #noMonthPicker="zzMonthPicker" id="dmp-empty">
+        <button zzDatePickerTrigger>
+          {{ (noMonthPicker.state.value() | date: "MMMM y") ?? "Choose a month" }}
+        </button>
+        <div zzDatePickerContent #noMonthContent="zzDatePickerContent">
+          @if (noMonthContent.state.open()) {
+            <div zzMonthCalendar today="2026-10-27" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzMonthPicker readonly disabled value="2026-10" id="dmp-readonly-disabled">
+        <button zzDatePickerTrigger>October 2026</button>
+        <div zzDatePickerContent #lockedMonthContent="zzDatePickerContent">
+          @if (lockedMonthContent.state.open()) {
+            <div zzMonthCalendar today="2026-10-27" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+
+      <div zzField #starts="zzField" id="dtp-field">
+        <span zzFieldLabel>Starts at</span>
+        <div zzDateTimePicker [formField]="more.startsAt" locale="en-GB" id="dtp">
+          <div zzDateFieldInput>
+            <button zzDatePickerTrigger aria-label="Choose start date"></button>
+          </div>
+          <div zzDatePickerContent align="end" #startsContent="zzDatePickerContent">
+            @if (startsContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (starts.state.errorsShown()) {
+          @switch (starts.state.errors()[0]?.kind) {
+            @case ("dateTimeIncomplete") {
+              <p zzFieldError>Enter a complete date and time</p>
+            }
+            @case ("dateInvalid") {
+              <p zzFieldError>This date doesn't exist</p>
+            }
+            @default {
+              <p zzFieldError>{{ starts.state.errors()[0]?.message }}</p>
+            }
+          }
+        }
+      </div>
+      <div zzField #meeting="zzField" id="dtp-empty-field">
+        <span zzFieldLabel>Meeting</span>
+        <div zzDateTimePicker [formField]="more.meeting" locale="en-GB" id="dtp-empty">
+          <div zzDateFieldInput>
+            <button zzDatePickerTrigger aria-label="Choose meeting date"></button>
+          </div>
+          <div zzDatePickerContent align="end" #meetingContent="zzDatePickerContent">
+            @if (meetingContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (meeting.state.errorsShown()) {
+          @switch (meeting.state.errors()[0]?.kind) {
+            @case ("dateTimeIncomplete") {
+              <p zzFieldError>Enter a complete date and time</p>
+            }
+            @case ("dateInvalid") {
+              <p zzFieldError>This date doesn't exist</p>
+            }
+            @default {
+              <p zzFieldError>{{ meeting.state.errors()[0]?.message }}</p>
+            }
+          }
+        }
+      </div>
+      <div zzDateTimePicker [(value)]="reminder" locale="en-US" hourCycle="12" id="dtp-12">
+        <div zzDateFieldInput aria-label="Reminder">
+          <button zzDatePickerTrigger aria-label="Choose reminder date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #reminderContent="zzDatePickerContent">
+          @if (reminderContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDateTimePicker readonly value="2026-10-27T09:30" locale="en-GB" id="dtp-readonly">
+        <div zzDateFieldInput aria-label="Signed at">
+          <button zzDatePickerTrigger aria-label="Choose signing date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #signedAtContent="zzDatePickerContent">
+          @if (signedAtContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDateTimePicker disabled value="2026-10-27T09:30" locale="en-GB" id="dtp-disabled">
+        <div zzDateFieldInput aria-label="Closed at">
+          <button zzDatePickerTrigger aria-label="Choose closing date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #closedAtContent="zzDatePickerContent">
+          @if (closedAtContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+
+      <div dir="rtl" class="col-span-2 grid grid-cols-2 gap-5">
+        <div zzDatePickerRange [value]="novemberStay" id="dpr-rtl">
+          <button zzDatePickerTrigger>3 Nov 2026 – 10 Nov 2026</button>
+          <div zzDatePickerContent #rtlRangeContent="zzDatePickerContent">
+            @if (rtlRangeContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        <div zzDatePickerMultiple [value]="oneDay" [(open)]="rtlDaysOpen" id="dpm-rtl">
+          <button zzDatePickerTrigger>1 day</button>
+          <div zzDatePickerContent #rtlDaysContent="zzDatePickerContent">
+            @if (rtlDaysContent.state.open()) {
+              <div
+                zzCalendarMultiple
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+              <div zzDatePickerFooter>
+                <button zzButton size="sm" (click)="rtlDaysOpen.set(false)">Done</button>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="col-span-2 grid gap-1 text-label text-muted-foreground">
+        <output id="more-holidays">{{ json(more.holidays().value()) }}</output>
+        <output id="more-holidays-touched">{{ more.holidays().touched() }}</output>
+        <output id="more-stay">{{ json(more.stay().value()) }}</output>
+        <output id="more-billing">{{ json(more.billing().value()) }}</output>
+        <output id="more-starts">{{ json(more.startsAt().value()) }}</output>
+        <output id="more-meeting">{{ json(more.meeting().value()) }}</output>
+        <output id="dtp-12-value">{{ json(reminder()) }}</output>
+      </div>
+    </section>
+  `,
+})
+export class MoreDatePickers {
+  protected readonly json = JSON.stringify;
+  protected readonly holidaysOpen = signal(false);
+  protected readonly rtlDaysOpen = signal(false);
+  protected readonly noDays = signal<readonly string[]>([]);
+  protected readonly noRange = signal<OrigamiDateRange | null>(null);
+  protected readonly dialogStay = signal<OrigamiDateRange | null>(null);
+  protected readonly noMonth = signal<string | null>(null);
+  protected readonly reminder = signal<string | null>(null);
+  protected readonly listDays = [
+    "2026-11-03",
+    "2026-11-10",
+    "2026-11-17",
+    "2026-11-24",
+    "2026-12-01",
+    "2026-12-08",
+  ];
+  protected readonly crossDays = ["2026-11-03", "2026-12-10", "2027-01-17"];
+  protected readonly oneDay = ["2026-11-03"];
+  protected readonly crossRange: OrigamiDateRange = { start: "2026-11-20", end: "2027-01-12" };
+  protected readonly novemberStay: OrigamiDateRange = { start: "2026-11-03", end: "2026-11-10" };
+  protected readonly more = form(
+    signal({
+      holidays: ["2026-11-03", "2026-11-10", "2026-11-17"] as readonly string[],
+      stay: { start: "2026-11-03", end: "2026-11-10" } as OrigamiDateRange | null,
+      checkIn: null as OrigamiDateRange | null,
+      bookedStay: { start: "2026-11-03", end: "2026-11-10" } as OrigamiDateRange | null,
+      billing: "2026-10" as string | null,
+      startsAt: "2026-10-27T09:30" as string | null,
+      meeting: null as string | null,
+    }),
+    (path) => {
+      required(path.stay, { message: "Choose your dates" });
+      required(path.checkIn, { message: "Choose your dates" });
+      required(path.startsAt);
+      readonly(path.bookedStay);
     },
   );
 }
@@ -1748,6 +2278,7 @@ export class Meters {
     AvatarParts,
     Calendars,
     DateEntries,
+    MoreDatePickers,
     Checkbox,
     ComboboxParts,
     DialogParts,
@@ -3401,6 +3932,7 @@ export class Meters {
     </section>
     <app-date-entries />
     <app-toggles />
+    <app-more-date-pickers />
   `,
 })
 export class App {

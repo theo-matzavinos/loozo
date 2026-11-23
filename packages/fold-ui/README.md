@@ -4,7 +4,7 @@ Styled Angular components for back-office apps, built on [Origami](../origami-ui
 
 Each fold part is a directive that adds classes, usually composing an Origami directive; layout-only parts, such as AlertDialog's Header and Footer, compose none. A few parts render markup of their own, such as Dialog's close button and Select's chevron; a Calendar renders its whole header and grid. Origami keeps the behavior, accessibility and server rendering; fold adds the look: neutral greys, one green for the primary action, orange only for destructive actions, compact 28, 32 and 36px controls, and dark and light themes.
 
-**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, OtpField, Slider, FileField, Select and Combobox, Tabs, Tooltip and Popover, Menu, Toast, ScrollArea, Avatar, Progress and Meter, Calendar, and DateField, TimeField, DateTimeField and DatePicker. There's no loading state, Nx support or way to update a theme you already added.
+**Status:** experimental. MIT license. It currently has Button (with ButtonLink), AlertDialog, Dialog, Sheet, Field with Input, Textarea, Checkbox, Switch, RadioGroup, NumberField, OtpField, Slider, FileField, Select and Combobox, Tabs, Tooltip and Popover, Menu, Toast, ScrollArea, Avatar, Progress and Meter, Calendar, and DateField, TimeField, DateTimeField, and DatePicker with its multiple, range, month and date-time pickers. There's no loading state, Nx support or way to update a theme you already added.
 
 ## Requirements
 
@@ -61,7 +61,7 @@ Toggle and ToggleGroup import only what 0.0.4 has. Toolbar imports `OrigamiToolb
 
 Calendar forwards Origami's `selectedDescription`, which no published Origami has yet: on 0.0.4 the build fails with `NG2017: Directive OrigamiCalendar does not have an input with a public name of selectedDescription.`, once per Calendar root.
 
-DateField, TimeField, DateTimeField and DatePicker import `@loozo/origami-ui/date-field` and `/date-picker`, which 0.0.4 has. The date fields build on 0.0.4; DatePicker hosts a Calendar, so it fails the same way as Calendar there. On 0.0.4, digit segments have no `aria-valuetext` and the Calendar's live heading has a different politeness; this README describes the next Origami release.
+DateField, TimeField, DateTimeField and DatePicker import `@loozo/origami-ui/date-field` and `/date-picker`, which 0.0.4 has. The date fields build on 0.0.4; DatePicker hosts a Calendar, so it fails the same way as Calendar there. DateTimePicker also imports `OrigamiDateTimePicker`, which no published Origami has: on 0.0.4 the `date-picker` folder fails with a missing `OrigamiDateTimePicker` export besides the Calendars' `NG2017`, and errors that follow from both. So the `date-picker` folder needs the first Origami release after 0.0.4. On 0.0.4, digit segments have no `aria-valuetext` and the Calendar's live heading has a different politeness; this README describes the next Origami release.
 
 Without `--names`, it asks which components to add. Each component is a folder under the `fold.json` path, with an `index.ts` that re-exports its parts and one file per part:
 
@@ -151,9 +151,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name`, `file-field-size` and `file-field-clear-slot` around `file-field-clear`). OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside. Meter's and MeterRing's root is `meter`, with `meter-fill` inside a Meter, and `meter-arc` and `meter-value` inside a MeterRing. The date fields' roots are `date-field` (DateField, TimeField and DateTimeField alike), with `date-field-input` (the box) holding `date-field-segments`, the scrolling row, with a `date-field-cell` per unit, each with its `date-field-segment`, and a `date-field-literal` per separator; DatePicker's are `date-picker`, `date-picker-trigger` (with `date-picker-value` and `date-picker-icon`) and `date-picker-content`. Select's, Combobox's, Menu's and Popover's Content, DialogBody and SheetBody render a ScrollArea inside, so its `scroll-area…` slots are there too: target their scroller as `[&_[data-slot=scroll-area-viewport]]`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name`, `file-field-size` and `file-field-clear-slot` around `file-field-clear`). OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside. Meter's and MeterRing's root is `meter`, with `meter-fill` inside a Meter, and `meter-arc` and `meter-value` inside a MeterRing. The date fields' roots are `date-field` (DateField, TimeField and DateTimeField alike), with `date-field-input` (the box) holding `date-field-segments`, the scrolling row, with a `date-field-cell` per unit, each with its `date-field-segment`, and a `date-field-literal` per separator; DatePicker's are `date-picker` (every picker root: DatePicker, DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker), `date-picker-trigger` (with `date-picker-value` and `date-picker-icon`), `date-picker-content` and `date-picker-footer`. Select's, Combobox's, Menu's and Popover's Content, DialogBody and SheetBody render a ScrollArea inside, so its `scroll-area…` slots are there too: target their scroller as `[&_[data-slot=scroll-area-viewport]]`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. An OtpField's cells have `data-filled`, `data-caret` and `data-selected`; like NumberField, the row reads its input's `:focus-visible`, `:disabled`, `[readonly]` and `[aria-invalid=true]` through `:has()`. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton and a FileFieldClear `data-disabled` while their field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. A toast has `data-kind`, `data-entering` and `data-leaving`, is `inert` through its exit, and sets `--toast-index`, its place in the deck, 0 for the newest. A ScrollArea has `data-overflow-x` and `data-overflow-y` while its viewport overflows that way, and each scrollbar `data-orientation` and, while shown, `data-visible`. An Avatar has `data-status`: `idle`, `loading`, `loaded` or `error`. A Progress has `data-complete` or `data-indeterminate`, and the `--og-progress-percent` custom property while its value is known. A Meter and a MeterRing have the `--og-meter-percent` custom property; fold adds `data-region` (`optimum`, `suboptimum` or `worst`) when any of `low`, `high` or `optimum` is set. A date field's segments have `aria-invalid`, `aria-readonly`, `aria-disabled` and, while empty, `data-placeholder`; the box reads them, and the segments' `:focus`, through `:has()`. A DatePickerTrigger has `aria-expanded`, `aria-invalid` and `data-disabled`, and in the button shape fold adds `data-placeholder` while the value is null and `data-readonly` while the picker is readonly, each `""` or absent; DatePickerContent has `data-entering` and `data-leaving`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. An OtpField's cells have `data-filled`, `data-caret` and `data-selected`; like NumberField, the row reads its input's `:focus-visible`, `:disabled`, `[readonly]` and `[aria-invalid=true]` through `:has()`. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton and a FileFieldClear `data-disabled` while their field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. A toast has `data-kind`, `data-entering` and `data-leaving`, is `inert` through its exit, and sets `--toast-index`, its place in the deck, 0 for the newest. A ScrollArea has `data-overflow-x` and `data-overflow-y` while its viewport overflows that way, and each scrollbar `data-orientation` and, while shown, `data-visible`. An Avatar has `data-status`: `idle`, `loading`, `loaded` or `error`. A Progress has `data-complete` or `data-indeterminate`, and the `--og-progress-percent` custom property while its value is known. A Meter and a MeterRing have the `--og-meter-percent` custom property; fold adds `data-region` (`optimum`, `suboptimum` or `worst`) when any of `low`, `high` or `optimum` is set. A date field's segments have `aria-invalid`, `aria-readonly`, `aria-disabled` and, while empty, `data-placeholder`; the box reads them, and the segments' `:focus`, through `:has()`. A DatePickerTrigger has `aria-expanded`, `aria-invalid` and `data-disabled`, and in the button shape fold adds `data-placeholder` while the value is empty (null, or no days) and `data-readonly` while the picker is readonly, each `""` or absent; DatePickerContent has `data-entering` and `data-leaving`. fold's Field adds `data-orientation`.
 
 A Calendar root's slot is `calendar`, whichever of the four it is; inside it are `calendar-header` (with `calendar-previous`, `calendar-heading`, `calendar-view-switch` and `calendar-next`), `calendar-grid`, `calendar-weekday`, `calendar-cell` with `calendar-cell-label` (the chip) inside, and CalendarRange's `calendar-prompt`. A cell has Origami's `aria-selected`, `data-selected`, `data-today`, `data-outside`, `data-disabled`, `data-current`, `data-range-start`, `data-range-end`, `data-in-range` and `data-preview`; the grid has `aria-invalid`, `aria-readonly` and `aria-disabled`. fold adds two presence attributes from CalendarRange's `state.anchor()`: `data-anchor` on the pending first day's cell and `data-pending` on the grid while a first day is pending. They're `""` or absent, never `"false"`, so style with `[data-pending]` and `:not([data-pending])`. While the grid has `data-pending`, the committed range's band, end fills, rounding and forced-colors rail caps yield to the square preview.
 
@@ -1992,17 +1992,25 @@ The roots take Origami's `value` (two-way), `locale`, `disabled`, `readonly` and
 
 - **Half-typed dates.** A half-typed date keeps the last complete value and reports `dateIncomplete`, so a submit checks validity, not presence; `dateInvalid` is a date that doesn't exist. The messages are yours. `clear()` throws the draft and its error away and writes null. See [Origami's Half-typed and impossible dates](../origami-ui/date-field/README.md#half-typed-and-impossible-dates).
 - **Clicks.** A click on the box's empty end or on a separator focuses no segment; click a segment. The box is full width like every fold control.
-- **Narrow boxes.** The cells and separators sit in a row, `date-field-segments`, that scrolls sideways when the box is narrower than them, with no scrollbar. Moving focus to a segment scrolls it wholly into view, also after you've scrolled the row yourself, so the others can shift sideways as you move. A wheel, trackpad or swipe scrolls the row to either end. It snaps to the start of a segment's cell, 2.5rem in from the row's edge (40% of the row when that's narrower), or to the row's end, and never back to the focused segment. After a manual scroll, a segment can stay partly shown when focus reaches it if it's wider than 2.5rem or the row is narrower than about 60px (a DateTimeField box under about 80px). A DatePickerTrigger stays at the box's end, outside the row.
+- **Narrow boxes.** The cells and separators sit in a row, `date-field-segments`, that scrolls sideways when the box is narrower than them, with no scrollbar. Moving focus to a segment scrolls it wholly into view, also after you've scrolled the row yourself, so the others can shift sideways as you move. A wheel, trackpad or swipe scrolls the row to either end. It snaps to the start of a segment's cell, 2.5rem in from the row's edge (less in a row under 108px, so that 1.75rem is always left between the two sides), or to the row's end, and never back to the focused segment. After a manual scroll, a segment can stay partly shown when keyboard focus reaches it if it's wider than 2.5rem or the row is narrower than about 70px (seen in Firefox; a DateTimeField box under about 90px). In Firefox, in a row under about 90px (a DateTimeField box under about 110px), the focused chip's edge can also be cut by up to 2px, with its text whole. A DatePickerTrigger stays at the box's end, outside the row.
 - **Forced colors.** The focused segment is `Highlight` with `HighlightText`; empty and disabled segments are `GrayText`. Segments draw no outline of their own: the chip and the box's ring show focus.
 - **Locales.** The cells are sized with Latin digits, so in a locale with other digits, such as Arabic-Indic, segments can shift as you type. In locales whose day period comes before the hour (`ko`, `zh`, `ja`), its spare width sits before the hour. Hanken Grotesk has no Greek, so Greek tokens render in the system's fallback font.
 
 ## DatePicker
 
 ```ts
-import { DatePickerParts } from "#ui/date-picker";
+import {
+  DatePickerMultipleParts,
+  DatePickerParts,
+  DatePickerRangeParts,
+  DateTimePickerParts,
+  MonthPickerParts,
+} from "#ui/date-picker";
 ```
 
-A single date picker over Origami's [Date picker](../origami-ui/date-picker/README.md), which owns the behavior: the value, opening and closing, placement, Escape, leaving and touch, focus moves, the Field wiring, Signal Forms and the Calendar bridge. Its popup holds fold's [Calendar](#calendar) on the floating layers' surface. It comes in two shapes, decided by where you write the Trigger:
+Date pickers over Origami's [Date picker](../origami-ui/date-picker/README.md), which owns the behavior: the value, opening and closing, placement, Escape, leaving and touch, focus moves, the Field wiring, Signal Forms and the Calendar bridge. Their popup holds fold's [Calendar](#calendar) on the floating layers' surface. There are five roots: DatePicker for a single day, DatePickerMultiple, DatePickerRange and MonthPicker for [several days, a range or a month](#several-days-a-range-or-a-month), and DateTimePicker for a [date and time](#date-and-time). They share one DatePickerTrigger, DatePickerContent and DatePickerFooter; write the DatePickerTrigger inside one of the five roots, which it reads its value and readonly state from.
+
+The single picker comes in two shapes, decided by where you write the Trigger:
 
 <!-- prettier-ignore -->
 ```html
@@ -2035,17 +2043,126 @@ A single date picker over Origami's [Date picker](../origami-ui/date-picker/READ
 </div>
 ```
 
-`DatePickerParts` imports DatePicker, DateFieldInput, DatePickerTrigger, DatePickerContent and Calendar. The root takes Origami's `value` and `open` (both two-way), `locale`, `disabled`, `readonly` and `class`, and emits `valueChange`, `openChange` and `touch`; `#picker="foldDatePicker"` has Origami's `state`, `focus()` and `clear()`. The value is a `YYYY-MM-DD` string or null.
+`DatePickerParts` imports DatePicker, DateFieldInput, DatePickerTrigger, DatePickerContent, DatePickerFooter and Calendar. The root takes Origami's `value` and `open` (both two-way), `locale`, `disabled`, `readonly` and `class`, and emits `valueChange`, `openChange` and `touch`; `#picker="foldDatePicker"` has Origami's `state`, `focus()` and `clear()`. The value is a `YYYY-MM-DD` string or null.
 
 - **Field shape.** A `DatePickerTrigger` inside the `DateFieldInput` is a 28px ghost square with a calendar icon, 1px inside the box's border, with an inset focus ring. Its `aria-label` is its only name and the popup's, in a Field too, so name the field in it ("Choose due date", not "Choose date"), or name `DatePickerContent` with its own `aria-label` or `aria-labelledby`. Write `align="end"` on Content: the popup's end then lines up with the Trigger, 2px inside the box's end and 2px below it, as NumberField's buttons sit 2px inside the same box. Without it, the popup starts at the icon and slides into view.
-- **Button shape.** A `DatePickerTrigger` written alone is Select's trigger with a trailing calendar icon, showing your text: format the date yourself, with `DatePipe` or `Intl`. It's the Field's control, labelled by the FieldLabel. fold marks it `data-placeholder` while the value is null, which mutes it, and `data-readonly` while the picker is readonly, whether by its own `readonly` or a Signal Forms rule, which dashes it, drops its fill and shadow and sets the default cursor. Both are `""` or absent, never `"false"`, and the field shape has neither. A picker readonly through its own `readonly` input doesn't tell screen readers (no `aria-readonly`); a Field's readonly rule does.
+- **Button shape.** A `DatePickerTrigger` written alone is Select's trigger with a trailing calendar icon, showing your text: format the date yourself, with `DatePipe` or `Intl` (in local time; see [Several days, a range or a month](#several-days-a-range-or-a-month) for DatePipe's timezone). It's the Field's control, labelled by the FieldLabel. fold marks it `data-placeholder` while the value is empty (null, or no days), which mutes it, and `data-readonly` while the picker is readonly, whether by its own `readonly` or a Signal Forms rule, which dashes it, drops its fill and shadow and sets the default cursor. Both are `""` or absent, never `"false"`, and the field shape has neither. A picker readonly through its own `readonly` input doesn't tell screen readers (no `aria-readonly`); a Field's readonly rule does.
 - **Gate the Calendar on Content's `state.open()`,** as above, not the picker's: Content keeps the Calendar until focus is back on the Trigger. Gated on the picker's `state.open()`, focus falls to the page after a choice. Bind the form on the picker, never on the Calendar.
 - **Disabled.** A disabled root dims the whole box once; the Trigger inside it stays out of the Tab order unless it's `focusableWhenDisabled`. A Trigger disabled on its own dims itself and leaves the segments editable. Readonly and disabled together look disabled, with one dim and the `not-allowed` cursor, over the dashed readonly border.
 - **Forms.** Bind with Signal Forms' `[formField]` or `[(value)]`: a civil ISO string or `null`, with no ControlValueAccessor, so a reactive `FormControl` doesn't bind. Bind `null` for empty, not `""`: a value that isn't a canonical day counts as not empty, so the button shape shows your text for it unmuted.
-- **Popup.** DatePickerContent is the [floating layers'](#floating-layers) surface with 12px padding, 4px from the Trigger by default (`side`, `align` and `gap` inputs), at most the viewport's width less 16px and scrolling within the room left. The Calendar inside drops its own border, fill, radius and padding. Origami focuses the Calendar's day before the popup's height settles, so in a popup shorter than the Calendar that day could open out of view; the popup snaps the focused cell into view, centred and 12px clear of its edges. The Calendar's header and each of its rows are snap points too, so a wheel or trackpad scroll reaches the header and the last row and stays there; a small scroll can settle on the nearest row.
+- **Popup.** DatePickerContent is the [floating layers'](#floating-layers) surface with 12px padding, 4px from the Trigger by default (`side`, `align` and `gap` inputs), at most the viewport's width less 16px and scrolling within the room left. The Calendar inside drops its own border, fill, radius and padding. Origami focuses the Calendar's day before the popup's height settles, so in a popup shorter than the Calendar that day could open out of view; the popup snaps the focused cell into view, centred and 12px clear of its edges. The Calendar's header and each of its rows are snap points too, so a wheel or trackpad scroll reaches the header and the last row and stays there; a small scroll can settle on the nearest row. Content stacks what you write in it 12px apart, such as the Calendar and a DatePickerFooter, and the end of each is a snap point as well, so a manual scroll reaches the range's prompt under the grid and a footer. After that scroll, the focused cell can sit partly outside the popup until a key moves focus to another cell, which scrolls that cell into view with its whole focus ring. A key that can't move focus, such as one stopped at the earliest or latest allowed date, leaves the cell where it is.
 - **Clicks.** A click on a segment while the popup is open closes it and focuses the segment.
 
 [Origami's README](../origami-ui/date-picker/README.md) describes opening and choosing, Escape inside a Dialog, leaving and touch.
+
+### Several days, a range or a month
+
+DatePickerMultiple, DatePickerRange and MonthPicker are button-shaped only: a DatePickerTrigger alone, showing your text, with a CalendarMultiple, a CalendarRange or a MonthCalendar in the popup.
+
+<!-- prettier-ignore -->
+```html
+<div foldField>
+  <span foldFieldLabel>Holidays</span>
+  <div foldDatePickerMultiple [formField]="form.holidays" [(open)]="holidaysOpen" #holidays="foldDatePickerMultiple">
+    <button foldDatePickerTrigger>
+      @switch (holidays.state.value().length) {
+        @case (0) { Choose days }
+        @case (1) { 1 day }
+        @default { {{ holidays.state.value().length }} days }
+      }
+    </button>
+    <div foldDatePickerContent #content="foldDatePickerContent">
+      @if (content.state.open()) {
+        <div foldCalendarMultiple [weekStart]="1" selectedDescription="selected"></div>
+        <div foldDatePickerFooter>
+          <button foldButton size="sm" (click)="holidaysOpen.set(false)">Done</button>
+        </div>
+      }
+    </div>
+  </div>
+</div>
+
+<div foldField>
+  <span foldFieldLabel>Stay</span>
+  <div foldDatePickerRange [formField]="form.stay" #stay="foldDatePickerRange">
+    <button foldDatePickerTrigger>
+      @if (stay.state.value(); as range) {
+        {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+      } @else {
+        Choose dates
+      }
+    </button>
+    <div foldDatePickerContent #content="foldDatePickerContent">
+      @if (content.state.open()) {
+        <div foldCalendarRange [weekStart]="1" selectedDescription="selected"></div>
+      }
+    </div>
+  </div>
+</div>
+
+<div foldField>
+  <span foldFieldLabel>Billing month</span>
+  <div foldMonthPicker [formField]="form.billingMonth" #billing="foldMonthPicker">
+    <button foldDatePickerTrigger>{{ (billing.state.value() | date: "MMMM y") ?? "Choose a month" }}</button>
+    <div foldDatePickerContent #content="foldDatePickerContent">
+      @if (content.state.open()) {
+        <div foldMonthCalendar selectedDescription="selected"></div>
+      }
+    </div>
+  </div>
+</div>
+```
+
+```ts
+import { DatePipe } from "@angular/common";
+import { Button } from "#ui/button";
+import { DatePickerMultipleParts, DatePickerRangeParts, MonthPickerParts } from "#ui/date-picker";
+// imports: [Button, DatePipe, DatePickerMultipleParts, DatePickerRangeParts, MonthPickerParts, …]
+protected readonly holidaysOpen = signal(false);
+```
+
+Each Parts array imports its root, DatePickerTrigger, DatePickerContent, DatePickerFooter and its Calendar. The roots take Origami's `value` and `open` (both two-way), `disabled`, `readonly` and `class`, and emit `valueChange`, `openChange` and `touch`; `#picker="foldDatePickerRange"` (or `foldDatePickerMultiple`, `foldMonthPicker`) has Origami's `state` and `focus()`. They have no field shape, `locale` or `clear()`: write `[]` or `null` to empty them.
+
+- **Values.** The multiple picker's is a `readonly string[]` of `YYYY-MM-DD` days, empty for none; the range's `{ start, end }` with `YYYY-MM-DD` days, or null; the month's a `YYYY-MM` string or null.
+- **Closing.** The multiple picker stays open while you toggle days: give it a Done button in a `DatePickerFooter` that writes `open`, as above, or rely on Escape, a click outside and Tab, which close it too; focus returns to the Trigger from Done. The range closes on its second day, and Escape drops a pending first day before it closes. The month picker closes on a month, not a year.
+- **Opening.** The popup opens on the month of the first chosen day or of the range's start (today's month when empty). Chosen days in other months, or a range's end in a later one, are a Next away.
+- **Text.** The trigger's text is yours, as for the single picker. A count never truncates; a list of days or a long range truncates in a narrow trigger, with the whole text still in its accessible name. `Intl.DateTimeFormat`'s `formatRange` writes a compact range ("3–10 Nov 2026"). `DatePipe` reads a `YYYY-MM` month or `YYYY-MM-DD` day as local midnight, so it shows the chosen month or day as long as it also formats in local time: a `timezone` argument, or a `DATE_PIPE_DEFAULT_OPTIONS` timezone, that isn't the user's shifts it (with `UTC` set in Tokyo, `"2026-10" | date: "MMMM y"` is "September 2026"). So pass no `timezone` for these civil values, and in an app whose `DATE_PIPE_DEFAULT_OPTIONS` sets one, which still applies when you pass none, format them with `Intl` in UTC instead: `new Date("2026-10")` reads the string as UTC midnight, so `new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" })` shows October 2026 in every time zone (without `timeZone: "UTC"` it shows September west of UTC).
+- **Footer.** `DatePickerFooter` is a row for your own buttons at the popup's end, right-aligned, 8px apart and as wide as the Calendar: Done here, or a Today or Clear on any picker that writes `value`.
+
+### Date and time
+
+DateTimePicker is the field shape only: the date and time typed into a DateFieldInput, with the calendar button at its end and a single-day Calendar in the popup.
+
+<!-- prettier-ignore -->
+```html
+<div foldField #starts="foldField">
+  <span foldFieldLabel>Starts at</span>
+  <div foldDateTimePicker [formField]="form.startsAt" locale="en-GB">
+    <div foldDateFieldInput>
+      <button foldDatePickerTrigger aria-label="Choose start date" i18n-aria-label></button>
+    </div>
+    <div foldDatePickerContent align="end" #content="foldDatePickerContent">
+      @if (content.state.open()) {
+        <div foldCalendar [weekStart]="1" selectedDescription="selected"></div>
+      }
+    </div>
+  </div>
+  @if (starts.state.errorsShown()) {
+    @switch (starts.state.errors()[0]?.kind) {
+      @case ("dateTimeIncomplete") { <p foldFieldError>Enter a complete date and time</p> }
+      @case ("dateInvalid") { <p foldFieldError>This date doesn't exist</p> }
+      @default { <p foldFieldError>{{ starts.state.errors()[0]?.message }}</p> }
+    }
+  }
+</div>
+```
+
+`DateTimePickerParts` imports DateTimePicker, DateFieldInput, DatePickerTrigger, DatePickerContent, DatePickerFooter and Calendar. The root takes Origami's `value` and `open` (both two-way), `locale`, `precision`, `hourCycle`, `disabled`, `readonly` and `class`, and emits `valueChange`, `openChange` and `touch`; `#picker="foldDateTimePicker"` has Origami's `state`, `focus()` and `clear()`.
+
+- **Value.** A civil `YYYY-MM-DDTHH:mm` string (with `:ss` at `precision="second"`) or null, with no time zone: convert at your app's boundary ([Time zones are yours](../origami-ui/date-field/README.md#time-zones-are-yours)).
+- **Choosing.** A day sets the date and keeps the typed time. While the time is incomplete, the value doesn't change: Origami reports `dateTimeIncomplete` and focuses the first empty segment, usually the hour, scrolling a narrow row to it. The error shows once focus leaves the picker.
+- **Shape.** Write the Trigger inside the DateFieldInput, with `align="end"` on Content, as the single picker's field shape; Origami has no button shape for it. The trigger's `aria-label` names the popup too, and it opens a Calendar for the date only, so name the field in it.
+- **Narrow boxes.** [DateField's](#datefield) note applies, the trigger's 28px included: a DateTimePicker box under about 110px has a row under about 70px, and one under about 130px a row under about 90px.
 
 ## Floating layers
 
@@ -2087,7 +2204,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - No Meter label or value part on the bar, vertical bar, animated value, chart integration or region announcements. Regions are visual only, computed in fold from native `<meter>`'s rules.
 - A Tooltip inside a Popover stays visible through the Popover's closing animation, about 120ms, and hides when the Popover does.
 - One month at a time in a Calendar: no two months side by side (Origami proposal `03a47789`), week numbers (`3428bbc6`), presets (`6f9f9519`) or month and year dropdowns (the heading's drill-down only). The months and years views have three columns. Custom cell content, such as prices or event dots, means editing your copy of `calendar-grid.ts`, which `add --existing overwrite` replaces.
-- No typed range entry (Origami proposal `b5089365`) or time in the date picker's popup (`55f79d26`); no multiple, range, month or date-and-time pickers yet; no clear button (call `clear()`). A click on a date field's empty end or a separator focuses no segment, and the field-shape popup is anchored to its icon button.
+- One month in a range or multiple picker's popup: no two months side by side (`03a47789`), so chosen days in other months need navigating. No typed range entry or range field shape (Origami proposal `b5089365`), week numbers (`3428bbc6`) or presets (`6f9f9519`). No time chosen in the date picker's popup and no button-shaped DateTimePicker (`55f79d26`). The multiple, range and month pickers have no field shape, `locale` or `clear()`, and no Close part (write `open`). No clear button (call `clear()`). A click on a date field's empty end or a separator focuses no segment, and the field-shape popup is anchored to its icon button.
 - In Firefox's forced-colors mode, focus rings are `CanvasText`, the text color, rather than Chromium's `Highlight`: fold leaves the ring's forced color to the browser on its Button-based parts (buttons, triggers, toggles and segments), except a pressed Toggle, ToolbarToggle or ToggleGroupItem, whose ring is `CanvasText` in every browser. The Slider thumb's ring is always `CanvasText`, and a radio draws its ring on its dot.
 - No Toolbar-wide size or disabled state: set them per control. Icon-only toggles and toolbar buttons are 32px squares only, the segmented control has one size, and a group wider than its Toolbar overflows it.
 
