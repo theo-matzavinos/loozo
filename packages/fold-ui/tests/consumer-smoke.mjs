@@ -9840,19 +9840,23 @@ try {
     );
     assert.equal(await dotDisplay("tg-nested-item"), "none");
 
-    // Vertical: a column of full-width items. Root disabled: each item dims, not the track.
+    // Vertical: a column of full-width, start-aligned items, a Tooltip-wrapped one too. Root
+    // disabled: each item dims, not the track.
     const densityLayout = await page.evaluate(() => {
-      const width = (id) => document.getElementById(id).getBoundingClientRect().width;
+      const items = ["density-compact", "density-comfortable", "density-spacious"].map((id) =>
+        document.getElementById(id),
+      );
 
       return {
         direction: getComputedStyle(document.getElementById("tg-density")).flexDirection,
-        compact: width("density-compact"),
-        comfortable: width("density-comfortable"),
+        widths: new Set(items.map((item) => item.getBoundingClientRect().width)).size,
+        justify: items.map((item) => getComputedStyle(item).justifyContent),
       };
     });
 
     assert.equal(densityLayout.direction, "column");
-    assert.equal(densityLayout.compact, densityLayout.comfortable);
+    assert.equal(densityLayout.widths, 1, "every vertical item is full width");
+    assert.deepEqual(densityLayout.justify, ["flex-start", "flex-start", "flex-start"]);
     assert.equal(await attribute("tg-disabled-all", "data-disabled"), "");
     assert.equal((await styleOf("#tg-disabled-all", ["opacity"])).opacity, "0.5");
     assert.equal((await styleOf("#tg-disabled", ["opacity"])).opacity, "1");
@@ -9908,7 +9912,8 @@ try {
 
     assert.deepEqual(walk, [...toolbarControls.slice(1), "tb-undo"]);
     // Arrows enter and leave the Single group from its neighbours; inside it, the Toolbar's one
-    // stop moves to the item, Tab leaves the Toolbar, and Shift+Tab comes back to the item.
+    // stop moves to the item and Tab leaves the Toolbar. Once focus is outside, Origami resets the
+    // stop to the first enabled control (its K2), so Shift+Tab re-enters there.
     await page.keyboard.press("Home");
 
     for (let step = 0; step < toolbarControls.indexOf("tb-week"); step += 1) {
@@ -9926,8 +9931,9 @@ try {
       false,
       `Tab from the group leaves the Toolbar: ${await activeId()}`,
     );
+    await until("tb-undo", "tabindex", "0");
     await page.keyboard.press("Shift+Tab");
-    assert.equal(await activeId(), "tb-week", "Shift+Tab returns to the group's item");
+    assert.equal(await activeId(), "tb-undo", "Shift+Tab re-enters on the first enabled control");
     await page.keyboard.press("End");
     assert.equal(await activeId(), "tb-copy");
     await page.keyboard.press("Home");
@@ -9936,8 +9942,9 @@ try {
     await tabStopSettled();
     await page.keyboard.press("Tab");
     assert.notEqual(await activeId(), "tb-copy");
+    await until("tb-undo", "tabindex", "0");
     await page.keyboard.press("Shift+Tab");
-    assert.equal(await activeId(), "tb-copy", "the Toolbar keeps its moved tab stop");
+    assert.equal(await activeId(), "tb-undo", "the Toolbar's stop resets once focus leaves it");
     assert.deepEqual(await toolbarStates(), statesBefore, "arrows never press or check");
     await focusByKeyboard("#rtl-first");
     await page.keyboard.press("ArrowLeft");

@@ -1189,6 +1189,12 @@ export class FileFields {
           <button zzToggleGroupItem value="comfortable" id="density-comfortable">
             Comfortable
           </button>
+          <span zzTooltip>
+            <button zzToggleGroupItem zzTooltipTrigger value="spacious" id="density-spacious">
+              Spacious
+            </button>
+            <span zzTooltipContent>Most room between rows</span>
+          </span>
         </div>
         <div
           zzToggleGroupSingle

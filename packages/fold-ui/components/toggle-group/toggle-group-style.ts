@@ -5,6 +5,8 @@
 export const toggleGroupClasses = [
   "inline-flex w-fit items-center gap-0.5 rounded-control border border-input bg-surface p-0.5",
   "data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch data-[orientation=vertical]:*:justify-start",
+  // A segment inside a layout-transparent Tooltip root is a grandchild; nested groups keep their own.
+  "data-[orientation=vertical]:*:data-[slot=tooltip]:*:justify-start",
   "[--toggle-group-indicator:none] data-indicator:[--toggle-group-indicator:block]",
 ];
 
