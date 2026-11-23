@@ -439,6 +439,7 @@ describe("add", () => {
       "file-field": ["button", "cn", "file-field"],
       input: ["cn", "input"],
       menu: ["button", "cn", "menu", "popup", "scroll-area"],
+      meter: ["cn", "meter"],
       "number-field": ["cn", "number-field"],
       "otp-field": ["cn", "otp-field"],
       popover: ["button", "cn", "popover", "popup", "scroll-area"],
@@ -649,6 +650,18 @@ describe("add", () => {
       /selector: "\[zzAvatarFallback\]"/,
     );
     assert.match(readText(tree, "src/ui/progress/progress.ts"), /exportAs: "zzProgress"/);
+  });
+
+  test("renames Meter's and MeterRing's selectors and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["meter"] }, await setUp(runner));
+    const meter = readText(tree, "src/ui/meter/meter.ts");
+    const ring = readText(tree, "src/ui/meter/meter-ring.ts");
+
+    assert.match(meter, /selector: "\[zzMeter\]"/);
+    assert.match(meter, /exportAs: "zzMeter"/);
+    assert.match(ring, /selector: "\[zzMeterRing\]"/);
+    assert.match(ring, /exportAs: "zzMeterRing"/);
   });
 
   test("renames Calendar's roots, exportAs and internal parts with the prefix", async () => {
