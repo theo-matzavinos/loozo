@@ -54,6 +54,22 @@
         flex: 1;
         overflow-wrap: anywhere;
       }
+      .compact li {
+        margin-block: 0.25rem;
+      }
+      .view-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-block: 0.5rem;
+      }
+      .view-links a {
+        color: #93c5fd;
+      }
+      .view-links a[aria-current] {
+        color: inherit;
+        font-weight: 600;
+      }
       .completed {
         color: #a7d8b4;
       }

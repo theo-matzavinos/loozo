@@ -1,10 +1,49 @@
+import {
+  numberParam,
+  remembered,
+  retained,
+  stringParam,
+  withFallback,
+} from "@loozo/angular-router";
 import { defineRoute } from "@loozo/angular-launch";
-import { idSchema, titleSchema } from "../../../todo-input.server";
+import { notFound } from "@loozo/angular-launch/server";
+import { filterSchema, idSchema, titleSchema } from "../../../todo-input.server";
 import parent from "../route";
 
-export default defineRoute("todos", { parent })
+// The list's filters by name. "archived" was one until it was removed, so a remembered
+// "archived" no longer exists.
+const filters = new Map([
+  ["all", "All"],
+  ["open", "Open"],
+  ["completed", "Completed"],
+]);
+
+// The page size and filter follow the page's own links, and come back when the user returns.
+export default defineRoute("todos", {
+  parent,
+  search: {
+    pageSize: retained(remembered(withFallback(numberParam, 20), "todos.pageSize")),
+    filter: retained(remembered(withFallback(stringParam, "all"), "todos.filter")),
+  },
+})
   .remote(({ query, mutation }) => ({
     todos: {
+      // The remembered filter reaches the server as input, so a filter that no longer exists
+      // is not found, and rpcNavigationErrors renders the list with the fallback instead.
+      filter: query({
+        input: filterSchema,
+        handler: ({ input, context }) => {
+          const label = filters.get(input.filter);
+
+          context.stats.filterInputs.push(input.filter);
+
+          if (label === undefined) {
+            throw notFound();
+          }
+
+          return { name: input.filter, label };
+        },
+      }),
       list: query({
         handler: async ({ context, request, signal }) => {
           // Loopback proof fixture for the generic unexpected-failure boundary.
@@ -66,4 +105,6 @@ export default defineRoute("todos", { parent })
   }))
   .resolve({
     session: ({ remote }) => remote.session.current(),
-  });
+    filter: ({ remote, search }) => remote.todos.filter({ filter: search.filter }),
+  })
+  .runGuardsAndResolvers("paramsOrQueryParamsChange");

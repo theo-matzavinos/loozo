@@ -6,7 +6,7 @@ Calls go through Angular's `HttpClient`. In the browser they're ordinary HTTP re
 
 Use it when you want typed reads and writes between an Angular SSR app and its own server, without maintaining a separate API layer.
 
-**Status:** pre-1.0: breaking changes come only in minor releases (see [Versions](#versions)). MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on Node), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no storage adapters, and optimistic updates and invalidation come from TanStack Query through the integration.
+**Status:** pre-1.0: breaking changes come only in minor releases (see [Versions](#versions)). MIT license. It currently covers queries, mutations, streams (over server-sent events), channels (over websockets, on Node), middleware, declared errors and redirect and not-found outcomes, with optional [TanStack Query](tanstack-query/README.md) options and keys, and Angular builders that generate before `ng build` and while `ng serve` runs. There are no server-side storage adapters; remembered search keys use browser cookies through [`searchCookies()`](#remembered-search-keys). Optimistic updates and invalidation come from TanStack Query through the integration.
 
 ## Requirements
 
@@ -747,6 +747,7 @@ When a guard or resolver's call rejects with `RpcRedirect`, the navigation goes 
 - With Angular's `withErrorBoundaries`, an outcome thrown while a page renders, such as from a resource its template reads, reaches the boundary's error component as its `error` input. `rpcNavigationErrors` never sees it, so it neither redirects nor answers 404.
 - Angular takes one navigation error handler. If your app has its own, call the function `rpcNavigationErrors` returns from it, inside that handler's injection context, and return its result.
 - The 404 needs the route's `RenderMode.Server`. While Angular prerenders a page, an outcome fails the build instead; see [Prerendering](#prerendering).
+- When the navigation restored a [remembered search value](#remembered-search-keys), a not-found may be that value's fault, such as a filter that no longer exists. The handler then forgets the values the navigation restored and navigates again to the URL from before the restore, keeping the navigation's `state`, so the page renders with its fallbacks. It retries once: a page missing anyway gets the not-found page after the retry. A redirect keeps remembered values. The retry runs the navigation's guards, resolvers and procedures again, and in the browser each retried call is a second RPC.
 
 ### Calling streams
 
@@ -883,6 +884,8 @@ The reuse has limits, all of them Angular's transfer cache behaving as designed:
 Outcomes in a guard or resolver become a 302 or a 404 page with [`rpcNavigationErrors`](#navigating-on-outcomes), and both have caveats:
 
 - A server-rendered not-found page calls the procedure again over HTTP during hydration, because only successes transfer, so its handler runs twice. A redirect doesn't: the browser follows the 302.
+- After a [remembered value](#remembered-search-keys) caused a not-found, the retry with fallbacks renders in the same request: the response is 200 at the requested URL, with the cookie's deletion, and a page missing anyway still answers 404. A handler that sets a cookie and runs on both attempts sets it twice on the page.
+- The retry repeats the navigation, not the request's context. A stage runs once per render and keeps its failure, so a `.context()` stage that refuses because of a remembered value it reads from the request refuses the retry too: that render answers the not-found page with 404. Hydration then calls with a fresh context, after the cookie's deletion, so the browser may show the page with its fallbacks while the status stays 404, and the next visit answers 200. Pass the remembered value to the procedure as input instead, and check it in the handler, as below.
 - Any other failure of a guard or resolver during server rendering, such as `FORBIDDEN`, `INTERNAL`, a declared error, or an outcome without `rpcNavigationErrors`, fails the initial navigation. Angular then renders no page and `angular.handle` returns `null`, so your server's fallback answers, such as the example's plain 404, without the cookies calls set during the render. Handle such errors in the route if the page should show something, or throw an outcome instead.
 
 Mutations are refused during server rendering with `FORBIDDEN`, before any stage, middleware, validation or the handler runs. Rendering should only read. Streams are refused the same way, since they don't finish; see [Calling streams](#calling-streams).
@@ -890,6 +893,60 @@ Mutations are refused during server rendering with `FORBIDDEN`, before any stage
 Stages, middleware and handlers run during server rendering too, with the page request as `request`. A render's calls share one request scope, so each stage runs at most once per render. They run in the server entry's copy of your server code, the one that answers RPCs: Angular bundles the server entry apart from the server application that renders, so a module both import, such as your database client, is loaded once in each, and Launch runs a render's calls in the copy that created its request scope. A page and an RPC therefore see the same module state, such as an in-memory store or a connection pool. The other copy still evaluates the module, so whatever it starts at import time, such as a pool's connections or a timer, starts twice: create those on first use instead. While Angular [prerenders](#prerendering) a page, its calls run in the server application's copy. Their `signal` aborts when the page request aborts, or when `HttpClient` unsubscribes from the call before it settled. Cookies they set go on the page response through Angular's `RESPONSE_INIT`, and headers are dropped; see [Cookies and headers](#cookies-and-headers).
 
 Transferred responses end up in the HTML. Only return data that the user may see, and serve personalized pages with `Cache-Control: private, no-store`.
+
+### Remembered search keys
+
+The router can [remember a search key](../angular-router/README.md#remembered-search-keys), such as a list's page size or filter, and bring it back when the user returns to the page. To render the remembered value on the server, keep it in cookies with `searchCookies()`:
+
+```ts
+// src/config.ts (shared by the browser and server apps)
+import { rpcNavigationErrors, searchCookies } from "@loozo/angular-launch";
+import { provideSearchStorage, routes } from "../generated/routes.generated";
+
+providers: [
+  provideRouter(
+    routes,
+    withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFound, {}) })),
+  ),
+  provideClientHydration(),
+  provideSearchStorage(searchCookies()),
+];
+```
+
+Opening `/todos` with a remembered filter answers `302` to `/todos?filter=…`, and the page renders it on the server and through hydration. Each remembered id is one cookie, `search.<id>`, with `Path=/`, a one-year `Max-Age`, `SameSite=Lax` and `Secure`, sent with every request to your origin. They have no `HttpOnly`, because the browser reads them too, so page scripts can read them: don't remember secrets. `searchCookies({ prefix, maxAge, secure })` changes the name's prefix, the lifetime, and `Secure`, which browsers accept from `http://localhost`; set `secure: false` for plain HTTP elsewhere.
+
+During server rendering, a write goes on the page response next to the cookies your procedures set, and only when the value changes, so pages that change nothing send no `Set-Cookie`. Stages and handlers still read the page request's cookies, not what the render wrote. A value whose cookie would pass 4,096 bytes isn't stored, its old value is forgotten, and development builds warn. Prerendered pages have no request, so they render the fallback, and the browser restores after hydration.
+
+A remembered value can stop working, such as a filter that was removed since. Pass it to your procedure as input, and throw `notFound()` from the handler when it no longer exists, as the [example](../../examples/angular-launch/)'s todos page does:
+
+```ts
+// src/routes/+authenticated/todos/route.ts (excerpt)
+export default defineRoute("todos", {
+  parent,
+  search: { filter: remembered(withFallback(stringParam, "all"), "todos.filter") },
+})
+  .remote(({ query }) => ({
+    todos: {
+      filter: query({
+        input: filterSchema,
+        handler: ({ input }) => {
+          const label = filters.get(input.filter);
+
+          if (label === undefined) {
+            throw notFound();
+          }
+
+          return { name: input.filter, label };
+        },
+      }),
+    },
+  }))
+  .resolve({ filter: ({ remote, search }) => remote.todos.filter({ filter: search.filter }) })
+  // The resolver reads search, so it runs again when only the search changes.
+  .runGuardsAndResolvers("paramsOrQueryParamsChange");
+```
+
+[`rpcNavigationErrors`](#navigating-on-outcomes) then forgets the value and renders `/todos` with the fallback in the same request, answering 200 with the cookie's deletion. A check in a `.context()` stage doesn't recover that way, since a stage keeps its failure for the whole render ([Server rendering and hydration](#server-rendering-and-hydration)).
 
 ### Prerendering
 
@@ -1351,7 +1408,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 - Streams and channels don't reconnect or resume on their own (`connect()` reconnects when asked or when its input changes), and HTTP interceptors don't see them. Channels carry strict JSON text only, one call per socket, with no acknowledgements.
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
-- No storage adapters; persistence is your handler's job.
+- No server-side storage adapters; persistence is your handler's job. Remembered search keys use browser cookies through [`searchCookies()`](#remembered-search-keys).
 - No production authentication, CORS or caching policy. You provide those. Cross-origin RPCs are refused (see [Cross-origin requests](#cross-origin-requests)); there's no CSRF token scheme.
 - No success status other than 200: a result is always 200, and other statuses come from failures and outcomes. During server rendering, a cookie set by one call isn't visible to later calls in the same render, a failed initial navigation loses the render's cookies, and headers are dropped.
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.

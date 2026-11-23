@@ -16,6 +16,8 @@ export const stats = {
   channelsStarted: 0,
   channelsAborted: 0,
   channelsReturned: 0,
+  // Test-only: every filter todos.filter was asked for, in order.
+  filterInputs: [] as string[],
 };
 
 // Called whenever a user's todos change, for the live list.

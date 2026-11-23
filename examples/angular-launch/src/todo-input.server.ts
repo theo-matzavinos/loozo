@@ -61,3 +61,26 @@ export const idSchema: Schema<IdInput> = {
     },
   },
 };
+
+export interface FilterInput {
+  readonly filter: string;
+}
+
+export const filterSchema: Schema<FilterInput> = {
+  "~standard": {
+    version: 1,
+    vendor: "todos",
+    validate(value) {
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("filter" in value) ||
+        typeof value.filter !== "string"
+      ) {
+        return { issues: [{ message: "Filter required", path: ["filter"] }] };
+      }
+
+      return { value: { filter: value.filter } };
+    },
+  },
+};

@@ -39,3 +39,5 @@ export type { InputIssue, InvalidInputData } from "./input-issues.js";
 export { RpcNotFound, RpcRedirect } from "./outcomes.js";
 export { rpcNavigationErrors } from "./navigation.js";
 export type { RpcNavigationErrorsOptions } from "./navigation.js";
+export { searchCookies } from "./search-cookies.js";
+export type { SearchCookieOptions } from "./search-cookies.js";
