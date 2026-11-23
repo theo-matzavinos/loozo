@@ -130,6 +130,11 @@ export const routes: Routes = [
       import("./fixtures/toast-modal-deferred.js").then((module) => module.ToastModalDeferred),
   },
   {
+    path: "toast-replace",
+    loadComponent: () =>
+      import("./fixtures/toast-replace.js").then((module) => module.ToastReplaceFixture),
+  },
+  {
     path: "number-field",
     loadComponent: () =>
       import("./fixtures/number-field-deferred.js").then((module) => module.NumberFieldDeferred),

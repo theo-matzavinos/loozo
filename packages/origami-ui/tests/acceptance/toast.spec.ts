@@ -106,8 +106,44 @@ declare global {
     toastDeleteFlow?: Promise<DeleteFlow>;
     toastRemovedRelease?: Promise<RemovedRelease>;
     dialogClosedAt?: Record<string, number>;
+    toastReplace?: ToastReplaceApi;
+    toastReplaceSaved?: Record<string, Node | null>;
+    toastMutations?: { observer: MutationObserver; records: string[] };
+    toastAttributeTraces?: Map<string, AttributeTrace>;
   }
 }
+
+/** The `toast-replace` fixture's data. */
+type ReplaceData = {
+  title: string;
+  description?: string;
+  kind?: "success" | "info" | "warning" | "error";
+  reload?: boolean;
+  motion?: boolean;
+};
+
+/** `window.toastReplace`: the `toast-replace` fixture, driven from script. */
+interface ToastReplaceApi {
+  readonly config: {
+    readonly duration: { set(value: number): void };
+    readonly limit: { set(value: number): void };
+  };
+  readonly mounted: { set(value: boolean): void };
+  readonly armedSaw: string | null;
+  add(data: ReplaceData, options?: { id?: string; duration?: number }): string;
+  attempt(data: ReplaceData, options?: { id?: unknown; duration?: number }): string;
+  close(id: string): void;
+  records(): readonly { readonly id: string; readonly data: ReplaceData }[];
+  clear(): void;
+  twice(): void;
+  openDialog(): void;
+  closeDialog(): void;
+  closeAndReplace(): string;
+  replaceKeepArm(id: string): void;
+}
+
+/** An element's attribute changes from a watch on, and whether it left the document. */
+type AttributeTrace = { changes: string[]; removed: boolean };
 
 /**
  * Records, from now on, the test ID of every toast element the page ever gets, once each, also
@@ -861,8 +897,11 @@ test("TO7: the abstract toaster isn't injectable; factory and existing Options r
     ]);
   });
 
-  // A toast added before a deferred region hydrates waits for it.
+  // A toast added before a deferred region hydrates waits for it; two adds with one id before it
+  // hydrates leave one toast, the second, with its own Infinity.
   await page.getByTestId("deferred-add").click();
+  await script(page, "deferred-replace-1");
+  await script(page, "deferred-replace-2");
 
   if (incremental) {
     await page.waitForTimeout(300);
@@ -871,6 +910,13 @@ test("TO7: the abstract toaster isn't injectable; factory and existing Options r
 
   await page.getByTestId("deferred-hydrate").click();
   await expect(toast(page, "Deferred1")).toBeVisible();
+  await expect(toast(page, "DeferredR2")).toBeVisible();
+  await expect(toast(page, "DeferredR1")).toHaveCount(0);
+  await page.clock.runFor(1500);
+  await expect(toast(page, "DeferredR2")).toHaveCount(1);
+  await expect(toast(page, "DeferredR1")).toHaveCount(0);
+  await script(page, "deferred-close-r");
+  await expect(toast(page, "DeferredR2")).toHaveCount(0);
 
   // A second region on the main toaster throws when it registers, through ErrorHandler.
   await drainIssues();
@@ -1466,4 +1512,982 @@ test("TO12: falsifier — a modal's close releases two held toasts into a lifeti
 
   await page.clock.runFor(2000);
   await expect(page.getByTestId("lifetime-toast-1-L3")).toHaveCount(0, { timeout: 500 });
+});
+
+/** Adds through the `toast-replace` fixture, from script. */
+function add(
+  page: Page,
+  data: ReplaceData,
+  options: { id?: string; duration?: number } = {},
+): Promise<string> {
+  return page.evaluate(([data, options]) => window.toastReplace!.add(data, options), [
+    data,
+    options,
+  ] as const);
+}
+
+/** Runs the page clock to `ms` milliseconds after `from`, page time. */
+async function runTo(page: Page, from: number, ms: number): Promise<void> {
+  const now = await page.evaluate(() => performance.now());
+
+  await page.clock.runFor(Math.round(from + ms - now));
+}
+
+/** Keeps `selector`'s first match in the page under `key`, to compare its identity later. */
+async function save(page: Page, key: string, selector: string): Promise<void> {
+  await page.evaluate(
+    ([key, selector]) => {
+      window.toastReplaceSaved ??= {};
+      window.toastReplaceSaved[key] = document.querySelector(selector);
+    },
+    [key, selector] as const,
+  );
+}
+
+/** Whether `selector`'s first match is the node saved under `key`. */
+function same(page: Page, key: string, selector: string): Promise<boolean> {
+  return page.evaluate(
+    ([key, selector]) => {
+      const saved = window.toastReplaceSaved?.[key] ?? null;
+
+      return saved !== null && document.querySelector(selector) === saved;
+    },
+    [key, selector] as const,
+  );
+}
+
+/**
+ * Records every mutation in the main region's list from now on, as `childList`, `characterData`
+ * or `attributes:<name>`; the returned function reads them and stops recording.
+ */
+async function watchMutations(page: Page): Promise<() => Promise<string[]>> {
+  await page.evaluate(() => {
+    const records: string[] = [];
+    const observer = new MutationObserver((batch) => {
+      for (const record of batch) {
+        let name: string = record.type;
+
+        if (record.type === "attributes") {
+          name = `attributes:${record.attributeName}`;
+        }
+
+        records.push(name);
+      }
+    });
+
+    observer.observe(document.querySelector('[data-testid="region-list"]')!, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+    });
+    window.toastMutations = { observer, records };
+  });
+
+  return () =>
+    page.evaluate(() => {
+      const { observer, records } = window.toastMutations!;
+
+      // Records still queued for the callback.
+      for (const record of observer.takeRecords()) {
+        let name: string = record.type;
+
+        if (record.type === "attributes") {
+          name = `attributes:${record.attributeName}`;
+        }
+
+        records.push(name);
+      }
+
+      observer.disconnect();
+
+      return records;
+    });
+}
+
+/**
+ * Records `testId`'s changes to `names` from now on, as `name=value` (`name=∅` when removed), and
+ * whether it left the document; the returned function reads them so far.
+ */
+async function watchAttributes(
+  page: Page,
+  testId: string,
+  names: string[],
+): Promise<() => Promise<AttributeTrace>> {
+  await page.getByTestId(testId).evaluate(
+    (element, [testId, names]) => {
+      const trace: AttributeTrace = { changes: [], removed: false };
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === "attributes" && record.target === element) {
+            const name = record.attributeName!;
+            const value = element.getAttribute(name);
+
+            trace.changes.push(`${name}=${value ?? "∅"}`);
+          }
+        }
+
+        if (!element.isConnected) {
+          trace.removed = true;
+          observer.disconnect();
+        }
+      });
+
+      observer.observe(element.ownerDocument, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: names,
+      });
+      window.toastAttributeTraces ??= new Map();
+      window.toastAttributeTraces.set(testId, trace);
+    },
+    [testId, names] as const,
+  );
+
+  return () => page.evaluate((testId) => window.toastAttributeTraces!.get(testId)!, testId);
+}
+
+/** Empties the `toast-replace` region and renders it, so a block starts from no toast. */
+async function clear(page: Page): Promise<void> {
+  await page.evaluate(() => window.toastReplace!.clear());
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("region").locator("li")).toHaveCount(0);
+}
+
+test("TO13: add with the id of a shown toast replaces it in place: the same position, element, Reload and Text nodes, a new record with the passed data, only text and attribute mutations; its time restarts from the new duration, the region's read at the replace; identical repeats change no DOM; two adds in one handler leave the second; a caller can target a generated id and generated ids skip a held caller id", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info);
+  await page.mouse.move(0, 0);
+  await page.clock.install();
+
+  const region = page.getByTestId("region");
+
+  await paused(page, async () => {
+    // Block 1: Cashier's update prompt between two neighbours.
+    const added = await page.evaluate(() => {
+      const api = window.toastReplace!;
+
+      return [
+        api.add({ title: "Older" }, { id: "older", duration: Infinity }),
+        api.add(
+          {
+            title: "Version ready",
+            description: "Reload when you're done.",
+            kind: "info",
+            reload: true,
+          },
+          { id: "app-update", duration: Infinity },
+        ),
+        api.add({ title: "Newer" }, { id: "newer", duration: Infinity }),
+      ];
+    });
+
+    expect(added).toEqual(["older", "app-update", "newer"]);
+    await page.clock.runFor(100);
+    expect(await order(page)).toEqual(["toast-newer", "toast-app-update", "toast-older"]);
+    await save(page, "item", '[data-testid="toast-app-update"]');
+    await save(page, "reload", '[data-testid="reload-app-update"]');
+    await save(page, "title", '[data-testid="toast-app-update"] strong');
+    await save(page, "description", '[data-testid="toast-app-update"] p');
+    await page.evaluate(() => {
+      const saved = window.toastReplaceSaved!;
+
+      saved.titleText = saved.title!.firstChild;
+      saved.descriptionText = saved.description!.firstChild;
+    });
+
+    const mutations = await watchMutations(page);
+    const swap = await page.evaluate(() => {
+      const api = window.toastReplace!;
+      const before = api.records();
+      const data = {
+        title: "Reload required",
+        description: "The app can't continue until you reload.",
+        kind: "error" as const,
+        reload: true,
+      };
+      const id = api.add(data, { id: "app-update", duration: Infinity });
+      const after = api.records();
+      const ids: string[] = [];
+
+      for (const record of after) {
+        ids.push(record.id);
+      }
+
+      return {
+        id,
+        ids,
+        newer: after[0] === before[0],
+        older: after[2] === before[2],
+        fresh: after[1] !== before[1],
+        byReference: after[1]!.data === data,
+      };
+    });
+
+    expect(swap).toEqual({
+      id: "app-update",
+      ids: ["newer", "app-update", "older"],
+      newer: true,
+      older: true,
+      fresh: true,
+      byReference: true,
+    });
+    await page.clock.runFor(100);
+    expect((await mutations()).sort()).toEqual([
+      "attributes:data-kind",
+      "characterData",
+      "characterData",
+    ]);
+
+    const kept = await page.evaluate(() => {
+      const saved = window.toastReplaceSaved!;
+      const item = document.querySelector('[data-testid="toast-app-update"]')!;
+
+      return {
+        item: item === saved.item,
+        reload: item.querySelector('[data-testid="reload-app-update"]') === saved.reload,
+        title: item.querySelector("strong")!.firstChild === saved.titleText,
+        description: item.querySelector("p")!.firstChild === saved.descriptionText,
+        text: `${saved.titleText!.textContent} / ${saved.descriptionText!.textContent}`,
+      };
+    });
+
+    expect(kept).toEqual({
+      item: true,
+      reload: true,
+      title: true,
+      description: true,
+      text: "Reload required / The app can't continue until you reload.",
+    });
+
+    const updated = toast(page, "app-update");
+
+    await expect(updated).toHaveAttribute("data-open", "true");
+    await expect(updated).toHaveAttribute("data-kind", "error");
+    await expect(updated).not.toHaveAttribute("data-entering");
+    await expect(updated).not.toHaveAttribute("data-leaving");
+
+    // The time restarts on every replace: 1000 ms, then Infinity before it runs out, then 1000.
+    const required = {
+      title: "Reload required",
+      description: "The app can't continue until you reload.",
+      kind: "error" as const,
+      reload: true,
+    };
+
+    expect(await add(page, required, { id: "app-update", duration: 1000 })).toBe("app-update");
+    await page.clock.runFor(500);
+    await add(page, required, { id: "app-update", duration: Infinity });
+    await page.clock.runFor(1500);
+    await expect(updated).toHaveAttribute("data-open", "true");
+    await add(page, required, { id: "app-update", duration: 1000 });
+    await page.clock.runFor(999);
+    await expect(updated).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(updated).toHaveCount(0);
+
+    // A replace without a duration reads the region's then: 1200, set just before it.
+    await save(page, "older", '[data-testid="toast-older"]');
+    await expect(toast(page, "older")).toHaveAttribute("data-open", "true");
+    await page.evaluate(() => {
+      const api = window.toastReplace!;
+
+      api.config.duration.set(1200);
+      api.add({ title: "Older again" }, { id: "older" });
+      api.config.duration.set(60000);
+    });
+    await page.clock.runFor(100);
+    expect(await same(page, "older", '[data-testid="toast-older"]')).toBe(true);
+    await expect(toast(page, "older")).toHaveAttribute("data-open", "true");
+    await expect(toast(page, "older").locator("strong")).toHaveText("Older again");
+    await page.clock.runFor(1099);
+    await expect(toast(page, "older")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "older")).toHaveCount(0);
+
+    // Block 2: a repeating error, 1 s apart under a region duration of 3000, stays one element
+    // and changes no DOM; its time runs from the last call.
+    await clear(page);
+    await page.evaluate(() => window.toastReplace!.config.duration.set(3000));
+
+    const error: ReplaceData = { title: "Error", description: "Couldn't save", kind: "error" };
+
+    await add(page, error, { id: "error:save" });
+    await page.clock.runFor(100);
+    await save(page, "error", '[data-testid="toast-error:save"]');
+
+    for (let repeat = 1; repeat < 4; repeat += 1) {
+      await page.clock.runFor(900);
+      expect(await same(page, "error", '[data-testid="toast-error:save"]')).toBe(true);
+      await expect(region.locator("li")).toHaveCount(1);
+
+      const repeated = await watchMutations(page);
+
+      await add(page, { ...error }, { id: "error:save" });
+      await page.clock.runFor(100);
+      expect(await repeated()).toEqual([]);
+    }
+
+    await page.clock.runFor(2899);
+    await expect(toast(page, "error:save")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "error:save")).toHaveCount(0);
+    await page.evaluate(() => window.toastReplace!.config.duration.set(60000));
+
+    // Block 3: two adds with one id in one handler leave the second, with its 800 ms.
+    await clear(page);
+    await page.evaluate(() => window.toastReplace!.twice());
+    await page.clock.runFor(100);
+    await expect(region.locator("li")).toHaveCount(1);
+    await expect(toast(page, "twice").locator("strong")).toHaveText("Twice second");
+    await page.clock.runFor(699);
+    await expect(toast(page, "twice")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "twice")).toHaveCount(0);
+
+    // Block 4: a caller can target a generated id; a generated id skips a held caller id.
+    await clear(page);
+
+    const generated = await add(page, { title: "Generated" }, { duration: Infinity });
+
+    expect(generated).toMatch(/^og-toast-\d+$/);
+    expect(await add(page, { title: "Targeted" }, { id: generated, duration: Infinity })).toBe(
+      generated,
+    );
+
+    const next = `og-toast-${Number(generated.slice("og-toast-".length)) + 1}`;
+    const after = `og-toast-${Number(generated.slice("og-toast-".length)) + 2}`;
+
+    expect(await add(page, { title: "Caller" }, { id: next, duration: Infinity })).toBe(next);
+    expect(await add(page, { title: "Skipped" }, { duration: Infinity })).toBe(after);
+    await page.clock.runFor(100);
+    expect(await order(page)).toEqual([`toast-${after}`, `toast-${next}`, `toast-${generated}`]);
+    await expect(toast(page, generated).locator("strong")).toHaveText("Targeted");
+    await expect(toast(page, next).locator("strong")).toHaveText("Caller");
+    await expect(toast(page, after).locator("strong")).toHaveText("Skipped");
+    await clear(page);
+  });
+
+  // Block 5: a caller id closes like a generated one; an expired one does nothing.
+  await add(page, { title: "Closable", motion: true }, { id: "closable", duration: Infinity });
+  await expect(toast(page, "closable")).toHaveAttribute("data-open", "true");
+
+  const closed = await watchExit(page, "toast-closable");
+
+  await page.evaluate(() => window.toastReplace!.close("closable"));
+  expect((await closed()).exit!).toBeGreaterThanOrEqual(1000);
+  await page.evaluate(() => window.toastReplace!.close("error:save"));
+  await expect(region.locator("li")).toHaveCount(0);
+});
+
+test("TO14: replacing a shown toast while the region is paused holds its full new time: under the pointer until it leaves, with focus inside on a Reload the replacement keeps until focus leaves; a focused Close kept by the replacement still returns focus on Enter", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info);
+  await page.clock.install();
+
+  const outside = await center(page.getByTestId("outside"));
+
+  await page.mouse.move(outside.x, outside.y);
+  await paused(page, async () => {
+    // Hover: the 1000 ms of the replace start when the pointer leaves.
+    await add(page, { title: "Hover", reload: true }, { id: "hov", duration: Infinity });
+    await page.clock.runFor(100);
+
+    const point = await center(toast(page, "hov"));
+
+    await page.mouse.move(point.x, point.y);
+    await add(page, { title: "Hover again", reload: true }, { id: "hov", duration: 1000 });
+    await page.clock.runFor(2000);
+    await expect(toast(page, "hov")).toHaveAttribute("data-open", "true");
+    await page.mouse.move(outside.x, outside.y);
+    await page.clock.runFor(999);
+    await expect(toast(page, "hov")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "hov")).toHaveCount(0);
+
+    // Focus on a Reload the replacement keeps: the 650 ms start when focus leaves.
+    await add(page, { title: "Focus", reload: true }, { id: "foc", duration: Infinity });
+    await page.clock.runFor(100);
+    await page.getByTestId("reload-foc").focus();
+    await save(page, "reload", '[data-testid="reload-foc"]');
+    await add(page, { title: "Focus again", reload: true }, { id: "foc", duration: 650 });
+    await page.clock.runFor(100);
+    await expect(page.getByTestId("reload-foc")).toBeFocused();
+    expect(await same(page, "reload", '[data-testid="reload-foc"]')).toBe(true);
+    await expect(toast(page, "foc").locator("strong")).toHaveText("Focus again");
+    await page.clock.runFor(1900);
+    await expect(toast(page, "foc")).toHaveAttribute("data-open", "true");
+    await page.getByTestId("outside").focus();
+    await page.clock.runFor(649);
+    await expect(toast(page, "foc")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "foc")).toHaveCount(0);
+
+    // A focused Close survives its toast's replace and returns focus to the outside button.
+    await add(page, { title: "Closer" }, { id: "closer", duration: Infinity });
+    await page.clock.runFor(100);
+    await page.getByTestId("outside").focus();
+    await page.getByTestId("close-closer").focus();
+    await add(page, { title: "Closer again" }, { id: "closer" });
+    await page.clock.runFor(100);
+    await expect(page.getByTestId("close-closer")).toBeFocused();
+    await expect(toast(page, "closer").locator("strong")).toHaveText("Closer again");
+    await page.keyboard.press("Enter");
+    await page.clock.runFor(100);
+    await expect(page.getByTestId("outside")).toBeFocused();
+    await expect(toast(page, "closer")).toHaveCount(0);
+  });
+});
+
+test("TO15: replacing a waiting toast swaps its data and duration and keeps it waiting: with no region it shows the second data once mounted, older than a waiter added after it, held by a modal it shows the new data and time once the dialog closes, also when one handler closes the dialog and replaces it, which doesn't show it in that handler; a shown toast under a modal is replaced in place, stays inert and keeps running; a closing toast added again under a modal is removed and shown anew after the dialog closes", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info);
+  await page.mouse.move(0, 0);
+  await page.clock.install();
+
+  const dialog = page.getByTestId("replace-dialog");
+  const ids = (): Promise<string[]> =>
+    page.evaluate(() => {
+      const result: string[] = [];
+
+      for (const record of window.toastReplace!.records()) {
+        result.push(record.id);
+      }
+
+      return result;
+    });
+
+  await paused(page, async () => {
+    // No region: the replace swaps the waiting toast's data and duration.
+    await page.evaluate(() => window.toastReplace!.mounted.set(false));
+    await page.clock.runFor(100);
+    await expect(page.getByTestId("region")).toHaveCount(0);
+
+    const rendered = await watchRendered(page);
+
+    await add(page, { title: "Queued old" }, { id: "queued", duration: 1000 });
+    await add(page, { title: "Younger" }, { id: "younger", duration: Infinity });
+    await add(page, { title: "Queued new" }, { id: "queued", duration: Infinity });
+    await page.clock.runFor(100);
+    await page.evaluate(() => window.toastReplace!.mounted.set(true));
+    await page.clock.runFor(100);
+    await expect(toast(page, "queued").locator("strong")).toHaveText("Queued new");
+    // The replaced toast keeps its age: older than the waiter added after it.
+    expect(await ids()).toEqual(["younger", "queued"]);
+    expect(await order(page)).toEqual(["toast-younger", "toast-queued"]);
+    await page.evaluate(() => window.toastReplace!.close("younger"));
+    await page.clock.runFor(100);
+    await expect(toast(page, "younger")).toHaveCount(0);
+    await page.clock.runFor(1400);
+    await expect(toast(page, "queued")).toHaveAttribute("data-open", "true");
+    await add(page, { title: "Queued new" }, { id: "queued", duration: 1000 });
+    await page.clock.runFor(999);
+    await expect(toast(page, "queued")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "queued")).toHaveCount(0);
+    expect(await rendered()).toEqual(["toast-younger", "toast-queued"]);
+
+    // Held by a modal: the replace keeps it waiting with its new data and 700 ms.
+    await page.evaluate(() => window.toastReplace!.openDialog());
+    expect(await modal(dialog)).toBe(true);
+    await add(page, { title: "Held old" }, { id: "held", duration: 300 });
+    await add(page, { title: "Held new" }, { id: "held", duration: 700 });
+    await page.clock.runFor(100);
+    expect(await ids()).toEqual([]);
+
+    const heldClosedAt = await watchDialogCloses(page);
+
+    await page.evaluate(() => window.toastReplace!.closeDialog());
+    await expect.poll(() => heldClosedAt("replace-dialog")).not.toBeNull();
+
+    const heldReleased = (await heldClosedAt("replace-dialog"))!;
+
+    await runTo(page, heldReleased, 100);
+    await expect(toast(page, "held").locator("strong")).toHaveText("Held new");
+    await runTo(page, heldReleased, 699);
+    await expect(toast(page, "held")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "held")).toHaveCount(0);
+
+    // Shown before the modal opened: replaced in place under it, inert, closing on its new time.
+    await add(page, { title: "Shown old" }, { id: "shown", duration: Infinity });
+    await page.clock.runFor(100);
+    await save(page, "shown", '[data-testid="toast-shown"]');
+    await page.evaluate(() => window.toastReplace!.openDialog());
+    expect(await modal(dialog)).toBe(true);
+    await add(page, { title: "Shown new" }, { id: "shown", duration: 3100 });
+    await page.clock.runFor(100);
+    expect(await same(page, "shown", '[data-testid="toast-shown"]')).toBe(true);
+    await expect(toast(page, "shown").locator("strong")).toHaveText("Shown new");
+    await page.getByTestId("close-shown").evaluate((node: HTMLButtonElement) => node.focus());
+    await expect(page.getByTestId("dialog-inside")).toBeFocused();
+    await page.clock.runFor(2999);
+    await expect(toast(page, "shown")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "shown")).toHaveCount(0);
+    expect(await modal(dialog)).toBe(true);
+    await page.evaluate(() => window.toastReplace!.closeDialog());
+    await page.clock.runFor(100);
+
+    // One handler closes the dialog and replaces held2: a waiting replace doesn't offer, so
+    // held2 isn't shown in that handler; the dialog's close event releases it with its 900 ms.
+    await page.evaluate(() => window.toastReplace!.openDialog());
+    expect(await modal(dialog)).toBe(true);
+    await add(page, { title: "Held2 old" }, { id: "held2", duration: 300 });
+    await page.clock.runFor(100);
+
+    const closedAt = await watchDialogCloses(page);
+
+    expect(await page.evaluate(() => window.toastReplace!.closeAndReplace())).toBe("absent");
+    await expect.poll(() => closedAt("replace-dialog")).not.toBeNull();
+
+    const released = (await closedAt("replace-dialog"))!;
+
+    await runTo(page, released, 100);
+    await expect(toast(page, "held2").locator("strong")).toHaveText("Held2 new");
+    await runTo(page, released, 899);
+    await expect(toast(page, "held2")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "held2")).toHaveCount(0);
+  });
+
+  // A closing toast added again under a modal: removed while held, shown anew after the close.
+  await add(page, { title: "Closing", motion: true }, { id: "cl", duration: Infinity });
+  await expect(toast(page, "cl")).toHaveAttribute("data-present", "");
+  await save(page, "closing", '[data-testid="toast-cl"]');
+  await page.evaluate(() => window.toastReplace!.openDialog());
+  expect(await modal(dialog)).toBe(true);
+  await page.evaluate(() => window.toastReplace!.close("cl"));
+  await expect(toast(page, "cl")).toHaveAttribute("data-leaving", "");
+  await add(page, { title: "Closing again", motion: true }, { id: "cl", duration: Infinity });
+  await expect
+    .poll(() => page.evaluate(() => window.toastReplaceSaved!.closing!.isConnected))
+    .toBe(false);
+  await expect(toast(page, "cl")).toHaveCount(0);
+  expect(await ids()).toEqual([]);
+  await page.evaluate(() => window.toastReplace!.closeDialog());
+  await expect(toast(page, "cl").locator("strong")).toHaveText("Closing again");
+  await expect(toast(page, "cl")).toHaveAttribute("data-present", "");
+  expect(await same(page, "closing", '[data-testid="toast-cl"]')).toBe(false);
+
+  const exit = await watchExit(page, "toast-cl");
+
+  await script(page, "close-cl");
+  expect((await exit()).exit!).toBeGreaterThanOrEqual(1000);
+});
+
+test("TO16: replacing a shown toast runs no limit pass: at a limit lowered below the open count the replaced oldest toast stays in its slot with its element; the next add closes it as the oldest; a toast a limit close's focus listener adds again with the closed id under a raised limit counts as new, and the release's own limit still closes the next oldest", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info);
+
+  await add(page, { title: "A", motion: true }, { id: "a", duration: Infinity });
+  await add(page, { title: "B" }, { id: "b", duration: Infinity });
+  await add(page, { title: "C" }, { id: "c", duration: Infinity });
+  await expect(toast(page, "a")).toHaveAttribute("data-present", "");
+  expect(await order(page)).toEqual(["toast-c", "toast-b", "toast-a"]);
+  await save(page, "a", '[data-testid="toast-a"]');
+
+  await page.evaluate(() => {
+    const api = window.toastReplace!;
+
+    api.config.limit.set(2);
+    api.add({ title: "A again", motion: true }, { id: "a", duration: Infinity });
+    api.config.limit.set(3);
+  });
+  await expect(toast(page, "a").locator("strong")).toHaveText("A again");
+  expect(await order(page)).toEqual(["toast-c", "toast-b", "toast-a"]);
+  expect(await same(page, "a", '[data-testid="toast-a"]')).toBe(true);
+
+  for (const id of ["a", "b", "c"]) {
+    await expect(toast(page, id)).toHaveAttribute("data-open", "true");
+  }
+
+  const oldest = await watchExit(page, "toast-a");
+
+  await add(page, { title: "D" }, { id: "d", duration: Infinity });
+  expect((await oldest()).exit!).toBeGreaterThanOrEqual(1000);
+  expect(await order(page)).toEqual(["toast-d", "toast-c", "toast-b"]);
+
+  // At limit 1 the release of E closes the focused S, whose focus move to the region host runs a
+  // listener that adds S again under a raised limit, then restores 1. The new S is progress: the
+  // release's own limit of 1 still closes E, which never renders.
+  await page.evaluate(() => window.toastReplace!.clear());
+  await expect(page.getByTestId("region").locator("li")).toHaveCount(0);
+  await page.evaluate(() => window.toastReplace!.config.limit.set(1));
+  await add(page, { title: "S" }, { id: "s", duration: Infinity });
+  await page.getByTestId("close-s").evaluate((node: HTMLButtonElement) => node.focus());
+  await page.getByTestId("region").evaluate((region) => {
+    region.addEventListener(
+      "focus",
+      () => {
+        const api = window.toastReplace!;
+
+        api.config.limit.set(2);
+        api.add({ title: "S again" }, { id: "s", duration: Infinity });
+        api.config.limit.set(1);
+      },
+      { once: true },
+    );
+  });
+
+  const rendered = await watchRendered(page);
+
+  expect(
+    await page.evaluate(() => {
+      const api = window.toastReplace!;
+
+      api.add({ title: "E" }, { id: "e", duration: Infinity });
+
+      return api.records().map((record) => record.id);
+    }),
+  ).toEqual(["s"]);
+  await expect(toast(page, "s").locator("strong")).toHaveText("S again");
+  await expect(toast(page, "s")).toHaveAttribute("data-open", "true");
+  expect(await rendered()).not.toContain("toast-e");
+  await page.evaluate(() => window.toastReplace!.config.limit.set(3));
+});
+
+test("TO17: a toast added again during its exit counts as closed: the same element moves to the front, loses inert and data-leaving and enters again, with focus kept elsewhere in the region, and runs its fresh time once focus leaves; closed and added again in one handler, it renders no exit", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info);
+  await page.clock.install();
+
+  const outside = await center(page.getByTestId("outside"));
+
+  await page.mouse.move(outside.x, outside.y);
+  await add(page, { title: "X", motion: true }, { id: "x", duration: Infinity });
+  await add(page, { title: "M" }, { id: "m", duration: Infinity });
+  await add(page, { title: "N" }, { id: "n", duration: Infinity });
+  await expect(toast(page, "x")).toHaveAttribute("data-present", "");
+  expect(await order(page)).toEqual(["toast-n", "toast-m", "toast-x"]);
+  await save(page, "x", '[data-testid="toast-x"]');
+
+  await paused(page, async () => {
+    await page.getByTestId("close-n").focus();
+
+    const trace = await watchAttributes(page, "toast-x", [
+      "data-entering",
+      "data-present",
+      "data-leaving",
+      "inert",
+    ]);
+
+    await page.evaluate(() => window.toastReplace!.close("x"));
+    await page.clock.runFor(50);
+    await expect(toast(page, "x")).toHaveAttribute("data-leaving", "");
+    await expect(toast(page, "x")).toHaveAttribute("inert", "");
+    await add(page, { title: "X again", motion: true }, { id: "x", duration: 2000 });
+    await page.clock.runFor(50);
+    expect(await order(page)).toEqual(["toast-x", "toast-n", "toast-m"]);
+    expect(await same(page, "x", '[data-testid="toast-x"]')).toBe(true);
+    await expect(toast(page, "x")).not.toHaveAttribute("data-leaving");
+    await expect(toast(page, "x")).not.toHaveAttribute("inert");
+    await expect(toast(page, "x")).toHaveAttribute("data-open", "true");
+    await expect(page.getByTestId("close-n")).toBeFocused();
+
+    // The 250 ms entrance runs on the document timeline; its settle renders on the page clock.
+    await page.waitForTimeout(400);
+    await page.clock.runFor(2450);
+    await expect(toast(page, "x")).toHaveAttribute("data-present", "");
+    await expect(toast(page, "x")).toHaveAttribute("data-open", "true");
+
+    // The exit, then its reversal into an entrance, then present again, never removed.
+    const { changes, removed } = await trace();
+    const leaving = changes.indexOf("data-leaving=");
+    const entering = changes.indexOf("data-entering=", leaving);
+    const present = changes.indexOf("data-present=", entering);
+
+    expect(removed).toBe(false);
+    expect(leaving).toBeGreaterThan(-1);
+    expect(entering).toBeGreaterThan(leaving);
+    expect(present).toBeGreaterThan(entering);
+    expect(changes.slice(leaving)).toContain("data-leaving=∅");
+    expect(changes.slice(leaving)).toContain("inert=∅");
+
+    // Focus leaves: its fresh 2000 ms run from then.
+    await page.getByTestId("outside").focus();
+    await page.clock.runFor(1999);
+    await expect(toast(page, "x")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(50);
+    await expect(toast(page, "x")).toHaveAttribute("data-leaving", "");
+    await page.waitForTimeout(1700);
+    await page.clock.runFor(100);
+    await expect(toast(page, "x")).toHaveCount(0);
+  });
+
+  // Closed and added again in one handler: no exit renders.
+  await add(page, { title: "Y", motion: true }, { id: "y", duration: Infinity });
+  await expect(toast(page, "y")).toHaveAttribute("data-present", "");
+
+  const y = await watchAttributes(page, "toast-y", ["data-leaving"]);
+
+  await page.evaluate(() => {
+    const api = window.toastReplace!;
+
+    api.close("y");
+    api.add({ title: "Y again", motion: true }, { id: "y", duration: Infinity });
+  });
+  await expect(toast(page, "y").locator("strong")).toHaveText("Y again");
+  await page.waitForTimeout(300);
+  await expect(toast(page, "y")).toHaveCount(1);
+  await expect(toast(page, "y")).toHaveAttribute("data-present", "");
+  expect(await y()).toEqual({ changes: [], removed: false });
+});
+
+test("TO18: a throwing add changes nothing: invalid durations, the region's invalid duration for a shown replace and for an add with its own duration, a waiting replace with an invalid duration and a closing re-add under an invalid limit each throw a RangeError and keep the existing toast, its slot, its exit and its time; ids that aren't a non-empty string throw a TypeError; on the server add returns the given id and keeps nothing", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info, async () => {
+    await expect(page.getByTestId("server-add")).toHaveAttribute("data-id", "server-id");
+    await expect(page.getByTestId("region").locator("li")).toHaveCount(0);
+  });
+  await page.mouse.move(0, 0);
+  await page.clock.install();
+
+  const durationError = (value: string): string =>
+    `RangeError: A toast's duration must be a positive number of milliseconds up to 2147483647, or Infinity, not ${value}.`;
+  const regionError =
+    "RangeError: A toast region's duration must be a positive number of milliseconds up to 2147483647, or Infinity, not -1.";
+
+  await paused(page, async () => {
+    // A shown toast's original 1450 ms deadline survives every rejected replace.
+    await add(page, { title: "V" }, { id: "v", duration: 1450 });
+    await page.clock.runFor(100);
+    await save(page, "v", '[data-testid="toast-v"]');
+    await page.clock.runFor(400);
+
+    const own = await page.evaluate(() => {
+      const results: string[] = [];
+
+      for (const duration of [0, -1, Number.NaN, -Infinity, 2147483648]) {
+        results.push(window.toastReplace!.attempt({ title: "V bad" }, { id: "v", duration }));
+      }
+
+      return results;
+    });
+
+    expect(own).toEqual([
+      durationError("0"),
+      durationError("-1"),
+      durationError("NaN"),
+      durationError("-Infinity"),
+      durationError("2147483648"),
+    ]);
+
+    const region = await page.evaluate(() => {
+      const api = window.toastReplace!;
+
+      api.config.duration.set(-1);
+
+      const results = [
+        api.attempt({ title: "V bad" }, { id: "v" }),
+        api.attempt({ title: "Fresh" }, { id: "fresh", duration: 1000 }),
+      ];
+
+      api.config.duration.set(60000);
+
+      return results;
+    });
+
+    expect(region).toEqual([regionError, regionError]);
+    await page.clock.runFor(100);
+    expect(await same(page, "v", '[data-testid="toast-v"]')).toBe(true);
+    await expect(toast(page, "v").locator("strong")).toHaveText("V");
+    await expect(toast(page, "fresh")).toHaveCount(0);
+    await page.clock.runFor(849);
+    await expect(toast(page, "v")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(1);
+    await page.clock.runFor(100);
+    await expect(toast(page, "v")).toHaveCount(0);
+
+    // No region: a waiting replace with an invalid duration keeps the waiting toast as it was.
+    await page.evaluate(() => window.toastReplace!.mounted.set(false));
+    await page.clock.runFor(100);
+    await add(page, { title: "W" }, { id: "w", duration: 1000 });
+    expect(
+      await page.evaluate(() =>
+        window.toastReplace!.attempt({ title: "W bad" }, { id: "w", duration: 0 }),
+      ),
+    ).toBe(durationError("0"));
+    await page.evaluate(() => window.toastReplace!.mounted.set(true));
+    await page.clock.runFor(100);
+    await expect(toast(page, "w").locator("strong")).toHaveText("W");
+    await page.clock.runFor(850);
+    await expect(toast(page, "w")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(200);
+    await expect(toast(page, "w")).toHaveCount(0);
+
+    // Ids that aren't a non-empty string.
+    const ids = await page.evaluate(() => {
+      const results: string[] = [];
+
+      for (const id of ["", null, 1]) {
+        results.push(window.toastReplace!.attempt({ title: "Bad id" }, { id }));
+      }
+
+      return results;
+    });
+
+    expect(ids).toEqual([
+      "TypeError: A toast's id must be a non-empty string.",
+      "TypeError: A toast's id must be a non-empty string.",
+      "TypeError: A toast's id must be a non-empty string.",
+    ]);
+    await page.clock.runFor(100);
+    await expect(page.getByTestId("region").locator("li")).toHaveCount(0);
+  });
+
+  // A closing toast added again under an invalid limit keeps its exit and its slot between its
+  // neighbours, and is removed.
+  await add(page, { title: "B" }, { id: "b", duration: Infinity });
+  await add(page, { title: "C", motion: true }, { id: "c", duration: Infinity });
+  await add(page, { title: "D" }, { id: "d", duration: Infinity });
+  await expect(toast(page, "c")).toHaveAttribute("data-present", "");
+  await save(page, "c", '[data-testid="toast-c"]');
+
+  const trace = await watchAttributes(page, "toast-c", [
+    "data-entering",
+    "data-present",
+    "data-leaving",
+  ]);
+  const exit = await watchExit(page, "toast-c");
+
+  await page.evaluate(() => window.toastReplace!.close("c"));
+  await expect(toast(page, "c")).toHaveAttribute("data-leaving", "");
+  expect(
+    await page.evaluate(() => {
+      const api = window.toastReplace!;
+
+      api.config.limit.set(0);
+
+      const result = api.attempt({ title: "C again", motion: true }, { id: "c" });
+
+      api.config.limit.set(3);
+
+      // Read in the same task, before the exit settles: `c` is back between its neighbours.
+      return [result, ...api.records().map((record) => record.id)];
+    }),
+  ).toEqual([
+    "RangeError: A toast region's limit must be a positive integer or Infinity, not 0.",
+    "d",
+    "c",
+    "b",
+  ]);
+  expect(await order(page)).toEqual(["toast-d", "toast-c", "toast-b"]);
+  // The exit runs to its end, never reversed into an entrance, and the element is removed.
+  expect((await exit()).exit!).toBeGreaterThanOrEqual(1000);
+  const { changes, removed } = await trace();
+
+  expect(removed).toBe(true);
+  expect([...changes].sort()).toEqual(["data-leaving=", "data-leaving=∅", "data-present=∅"]);
+  await expect(toast(page, "c")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => window.toastReplace!.records().map((record) => record.id)),
+  ).toEqual(["d", "b"]);
+  await page.evaluate(() => window.toastReplace!.clear());
+  await expect(page.getByTestId("region").locator("li")).toHaveCount(0);
+});
+
+test("TO19: falsifier — a modal's close releases a held toast that a focus listener replaced during the same release, after a limit close: it runs the replacement's duration, read at its turn, not the one it was held with", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast", info);
+  await page.mouse.move(0, 0);
+  await page.clock.install();
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+
+  await script(page, "lifetime-mount-limited");
+  await script(page, "lifetime-add");
+  await page.clock.runFor(100);
+  await page.getByTestId("lifetime-close-L1").focus();
+  await page.getByTestId("lifetime-region").evaluate((region) => {
+    region.addEventListener(
+      "focus",
+      () => {
+        document.querySelector<HTMLButtonElement>('[data-testid="lifetime-replace-held"]')!.click();
+        document.querySelector<HTMLButtonElement>('[data-testid="lifetime-return"]')!.focus();
+      },
+      { once: true },
+    );
+  });
+
+  await script(page, "lifetime-dialog-open");
+  await script(page, "lifetime-dialog-add");
+  await script(page, "lifetime-dialog-add-held");
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-region-state")).toHaveText("L1");
+
+  const closedAt = await watchDialogCloses(page);
+
+  await script(page, "lifetime-dialog-close");
+  await expect.poll(() => closedAt("lifetime-dialog")).not.toBeNull();
+
+  const released = (await closedAt("lifetime-dialog"))!;
+
+  await runTo(page, released, 100);
+  await expect(page.getByTestId("lifetime-return")).toBeFocused();
+  await expect(page.getByTestId("lifetime-toast-1-Lb2")).toHaveAttribute("data-open", "true");
+  await expect(page.getByTestId("lifetime-toast-1-Lb")).toHaveCount(0);
+  await runTo(page, released, 1599);
+  await expect(page.getByTestId("lifetime-toast-1-Lb2")).toHaveAttribute("data-open", "true");
+  await page.clock.runFor(1);
+  await page.clock.runFor(100);
+  await expect(page.getByTestId("lifetime-toast-1-Lb2")).toHaveCount(0);
+});
+
+test("TO20: falsifier — a replace that removes the focused Reload of a shown toast resumes its time once the replacement renders, also when the removal comes from an after-render write that follows a replace keeping that Reload", async ({
+  page,
+}, info) => {
+  await fixture(page, "toast-replace", info);
+  await page.clock.install();
+
+  const outside = await center(page.getByTestId("outside"));
+
+  await page.mouse.move(outside.x, outside.y);
+  await paused(page, async () => {
+    // Part 1: the replace drops the focused Reload.
+    await add(page, { title: "App", reload: true }, { id: "app", duration: Infinity });
+    await page.clock.runFor(100);
+    await page.getByTestId("reload-app").focus();
+    await add(page, { title: "App done" }, { id: "app", duration: 650 });
+    await page.clock.runFor(50);
+    await expect(page.getByTestId("reload-app")).toHaveCount(0);
+    expect(await focusInRegion(page)).toBe(false);
+    await page.clock.runFor(550);
+    await expect(toast(page, "app")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(150);
+    await expect(toast(page, "app")).toHaveCount(0);
+
+    // Part 2: a replace keeps the focused Reload; its after-render write replaces again without.
+    await add(page, { title: "App2", reload: true }, { id: "app2", duration: Infinity });
+    await page.clock.runFor(100);
+    await page.getByTestId("reload-app2").focus();
+    await page.evaluate(() => window.toastReplace!.replaceKeepArm("app2"));
+    await page.clock.runFor(50);
+    expect(await page.evaluate(() => window.toastReplace!.armedSaw)).toBe("same-reload");
+    await expect(page.getByTestId("reload-app2")).toHaveCount(0);
+    await expect(toast(page, "app2").locator("strong")).toHaveText("Removed");
+    expect(await focusInRegion(page)).toBe(false);
+    await page.clock.runFor(550);
+    await expect(toast(page, "app2")).toHaveAttribute("data-open", "true");
+    await page.clock.runFor(150);
+    await expect(toast(page, "app2")).toHaveCount(0);
+  });
 });

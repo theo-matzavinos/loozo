@@ -3,8 +3,10 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
+  Injector,
   PLATFORM_ID,
   Service,
+  afterNextRender,
   computed,
   forwardRef,
   inject,
@@ -37,15 +39,18 @@ export abstract class OrigamiToastRegionOptions<T> {
   /**
    * How long a toast without its own `duration` stays open, in milliseconds: a positive number up
    * to 2147483647, the longest `setTimeout` delay, or `Infinity`. Direct input default 5000. Read
-   * when the region shows a toast; another value throws a `RangeError` then, and a throwing `add`
-   * keeps nothing.
+   * when the region releases toasts, also when every waiting toast has its own `duration`, and
+   * when a shown toast is replaced without its own; another value throws a `RangeError` then, and
+   * an `add` that throws for it keeps nothing. Read it side-effect free: an accessor must not call the
+   * toaster or destroy the region.
    */
   abstract readonly duration: Signal<number>;
   /**
    * How many toasts stay open at once: a positive integer or `Infinity`. Direct input default 3.
-   * Read when the region shows a toast: when that takes the open toasts over it, the oldest open
-   * one closes with its exit. Another value throws a `RangeError` then, and a throwing
-   * `add` keeps nothing.
+   * Read when the region releases toasts, not when a shown toast is replaced: when a release
+   * takes the open toasts over it, the oldest open one closes with its exit. Another value throws
+   * a `RangeError` then, and an `add` that throws for it keeps nothing. Read it side-effect free: an
+   * accessor must not call the toaster or destroy the region.
    */
   abstract readonly limit: Signal<number>;
 
@@ -97,6 +102,7 @@ export class ToastRegionContext<T> {
   readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #document = inject(DOCUMENT);
   readonly #browser = !isPlatformServer(inject(PLATFORM_ID));
+  readonly #injector = inject(Injector);
   readonly #options = injectDeferred<OrigamiToastRegionOptions<T>>(OrigamiToastRegionOptions);
   /** The bound toaster's records, set once at registration. */
   readonly #store = signal<ToastStore<T> | null>(null);
@@ -115,6 +121,7 @@ export class ToastRegionContext<T> {
 
   readonly #region: ToasterRegion = {
     offer: () => this.#release(),
+    restart: (id, duration) => this.#restart(id, duration),
     close: (id) => this.close(id),
   };
 
@@ -224,14 +231,15 @@ export class ToastRegionContext<T> {
       return;
     }
 
+    // Looked up before the timer goes: a consumer's `toast()` that throws here leaves the record
+    // shown with its timer entry, so a later replace can restart it.
+    const toast = this.#toast(id);
     const timer = this.#timers.get(id);
 
     if (timer !== undefined) {
       this.#stop(timer);
       this.#timers.delete(id);
     }
-
-    const toast = this.#toast(id);
 
     if (toast === null) {
       store.drop(id);
@@ -338,6 +346,39 @@ export class ToastRegionContext<T> {
   }
 
   /**
+   * A shown record is being replaced: its time restarts from `duration`, else the region's, read
+   * now, held in full while the region is paused. Throws before any change; runs no limit pass.
+   */
+  #restart(id: string, duration: number | null): void {
+    if (this.#destroyed) {
+      return;
+    }
+
+    let remaining = duration;
+
+    if (remaining === null) {
+      remaining = untracked(() => this.#options().duration());
+      assertDuration(remaining, "A toast region's");
+    }
+
+    // Present from the record's release on, also before its Toast registers.
+    this.#stop(this.#timers.get(id)!);
+
+    const timer: Timer = { remaining, startedAt: 0, handle: null };
+
+    this.#timers.set(id, timer);
+
+    if (!this.#paused()) {
+      this.#start(id, timer);
+    }
+
+    // The replacement can remove a focused element, which dispatches no `focusout` in every
+    // engine: focus inside is read again once it has rendered. One check per replace, since a
+    // check registered during a render's after-render phase runs in the next one.
+    afterNextRender({ read: () => this.#synchronizePause() }, { injector: this.#injector });
+  }
+
+  /**
    * Shows every waiting record, oldest first, with its duration, then closes the oldest open
    * ones past the limit; while a modal dialog blocks the page, it holds them instead. Runs when
    * the toaster offers a record, when the region registers, on any dialog's `toggle` and `close`
@@ -366,36 +407,34 @@ export class ToastRegionContext<T> {
       return;
     }
 
-    const waiting: string[] = [];
-    const durations = new Map<string, number>();
-    let fallback: number | null = null;
+    // Read and validated before any write, also when every waiting record has its own duration:
+    // a record's limit close moves focus, and its listeners may replace a later record with one
+    // that needs the region's duration. No configuration read after this point throws.
+    const fallback = untracked(() => this.#options().duration());
 
-    for (const entry of entries) {
-      if (entry.duration === null && fallback === null) {
-        fallback = untracked(() => this.#options().duration());
-        assertDuration(fallback, "A toast region's");
-      }
-
-      waiting.push(entry.record.id);
-      durations.set(entry.record.id, entry.duration ?? fallback!);
-    }
+    assertDuration(fallback, "A toast region's");
 
     const limit = untracked(() => this.#options().limit());
 
     assertLimit(limit);
 
-    for (const id of waiting) {
+    for (const waiting of entries) {
+      const id = waiting.record.id;
+
       // A previous record's limit close moves focus, whose listeners may destroy or replace the
-      // region, close this record, open a modal dialog or move focus out of the region.
+      // region, close or replace this record, open a modal dialog or move focus out of the region.
       if (this.#destroyed || this.#held()) {
         return;
       }
 
-      if (store.find(id)?.status !== "waiting") {
+      // Read now, not when the batch started: a focus listener may have replaced this record.
+      const entry = store.find(id);
+
+      if (entry?.status !== "waiting") {
         continue;
       }
 
-      const timer: Timer = { remaining: durations.get(id)!, startedAt: 0, handle: null };
+      const timer: Timer = { remaining: entry.duration ?? fallback, startedAt: 0, handle: null };
 
       store.setStatus(id, "shown");
       this.#timers.set(id, timer);
@@ -447,11 +486,13 @@ export class ToastRegionContext<T> {
         return;
       }
 
-      const oldest = open[0]!.record.id;
+      const oldest = open[0]!;
 
-      this.close(oldest);
+      this.close(oldest.record.id);
 
-      if (store.find(oldest)?.status === "shown") {
+      // No progress only while this very entry is still there: a listener's new record with its
+      // id, added after the close, is progress, and this pass's limit still applies to it.
+      if (store.find(oldest.record.id) === oldest) {
         return;
       }
     }
@@ -573,11 +614,12 @@ export class OrigamiToastRegionState<T> {
  * announcement; every toast is polite.
  *
  * - **Timers.** Each toast closes after its `duration`, its own or the region's, counted from
- *   when the region shows it. The region pauses every toast while the pointer is over it, while
- *   focus is inside it and while the document is hidden, and resumes each with its remaining
- *   time. A window that merely loses focus doesn't pause it.
+ *   when the region shows it, and again in full from a replacement of a shown toast. The region
+ *   pauses every toast while the pointer is over it, while focus is inside it and while the
+ *   document is hidden, and resumes each with its remaining time. A window that merely loses
+ *   focus doesn't pause it.
  * - **Limit.** When showing a toast takes the open toasts over `limit`, the oldest open one
- *   closes with its exit.
+ *   closes with its exit. Replacing a shown toast doesn't show one, so nothing closes.
  * - **Focus.** A toast never takes focus. When a toast that contains focus closes, focus moves
  *   before its exit: to what had focus before focus entered the region, when no other toast
  *   stays open and it takes focus; otherwise to the region, from which Tab reaches the other

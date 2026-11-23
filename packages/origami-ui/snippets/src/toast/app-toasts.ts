@@ -118,9 +118,10 @@ export class Notifications {
   }
 
   failed(): void {
+    // One id, so repeated Fail clicks keep one toast and restart its time.
     this.toasts.add(
       { title: "Couldn't save the invoice", description: "Try again.", kind: "error" },
-      { duration: 8000 },
+      { id: "save-failed", duration: 8000 },
     );
   }
 }

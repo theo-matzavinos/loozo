@@ -435,6 +435,23 @@ export class ToastCaller {
       <button type="button" data-testid="deferred-add" (click)="addTo(deferred, 'Deferred')">
         Add to the deferred toaster
       </button>
+      <button
+        type="button"
+        data-testid="deferred-replace-1"
+        (click)="deferred.add({ title: 'DeferredR1' }, { id: 'deferred-r', duration: 1000 })"
+      >
+        Add DeferredR1 to the deferred toaster with id deferred-r
+      </button>
+      <button
+        type="button"
+        data-testid="deferred-replace-2"
+        (click)="deferred.add({ title: 'DeferredR2' }, { id: 'deferred-r', duration: Infinity })"
+      >
+        Replace it with DeferredR2
+      </button>
+      <button type="button" data-testid="deferred-close-r" (click)="deferred.close('deferred-r')">
+        Close deferred-r
+      </button>
       <button type="button" data-testid="deferred-hydrate" (click)="deferredHydrated.set(true)">
         Hydrate the deferred region
       </button>

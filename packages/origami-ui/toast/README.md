@@ -20,6 +20,7 @@ export interface AppToast {
   title: string;
   description?: string;
   kind: "success" | "info" | "warning" | "error";
+  reload?: boolean;
 }
 
 @Service()
@@ -35,11 +36,33 @@ toasts.add({ title: "Error", description: detail, kind: "error" }, { duration: 8
 const id = toasts.add({ title: "Uploading…", kind: "info" }, { duration: Infinity });
 
 toasts.close(id);
+
+// One toast per error: a repeat replaces the open one and restarts its time.
+toasts.add({ title: "Error", description: problem.detail, kind: "error" }, { id: problem.traceId });
+
+// Same id, so "Reload required" replaces "New version available" in place.
+toasts.add(
+  { title: "New version available", kind: "info", reload: true },
+  { id: "app-update", duration: Infinity },
+);
+toasts.add(
+  { title: "Reload required", kind: "error", reload: true },
+  { id: "app-update", duration: Infinity },
+);
 ```
 
-- **`add(data, options?)`** returns the toast's id, `og-toast-<n>`, unique in the application. `data` is kept by reference as the record's `data`: Origami never reads, copies or freezes it, so don't mutate it after adding. The only option is `duration`, in milliseconds, a positive number up to 2147483647 (about 24.8 days, the longest browser timer) or `Infinity`; anything else throws a `RangeError`. With a registered region, `add` also throws the region's `RangeError` for an invalid `duration` or `limit`; a throwing `add` keeps nothing. A wrong `data` shape is a compile error.
+- **`add(data, options?)`** returns the toast's id: the `id` you give, else a generated `og-toast-<n>`, which is unique in the application. `data` is kept by reference as the record's `data`: Origami never reads, copies or freezes it, so don't mutate it after adding. A wrong `data` shape is a compile error. The options are:
+  - `id`, a non-empty string; `undefined` is the same as leaving it out, and anything else throws a `TypeError`. It's scoped to the toaster: another toaster may use the same string. An id equal to a generated one, such as one `add` returned, targets that toast.
+  - `duration`, in milliseconds, a positive number up to 2147483647 (about 24.8 days, the longest browser timer) or `Infinity`; anything else throws a `RangeError`.
+- **Adding with the id of an open toast replaces it** instead of adding another:
+  - a toast that's shown gets the new data in place, in the same position and element, and its time restarts from the new `duration`, else the region's;
+  - a toast still waiting for its region, or held by a modal dialog, gets the new data and `duration` and keeps waiting;
+  - a toast running its exit counts as closed: a new toast with that id is added as the newest.
+
+  With a registered region, `add` also throws the region's `RangeError` for an invalid `duration` or `limit` when it reads them: a release that isn't held reads both; a shown toast's replacement reads only `duration`, and only when it has none of its own; a release held by a modal dialog reads neither, so the error comes later, from the release after the dialog closes. An `add` that throws for an invalid input or configuration keeps nothing and changes no existing toast. Any other exception during a release, such as one thrown by a Toast's `toast` Options signal that a limit close reads, propagates from `add` and can leave that release partly done: toasts it already showed stay shown. An exception in your own focus listener, which a limit close's focus move runs, doesn't reach `add`: the browser reports it and the release goes on.
+
 - **`close(id)`** closes that toast with its exit. An unknown id, or one already closing, does nothing.
-- On the server `add` keeps nothing and returns an id that matches nothing, so an HTTP interceptor that adds error toasts doesn't break server rendering. Server HTML never contains a toast.
+- On the server `add` keeps nothing and returns the given id, else a generated one, which matches nothing, so an HTTP interceptor that adds error toasts doesn't break server rendering. Server HTML never contains a toast.
 
 Toasts are typed through the region too: Angular infers the region's `T` from its `[ogToastRegion]` binding, so in `@for (toast of region.state.toasts(); …)` a misspelled `toast.data.titel` is a strict-template error.
 
@@ -49,7 +72,7 @@ Use one toaster per kind of toast, each with its own region. A toaster no region
 
 Author the region once, usually in your root component, so it's in the server's HTML before any toast exists: a live region announces reliably only when it exists before its content is added. Name it with `aria-label` or `aria-labelledby`; Origami ships no default label. Render `state.toasts()`, newest first, with `track toast.id`, and put `ogToast` on each toast's element.
 
-The region gets `role="region"`, `aria-live="polite"`, `aria-relevant="additions text"`, `aria-atomic="false"` and `tabindex="-1"`. Adding a toast's element to the region is its announcement; don't give a toast `role="status"` or `role="alert"`, which would re-read every toast or read one twice. A toast's whole text is read, its Close button's name included ("Todo created, Close"). Every toast is polite: it waits for the screen reader's current speech, errors included.
+The region gets `role="region"`, `aria-live="polite"`, `aria-relevant="additions text"`, `aria-atomic="false"` and `tabindex="-1"`. Adding a toast's element to the region is its announcement; don't give a toast `role="status"` or `role="alert"`, which would re-read every toast or read one twice. A toast's whole text is read, its Close button's name included ("Todo created, Close"). Every toast is polite: it waits for the screen reader's current speech, errors included. A replacement's changed text is eligible for a polite announcement; whether and what a screen reader reads hasn't been verified. A repeat whose rendered bindings and structure are unchanged changes nothing in the page, so nothing new is announced; conditional content can change the page even when the final text is the same. Render with `track toast.id`, so a replacement keeps its element and changes only its bindings.
 
 One region per toaster: a second region bound to the same toaster throws when it registers. The region reads its toaster once, when it registers; binding another toaster later isn't followed.
 
@@ -58,21 +81,21 @@ One region per toaster: a second region bound to the same toaster throws when it
 
 ## Timers and pausing
 
-Each toast closes after its `duration`: its own, else the region's, read when the region shows it. `Infinity` never closes. The region's `duration` has the same range as a toast's, a positive number up to 2147483647 or `Infinity`; anything else throws a `RangeError` when the region shows a toast.
+Each toast closes after its `duration`: its own, else the region's, read when the region shows it. Replacing a shown toast restarts its time from its full new duration, its own, else the region's, read then. `Infinity` never closes. The region's `duration` has the same range as a toast's, a positive number up to 2147483647 or `Infinity`; anything else throws a `RangeError` when the region shows toasts, also ones that all have their own `duration`, and when a replacement without its own restarts a shown toast.
 
-The region pauses every toast while the pointer is over it, while focus is inside it and while the document is hidden, such as in a background tab. When it resumes, each toast continues with the time it had left. A window that merely loses focus, with another window in front, doesn't pause it. Hover is tracked by `pointerenter` and `pointerleave`, so when the toast under a still pointer is removed, the region stays paused until the pointer moves. Focus inside is checked again when your template removes an `ogToast` or an `ogToastClose` holding it, unless an Angular leave animation (`animate.leave`) keeps the element in the page past that check; when it removes another focused element inside a toast, the region stays paused until the next pointer, focus or visibility change on it.
+The region pauses every toast while the pointer is over it, while focus is inside it and while the document is hidden, such as in a background tab. When it resumes, each toast continues with the time it had left. A window that merely loses focus, with another window in front, doesn't pause it. Hover is tracked by `pointerenter` and `pointerleave`, so when the toast under a still pointer is removed, the region stays paused until the pointer moves. Focus inside is checked again when your template removes an `ogToast` or an `ogToastClose` holding it, unless an Angular leave animation (`animate.leave`) keeps the element in the page past that check. When replacing a shown toast removes a focused element, such as an action rendered under `@if`, focus inside is checked again after the replacement renders, unless `animate.leave` keeps that element in the page past the check. When your template removes another focused element inside a toast by other means, the region stays paused until the next pointer, focus or visibility change on it.
 
 Pausing on hover and focus doesn't help screen-reader users browsing with the virtual cursor. Auto-dismissal is acceptable under WCAG 2.2.1 only when the information is also available elsewhere, such as in the list the toast reports on; that's yours to provide. Use `{ duration: Infinity }` for a toast someone must act on.
 
 ## Limit
 
-`limit` counts the open toasts. When showing a toast takes the open toasts over it, the oldest open toast closes with its exit. If you add more toasts than `limit` in one handler, the oldest of them close before Angular renders them, so they never render. It's a positive integer or `Infinity`; anything else throws a `RangeError` when the region shows a toast.
+`limit` counts the open toasts. When showing a toast takes the open toasts over it, the oldest open toast closes with its exit. If you add more toasts than `limit` in one handler, the oldest of them close before Angular renders them, so they never render. It's a positive integer or `Infinity`; anything else throws a `RangeError` when the region shows a toast. Replacing a shown toast doesn't close anything; adding again with the id of one running its exit adds it as the newest, which can close the oldest.
 
-To set `duration` and `limit` for the whole application, wrap the region in your own directive and [replace its Options](#replacing-options).
+To set `duration` and `limit` for the whole application, wrap the region in your own directive and [replace its Options](#replacing-options). Read them without side effects: an Options accessor must not call the toaster or destroy the region, and Origami doesn't guard against one that does.
 
 ## Closing and removal
 
-A toast closes when its time runs out, on its Close button, on `close(id)` and by the limit. Its State `open()` turns false, its composed Presence runs the exit (`data-leaving`), and once the exit settles the region drops the record, which removes the element from your `@for`. Without an animation, also under reduced-motion CSS, it's removed at once. While its exit runs, the toast is `inert`. A toast closed before its `ogToast` registers, that is before Angular renders it, such as one you `close` right after `add`, is dropped at once and never renders.
+A toast closes when its time runs out, on its Close button, on `close(id)` and by the limit. Its State `open()` turns false, its composed Presence runs the exit (`data-leaving`), and once the exit settles the region drops the record, which removes the element from your `@for`. Without an animation, also under reduced-motion CSS, it's removed at once. While its exit runs, the toast is `inert`. A toast closed before its `ogToast` registers, that is before Angular renders it, such as one you `close` right after `add`, is dropped at once and never renders. Adding again with its id during the exit brings it back as the newest: when Angular keeps its element, the exit reverses into an entrance.
 
 There is no Escape, swipe or hotkey.
 
@@ -110,7 +133,8 @@ The region looks again whenever a dialog opens or closes and, while it holds toa
 
 - A toast you add while a dialog stays open waits until it closes, however long that takes.
 - A toast added in the same turn you request a Dialog open, before Angular renders it and the dialog becomes modal, is shown at once and then made inert by the dialog: it may not be announced.
-- Toasts already shown when a dialog opens stay, inert under it, and keep their time: they can close before the dialog does.
+- Toasts already shown when a dialog opens stay, inert under it, and keep their time: they can close before the dialog does. Replacing one replaces it in place, and its new time runs.
+- Replacing a held toast keeps it waiting with its new data and `duration`, also when the same handler closes the dialog: it's shown at the dialog's `close` event or the next frame.
 - Whether a screen reader announces a toast shown as a dialog closes, in the same task as focus returning, hasn't been verified yet.
 - A fullscreen element also makes the page inert, but doesn't hold toasts: under it they're shown inert and unannounced.
 - Browsers don't run animation frames in a hidden tab: toasts held by a dialog removed while the tab is hidden are shown once it's visible again.
@@ -143,4 +167,4 @@ The server renders the region with its attributes and an empty list, so the live
 
 ## Not included
 
-No action or cancel part, `update`, promise or loading toasts, deduplication, callbacks or a `closed` promise, hotkey, Escape, swipe, pause on window blur, measured heights or offsets for a collapsed stack, top-layer presentation, several regions or positions per toaster, default label, component content, `ariaNotify` or assertive priority.
+No action or cancel part, `update` method (`add` with an id replaces), merging a replacement into the previous data, promise or loading toasts, callbacks or a `closed` promise, hotkey, Escape, swipe, pause on window blur, measured heights or offsets for a collapsed stack, top-layer presentation, several regions or positions per toaster, default label, component content, `ariaNotify` or assertive priority.
