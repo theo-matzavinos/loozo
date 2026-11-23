@@ -38,6 +38,9 @@
       "@loozo/origami-ui/switch": ["../origami-ui/switch/src/public-api.ts"],
       "@loozo/origami-ui/tabs": ["../origami-ui/tabs/src/public-api.ts"],
       "@loozo/origami-ui/toast": ["../origami-ui/toast/src/public-api.ts"],
+      "@loozo/origami-ui/toggle": ["../origami-ui/toggle/src/public-api.ts"],
+      "@loozo/origami-ui/toggle-group": ["../origami-ui/toggle-group/src/public-api.ts"],
+      "@loozo/origami-ui/toolbar": ["../origami-ui/toolbar/src/public-api.ts"],
       "@loozo/origami-ui/tooltip": ["../origami-ui/tooltip/src/public-api.ts"]
     }
   },

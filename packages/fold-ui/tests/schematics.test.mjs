@@ -453,6 +453,9 @@ describe("add", () => {
       tabs: ["cn", "tabs"],
       textarea: ["cn", "input", "textarea"],
       toast: ["button", "cn", "popup", "toast"],
+      toggle: ["button", "cn", "toggle"],
+      "toggle-group": ["button", "cn", "toggle", "toggle-group"],
+      toolbar: ["button", "cn", "toggle", "toggle-group", "toolbar"],
       tooltip: ["cn", "popup", "tooltip"],
     };
 
@@ -598,6 +601,33 @@ describe("add", () => {
     assert.match(
       readText(tree, "src/ui/toast/toast-close.ts"),
       /selector: "button\[zzToastClose\]"/,
+    );
+  });
+
+  test("renames Toggle's, ToggleGroup's and Toolbar's parts with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["toggle", "toggle-group", "toolbar"] },
+      await setUp(runner),
+    );
+
+    assert.match(readText(tree, "src/ui/toggle/toggle.ts"), /selector: "button\[zzToggle\]"/);
+    assert.match(
+      readText(tree, "src/ui/toggle-group/toggle-group-single.ts"),
+      /selector: "\[zzToggleGroupSingle\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/toggle-group/toggle-group-item.ts"),
+      /selector: "button\[zzToggleGroupItem\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/toolbar/toolbar-separator.ts"),
+      /selector: "\[zzToolbarSeparator\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/toolbar/toolbar-menu-trigger.ts"),
+      /selector: "button\[zzToolbarMenuTrigger\]"/,
     );
   });
 

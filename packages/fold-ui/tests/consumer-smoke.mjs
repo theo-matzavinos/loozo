@@ -19,7 +19,9 @@
 // sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
 // forced colors, and the date fields' and DatePicker's server state, cells that keep their width
 // while typing, gaps, looks, popup placement, choosing, Escape in a Dialog, readonly and disabled
-// policies and forced colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
+// policies and forced colors, and Toggle's, ToggleGroup's and Toolbar's server state and tab
+// stops, looks, sizes, Field wiring, segmented geometry and dot, keys, roving, bindings, wrapping,
+// popups, reduced motion and forced colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
 // and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial focus, revealing the
 // active option or the focused control, and height caps) is consumer-scrolling.mjs's, in every
 // engine.
@@ -9397,6 +9399,835 @@ try {
     }
 
     assert.equal(await iconStroke("dp-field"), systemColors.canvasText);
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
+
+  // Toggle, ToggleGroup and Toolbar: the server state and each root's own tab stop; Toggle's
+  // looks per state, sizes, focus ring, Field wiring and a focusable-disabled Toggle that stays
+  // pressed; the segmented control's geometry, dot (one per Single, reset by every root), keys
+  // and values; Toolbar roving, its wrappers' bindings and guarded Redo, layout and wrapping,
+  // one-line radio rows, popups, reduced motion and forced colors.
+  {
+    const toggleRect = (selector) =>
+      page.evaluate((selector) => {
+        const { left, top, right, bottom, width, height } = document
+          .querySelector(selector)
+          .getBoundingClientRect();
+
+        return { left, top, right, bottom, width, height };
+      }, selector);
+    const focusByKeyboard = async (selector) => {
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await page.keyboard.press("Shift");
+      await page.focus(selector);
+      await rendered();
+    };
+    const pressed = (id) => attribute(id, "aria-pressed");
+    const resultOf = async (id) => (await textOf(id)).replace(/\s+/g, " ");
+    // Origami writes the moved tab stop at the next render; a Tab before it lands on the old one.
+    const tabStopSettled = () =>
+      page.waitForFunction(() => document.activeElement?.getAttribute("tabindex") === "0");
+    const dotOf = (id) => `#${id} > [data-slot=toggle-group-indicator]`;
+    const dotDisplay = async (id) => (await styleOf(dotOf(id), ["display"])).display;
+    // Holds the pointer down on an element, reads it, and releases elsewhere, so nothing clicks.
+    const held = async (selector, properties) => {
+      await page.hover(selector);
+      await page.mouse.down();
+
+      const style = await styleOf(selector, properties);
+
+      await page.mouse.move(0, 0);
+      await page.mouse.up();
+
+      return style;
+    };
+    const backgroundOf = (value) =>
+      page.evaluate((value) => {
+        const probe = document.createElement("span");
+
+        probe.style.backgroundColor = value;
+        document.body.append(probe);
+
+        const color = getComputedStyle(probe).backgroundColor;
+
+        probe.remove();
+
+        return color;
+      }, value);
+    const palette = {
+      foreground: "rgb(237, 237, 235)",
+      mutedForeground: "rgb(163, 163, 160)",
+      muted: "rgb(42, 42, 42)",
+      surface: "rgb(28, 28, 28)",
+      input: "rgb(107, 107, 104)",
+      border: "rgb(46, 46, 46)",
+      ring: "rgb(76, 196, 111)",
+    };
+    const borderRing = `${palette.border} 0px 0px 0px 1px inset`;
+    const edge = "rgba(0, 0, 0, 0.4) 0px 1px 2px 0px";
+    const pressedInset = "rgba(0, 0, 0, 0.25) 0px 1px 2px 0px inset";
+
+    // #toolbar's own controls in DOM order, its Single group among them, and each one's tabindex:
+    // only the current control is "0", every other one "-1", so the Toolbar is one Tab stop.
+    const toolbarControls = [
+      "tb-undo",
+      "tb-redo",
+      "tb-bold",
+      "tb-italic",
+      "tb-spell",
+      "tb-week",
+      "tb-month",
+      "tb-left",
+      "tb-center",
+      "tb-right",
+      "tb-symbol",
+      "tb-more",
+      "tb-copy",
+    ];
+    const tabIndexesOf = (target, ids) =>
+      target.evaluate(
+        (ids) =>
+          Object.fromEntries(
+            ids.map((id) => [id, document.getElementById(id).getAttribute("tabindex")]),
+          ),
+        ids,
+      );
+    const oneTabStop = (current) =>
+      Object.fromEntries(
+        toolbarControls.map((id) => {
+          if (id === current) {
+            return [id, "0"];
+          }
+
+          return [id, "-1"];
+        }),
+      );
+
+    // Server HTML, parsed by a page without scripts.
+    const togglesPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await togglesPrerendered.goto(base);
+
+    const togglesServer = await togglesPrerendered.evaluate(() => {
+      const byId = (id) => document.getElementById(id);
+      const attributes = (id, names) =>
+        Object.fromEntries(names.map((name) => [name, byId(id).getAttribute(name)]));
+      // The buttons a root owns: its items, without those of a root nested inside it.
+      const ownedStops = (id, rootSelector) =>
+        [...byId(id).querySelectorAll("button")].filter(
+          (button) =>
+            button.closest(rootSelector) === byId(id) && button.getAttribute("tabindex") === "0",
+        ).length;
+      const groups = [
+        "tg-status",
+        "tg-marks",
+        "tg-density",
+        "tg-disabled",
+        "tg-billing",
+        "tg-outer",
+        "tg-nested",
+      ];
+      const toolbars = [
+        "toolbar",
+        "toolbar-narrow",
+        "toolbar-long",
+        "toolbar-vertical",
+        "toolbar-rtl",
+      ];
+      const indicated = [...groups, "tb-marks", "tb-view"].filter((id) =>
+        byId(id).hasAttribute("data-indicator"),
+      );
+      const items = [...document.querySelectorAll("#toggles [data-slot=toggle-group-item]")];
+
+      return {
+        off: attributes("toggle-mute", ["aria-pressed", "data-pressed", "data-slot"]),
+        on: attributes("toggle-lg", ["aria-pressed", "data-pressed", "data-slot"]),
+        status: attributes("tg-status", ["role", "data-orientation", "data-slot"]),
+        density: attributes("tg-density", ["role", "data-orientation"]),
+        indicated,
+        groupStops: Object.fromEntries(
+          groups.map((id) => [id, ownedStops(id, "[data-slot=toggle-group]")]),
+        ),
+        toolbarStops: Object.fromEntries(
+          toolbars.map((id) => [id, ownedStops(id, "[data-slot=toolbar]")]),
+        ),
+        hiddenDots: items.every(
+          (item) =>
+            item
+              .querySelector(":scope > [data-slot=toggle-group-indicator]")
+              ?.getAttribute("aria-hidden") === "true",
+        ),
+        toolbar: attributes("toolbar", ["role", "aria-orientation", "data-orientation"]),
+        vertical: attributes("toolbar-vertical", ["role", "aria-orientation"]),
+        separator: attributes("tb-sep-1", ["role", "aria-orientation", "data-slot"]),
+        verticalSeparator: attributes("vert-sep", ["role", "aria-orientation"]),
+        align: attributes("tb-align", ["role", "data-orientation", "data-slot"]),
+        verticalAlign: attributes("vert-align", ["data-orientation"]),
+        symbol: attributes("tb-symbol", ["aria-haspopup", "aria-expanded", "data-slot"]),
+        more: attributes("tb-more", ["aria-haspopup", "data-slot"]),
+        formLabel: byId("toggle-form-label").getAttribute("for"),
+        formId: byId("toggle-form").id,
+      };
+    });
+
+    const serverToolbarTabIndexes = await tabIndexesOf(togglesPrerendered, toolbarControls);
+
+    await togglesPrerendered.close();
+    assert.deepEqual(togglesServer.off, {
+      "aria-pressed": "false",
+      "data-pressed": null,
+      "data-slot": "toggle",
+    });
+    assert.deepEqual(togglesServer.on, {
+      "aria-pressed": "true",
+      "data-pressed": "",
+      "data-slot": "toggle",
+    });
+    assert.deepEqual(togglesServer.status, {
+      role: "group",
+      "data-orientation": "horizontal",
+      "data-slot": "toggle-group",
+    });
+    assert.deepEqual(togglesServer.density, { role: "group", "data-orientation": "vertical" });
+    assert.deepEqual(togglesServer.indicated, ["tg-status", "tg-disabled", "tg-outer", "tb-view"]);
+    // Every item of the root-disabled group is natively disabled, so it has no tab stop.
+    assert.deepEqual(togglesServer.groupStops, {
+      "tg-status": 1,
+      "tg-marks": 1,
+      "tg-density": 1,
+      "tg-disabled": 0,
+      "tg-billing": 1,
+      "tg-outer": 1,
+      "tg-nested": 1,
+    });
+    assert.deepEqual(togglesServer.toolbarStops, {
+      toolbar: 1,
+      "toolbar-narrow": 1,
+      "toolbar-long": 1,
+      "toolbar-vertical": 1,
+      "toolbar-rtl": 1,
+    });
+    assert.deepEqual(serverToolbarTabIndexes, oneTabStop("tb-undo"), "the server's Tab stop");
+    assert.ok(togglesServer.hiddenDots, "every item's dot is aria-hidden");
+    assert.deepEqual(togglesServer.toolbar, {
+      role: "toolbar",
+      "aria-orientation": "horizontal",
+      "data-orientation": "horizontal",
+    });
+    assert.deepEqual(togglesServer.vertical, { role: "toolbar", "aria-orientation": "vertical" });
+    assert.deepEqual(togglesServer.separator, {
+      role: "separator",
+      "aria-orientation": "vertical",
+      "data-slot": "toolbar-separator",
+    });
+    assert.deepEqual(togglesServer.verticalSeparator, {
+      role: "separator",
+      "aria-orientation": "horizontal",
+    });
+    assert.deepEqual(togglesServer.align, {
+      role: "radiogroup",
+      "data-orientation": "horizontal",
+      "data-slot": "toolbar-radio-group",
+    });
+    assert.deepEqual(togglesServer.verticalAlign, { "data-orientation": "vertical" });
+    assert.deepEqual(togglesServer.symbol, {
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false",
+      "data-slot": "toolbar-popover-trigger",
+    });
+    assert.deepEqual(togglesServer.more, {
+      "aria-haspopup": "menu",
+      "data-slot": "toolbar-menu-trigger",
+    });
+    assert.equal(togglesServer.formLabel, togglesServer.formId, "the Label names the Toggle");
+
+    // Looks: no motion, so each state reads settled.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+
+    const lookProperties = [
+      "backgroundColor",
+      "boxShadow",
+      "color",
+      "fontWeight",
+      "translate",
+      "opacity",
+    ];
+    const ghostHover = await backgroundOf("color-mix(in oklab, var(--foreground) 8%, transparent)");
+    const ghostHeld = await backgroundOf("color-mix(in oklab, var(--foreground) 14%, transparent)");
+    const mutedHover = await backgroundOf(
+      "color-mix(in oklab, var(--foreground) 8%, var(--muted))",
+    );
+    const mutedHeld = await backgroundOf(
+      "color-mix(in oklab, var(--foreground) 14%, var(--muted))",
+    );
+    const off = await styleOf("#toggle-mute", lookProperties);
+    const on = await styleOf("#toggle-lg", lookProperties);
+    const offDisabled = await styleOf("#toggle-off-disabled", lookProperties);
+    const onDisabled = await styleOf("#toggle-on-disabled", lookProperties);
+
+    await page.hover("#toggle-mute");
+
+    const offHover = await styleOf("#toggle-mute", lookProperties);
+
+    await page.hover("#toggle-lg");
+
+    const onHover = await styleOf("#toggle-lg", lookProperties);
+    const offHeld = await held("#toggle-mute", lookProperties);
+    const onHeld = await held("#toggle-lg", lookProperties);
+
+    assert.ok(transparent(off.backgroundColor), `off background ${off.backgroundColor}`);
+    assert.ok(shadowless(off.boxShadow), `off shadow ${off.boxShadow}`);
+    assert.equal(off.color, palette.foreground);
+    assert.equal(off.fontWeight, "600");
+    assert.equal(offHover.backgroundColor, ghostHover);
+    assert.ok(shadowless(offHover.boxShadow), `off hover shadow ${offHover.boxShadow}`);
+    assert.equal(offHeld.backgroundColor, ghostHeld);
+    assert.ok(offHeld.boxShadow.includes(pressedInset), `off held shadow ${offHeld.boxShadow}`);
+    assert.equal(offHeld.translate, "0px 1px");
+    assert.equal(on.backgroundColor, palette.muted);
+    assert.ok(on.boxShadow.includes(borderRing), `on ring ${on.boxShadow}`);
+    assert.ok(on.boxShadow.includes(edge), `on edge ${on.boxShadow}`);
+    assert.equal(on.color, palette.foreground);
+    assert.equal(on.fontWeight, "600");
+    assert.equal(onHover.backgroundColor, mutedHover);
+    assert.ok(onHover.boxShadow.includes(edge), `on hover edge ${onHover.boxShadow}`);
+    assert.equal(onHeld.backgroundColor, mutedHeld);
+    assert.ok(onHeld.boxShadow.includes(borderRing), `on held ring ${onHeld.boxShadow}`);
+    assert.ok(onHeld.boxShadow.includes(pressedInset), `on held inset ${onHeld.boxShadow}`);
+    assert.equal(onHeld.boxShadow.includes(edge), false, `on held edge ${onHeld.boxShadow}`);
+    assert.equal(onHeld.translate, "0px 1px");
+    assert.equal(onDisabled.backgroundColor, palette.muted);
+    assert.ok(onDisabled.boxShadow.includes(borderRing), `on disabled ${onDisabled.boxShadow}`);
+    assert.equal(onDisabled.boxShadow.includes(edge), false, `on disabled ${onDisabled.boxShadow}`);
+    assert.equal(onDisabled.opacity, "0.5");
+    assert.ok(transparent(offDisabled.backgroundColor), offDisabled.backgroundColor);
+    assert.equal(offDisabled.opacity, "0.5");
+
+    const toggleSizes = await page.evaluate(() =>
+      Object.fromEntries(
+        ["toggle-wrap", "toggle-mute", "toggle-lg", "toggle-pin"].map((id) => {
+          const { width, height } = document.getElementById(id).getBoundingClientRect();
+
+          return [id, `${width}x${height}`];
+        }),
+      ),
+    );
+
+    assert.equal(toggleSizes["toggle-wrap"].split("x")[1], "28");
+    assert.equal(toggleSizes["toggle-mute"].split("x")[1], "32");
+    assert.equal(toggleSizes["toggle-lg"].split("x")[1], "36");
+    assert.equal(toggleSizes["toggle-pin"], "32x32");
+
+    await focusByKeyboard("#toggle-mute");
+    assert.deepEqual(await outline("#toggle-mute"), ringOutline(palette.ring));
+
+    // Behaviour: a click writes the model, the Field's Toggle writes the form and blur touches it,
+    // and a focusable-disabled Toggle stays pressed under Space and a click.
+    await page.click("#toggle-mute");
+    await until("toggle-mute", "aria-pressed", "true");
+    await page.click("#toggle-form");
+    await until("toggle-form", "aria-pressed", "true");
+    await page.evaluate(() => document.activeElement?.blur());
+    await rendered();
+    await focusByKeyboard("#toggle-focusable-disabled");
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const locked = document.getElementById("toggle-focusable-disabled");
+
+        return {
+          nativeDisabled: locked.disabled,
+          ariaDisabled: locked.getAttribute("aria-disabled"),
+          focused: document.activeElement === locked,
+        };
+      }),
+      { nativeDisabled: false, ariaDisabled: "true", focused: true },
+      "the disabled Toggle stays natively enabled and takes focus",
+    );
+    await page.keyboard.press("Space");
+    await page.click("#toggle-focusable-disabled", { force: true });
+    await rendered();
+    assert.equal(await pressed("toggle-focusable-disabled"), "true");
+    assert.equal(await attribute("toggle-focusable-disabled", "data-disabled"), "");
+    assert.equal(await resultOf("toggle-result"), "true true true 0");
+
+    // Segmented geometry and looks.
+    const track = await styleOf("#tg-status", [
+      "height",
+      "paddingTop",
+      "paddingLeft",
+      "columnGap",
+      "borderTopWidth",
+      "borderTopColor",
+      "borderTopLeftRadius",
+      "backgroundColor",
+    ]);
+
+    assert.deepEqual(track, {
+      height: "32px",
+      paddingTop: "2px",
+      paddingLeft: "2px",
+      columnGap: "2px",
+      borderTopWidth: "1px",
+      borderTopColor: palette.input,
+      borderTopLeftRadius: "10px",
+      backgroundColor: palette.surface,
+    });
+
+    const segmentProperties = [
+      "height",
+      "borderTopLeftRadius",
+      "paddingLeft",
+      "color",
+      "fontWeight",
+      "backgroundColor",
+    ];
+    const unpressedSegment = await styleOf("#seg-all", segmentProperties);
+    const pressedSegment = await styleOf("#seg-active", [...segmentProperties, "boxShadow"]);
+
+    assert.deepEqual(unpressedSegment, {
+      height: "26px",
+      borderTopLeftRadius: "7px",
+      paddingLeft: "10px",
+      color: palette.mutedForeground,
+      fontWeight: "500",
+      backgroundColor: unpressedSegment.backgroundColor,
+    });
+    assert.ok(transparent(unpressedSegment.backgroundColor), unpressedSegment.backgroundColor);
+    assert.equal(pressedSegment.height, "26px");
+    assert.equal(pressedSegment.color, palette.foreground);
+    assert.equal(pressedSegment.fontWeight, "600");
+    assert.equal(pressedSegment.backgroundColor, palette.muted);
+    assert.ok(pressedSegment.boxShadow.includes(borderRing), pressedSegment.boxShadow);
+    assert.ok(pressedSegment.boxShadow.includes(edge), pressedSegment.boxShadow);
+
+    // The dot: on the pressed item of an indicator Single only; never in Multiple, and a root
+    // nested in an indicator root resets it. Without that reset the variable inherits.
+    assert.deepEqual(
+      {
+        status: await dotDisplay("seg-active"),
+        statusUnpressed: await dotDisplay("seg-all"),
+        outer: await dotDisplay("tg-outer-item"),
+        nested: await dotDisplay("tg-nested-item"),
+        disabled: await dotDisplay("tg-disabled-all"),
+        view: await dotDisplay("tb-month"),
+        multiple: await dotDisplay("tg-bold"),
+      },
+      {
+        status: "block",
+        statusUnpressed: "none",
+        outer: "block",
+        nested: "none",
+        disabled: "block",
+        view: "block",
+        multiple: "none",
+      },
+    );
+    assert.equal(
+      (await styleOf(dotOf("seg-active"), ["backgroundColor"])).backgroundColor,
+      palette.ring,
+    );
+    await page.evaluate(() =>
+      document.getElementById("tg-nested").classList.remove("[--toggle-group-indicator:none]"),
+    );
+    assert.deepEqual(
+      [await dotDisplay("tg-outer-item"), await dotDisplay("tg-nested-item")],
+      ["block", "block"],
+      "the nested dot inherits without its root's reset",
+    );
+    await page.evaluate(() =>
+      document.getElementById("tg-nested").classList.add("[--toggle-group-indicator:none]"),
+    );
+    assert.equal(await dotDisplay("tg-nested-item"), "none");
+
+    // Vertical: a column of full-width items. Root disabled: each item dims, not the track.
+    const densityLayout = await page.evaluate(() => {
+      const width = (id) => document.getElementById(id).getBoundingClientRect().width;
+
+      return {
+        direction: getComputedStyle(document.getElementById("tg-density")).flexDirection,
+        compact: width("density-compact"),
+        comfortable: width("density-comfortable"),
+      };
+    });
+
+    assert.equal(densityLayout.direction, "column");
+    assert.equal(densityLayout.compact, densityLayout.comfortable);
+    assert.equal(await attribute("tg-disabled-all", "data-disabled"), "");
+    assert.equal((await styleOf("#tg-disabled-all", ["opacity"])).opacity, "0.5");
+    assert.equal((await styleOf("#tg-disabled", ["opacity"])).opacity, "1");
+
+    // Keys and values: arrows move and skip the disabled item, wrapping, and never press; Space
+    // presses. A Single keeps its pressed item on a second click unless deselectable; Multiple
+    // toggles each value.
+    await focusByKeyboard("#seg-active");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await activeId(), "seg-ending");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await activeId(), "seg-all");
+    assert.equal(await pressed("seg-all"), "false");
+    await page.keyboard.press("Space");
+    await until("seg-all", "aria-pressed", "true");
+    await page.click("#seg-all");
+    await rendered();
+    assert.equal(await pressed("seg-all"), "true");
+    await page.click("#density-compact");
+    await until("density-compact", "aria-pressed", "false");
+    await page.click("#tg-underline");
+    await page.click("#tg-bold");
+    await rendered();
+    assert.equal(await resultOf("tg-result"), "all italic,underline none");
+    await page.click("#focus-billing");
+    await rendered();
+    assert.equal(await activeId(), "billing-annual");
+
+    // Toolbar roving: one Tab stop; arrows walk every control in DOM order, through the groups'
+    // items and the focusable-disabled Redo, wrap, and never press or check; Home and End.
+    const toolbarStates = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#toolbar button")].map(
+          (button) =>
+            `${button.id}:${button.getAttribute("aria-pressed") ?? ""}${button.getAttribute("aria-checked") ?? ""}`,
+        ),
+      );
+    const statesBefore = await toolbarStates();
+
+    await focusByKeyboard("#tg-nested-item");
+    await page.keyboard.press("Tab");
+    assert.equal(await activeId(), "tb-undo");
+    assert.deepEqual(await outline("#tb-undo"), ringOutline(palette.ring));
+
+    assert.deepEqual(await tabIndexesOf(page, toolbarControls), oneTabStop("tb-undo"));
+
+    const walk = [];
+
+    for (let step = 0; step < toolbarControls.length; step += 1) {
+      await page.keyboard.press("ArrowRight");
+      walk.push(await activeId());
+    }
+
+    assert.deepEqual(walk, [...toolbarControls.slice(1), "tb-undo"]);
+    // Arrows enter and leave the Single group from its neighbours; inside it, the Toolbar's one
+    // stop moves to the item, Tab leaves the Toolbar, and Shift+Tab comes back to the item.
+    await page.keyboard.press("Home");
+
+    for (let step = 0; step < toolbarControls.indexOf("tb-week"); step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+
+    assert.equal(await activeId(), "tb-week");
+    await tabStopSettled();
+    assert.deepEqual(await tabIndexesOf(page, toolbarControls), oneTabStop("tb-week"));
+    await page.keyboard.press("Tab");
+    assert.equal(
+      await page.evaluate(() =>
+        document.getElementById("toolbar").contains(document.activeElement),
+      ),
+      false,
+      `Tab from the group leaves the Toolbar: ${await activeId()}`,
+    );
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await activeId(), "tb-week", "Shift+Tab returns to the group's item");
+    await page.keyboard.press("End");
+    assert.equal(await activeId(), "tb-copy");
+    await page.keyboard.press("Home");
+    assert.equal(await activeId(), "tb-undo");
+    await page.keyboard.press("End");
+    await tabStopSettled();
+    await page.keyboard.press("Tab");
+    assert.notEqual(await activeId(), "tb-copy");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await activeId(), "tb-copy", "the Toolbar keeps its moved tab stop");
+    assert.deepEqual(await toolbarStates(), statesBefore, "arrows never press or check");
+    await focusByKeyboard("#rtl-first");
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await activeId(), "rtl-second", "ArrowLeft moves forward right to left");
+
+    // The wrappers forward their bindings: ToolbarToggle's checked, the radio group's value and
+    // the Single's deselectable. Redo, focusable while disabled, keeps the guard's count at 0.
+    await page.click("#tb-spell");
+    await until("tb-spell", "aria-pressed", "false");
+    await page.click("#tb-right");
+    await until("tb-right", "aria-checked", "true");
+    await page.click("#tb-italic");
+    await until("tb-italic", "aria-pressed", "true");
+    await page.click("#tb-week");
+    await until("tb-week", "aria-pressed", "true");
+    await page.click("#tb-week");
+    await until("tb-week", "aria-pressed", "false");
+    await focusByKeyboard("#tb-redo");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Space");
+    await page.click("#tb-redo", { force: true });
+    await rendered();
+    assert.equal(await attribute("tb-redo", "data-disabled"), "");
+    assert.equal(await resultOf("tb-result"), "false right none 0 false bold,italic");
+
+    // Layout: one row at the page's width, 8px apart; the 360px Toolbar wraps whole controls
+    // onto rows 8px apart without overflowing; 1×20px separators; registered heights; radio rows
+    // stay one 32px line, also inside a Tooltip and beside a long unbreakable label.
+    const toolbarLayout = await page.evaluate(() => {
+      const rectOf = (id) => document.getElementById(id).getBoundingClientRect();
+      const rows = (ids) =>
+        new Set(ids.map((id) => Math.round(rectOf(id).top + rectOf(id).height / 2))).size;
+      const wide = [
+        "tb-undo",
+        "tb-redo",
+        "tb-sep-1",
+        "tb-marks",
+        "tb-spell",
+        "tb-view",
+        "tb-align",
+        "tb-symbol",
+        "tb-more",
+        "tb-copy",
+      ];
+      const narrow = [
+        "n-undo",
+        "n-redo",
+        "n-marks",
+        "n-spell",
+        "n-align",
+        "n-symbol",
+        "n-more",
+        "n-copy",
+      ];
+      const narrowBox = rectOf("toolbar-narrow");
+      const radioRow = (id) => {
+        const item = document.getElementById(id);
+        const style = getComputedStyle(item);
+        const range = document.createRange();
+
+        range.selectNodeContents(item.lastElementChild);
+
+        return {
+          height: item.getBoundingClientRect().height,
+          shrink: style.flexShrink,
+          whiteSpace: style.whiteSpace,
+          lines: new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size,
+        };
+      };
+      const height = (id) => rectOf(id).height;
+      const radioItems = (id) => [
+        ...document.getElementById(id).querySelectorAll("[data-slot=radio-group-item]"),
+      ];
+      // The distinct rows a radio group's items sit on.
+      const itemRows = (id) =>
+        new Set(radioItems(id).map((item) => Math.round(item.getBoundingClientRect().top))).size;
+      const verticalItems = radioItems("vert-align").map((item) => item.getBoundingClientRect());
+      // The vertical Toolbar's own controls, in DOM order: one column, each below the last.
+      const verticalControls = ["vert-start", "vert-sep", "vert-align", "vert-end"].map(rectOf);
+
+      return {
+        wideRows: rows(wide),
+        wideGap: rectOf("tb-redo").left - rectOf("tb-undo").right,
+        columnGap: getComputedStyle(document.getElementById("toolbar")).columnGap,
+        narrowRows: rows(narrow),
+        rowGap: getComputedStyle(document.getElementById("toolbar-narrow")).rowGap,
+        narrowOverflow: Math.max(...narrow.map((id) => rectOf(id).right)) - narrowBox.right,
+        separator: [rectOf("tb-sep-1").width, rectOf("tb-sep-1").height],
+        verticalSeparator: [rectOf("vert-sep").width, rectOf("vert-sep").height],
+        separatorColor: getComputedStyle(document.getElementById("tb-sep-1")).backgroundColor,
+        heights: Object.fromEntries(
+          ["tb-undo", "tb-spell", "tb-marks", "tb-symbol", "tb-more", "tb-copy", "tb-bold"].map(
+            (id) => [id, height(id)],
+          ),
+        ),
+        alignRows: { narrow: itemRows("n-align"), long: itemRows("long-align") },
+        longOverflow: rectOf("long-right").right - rectOf("toolbar-long").right,
+        verticalStack: {
+          items: verticalItems.length,
+          sameLeft: verticalItems.every((item) => item.left === verticalItems[0].left),
+          stacked: verticalItems.every(
+            (item, index) => index === 0 || item.top >= verticalItems[index - 1].bottom,
+          ),
+        },
+        verticalColumn: verticalControls.every(
+          (rect, index) => index === 0 || rect.top >= verticalControls[index - 1].bottom,
+        ),
+        radios: Object.fromEntries(
+          ["tb-left", "tb-center", "tb-right", "long-left", "long-center", "long-right"].map(
+            (id) => [id, radioRow(id)],
+          ),
+        ),
+      };
+    });
+
+    assert.equal(toolbarLayout.wideRows, 1, "the Toolbar is one row at the page's width");
+    assert.equal(toolbarLayout.wideGap, 8);
+    assert.equal(toolbarLayout.columnGap, "8px");
+    assert.ok(toolbarLayout.narrowRows > 1, `the 360px Toolbar wraps: ${toolbarLayout.narrowRows}`);
+    assert.equal(toolbarLayout.rowGap, "8px");
+    assert.ok(toolbarLayout.narrowOverflow <= 0.5, `overflow ${toolbarLayout.narrowOverflow}`);
+    assert.deepEqual(toolbarLayout.separator, [1, 20]);
+    assert.deepEqual(toolbarLayout.verticalSeparator, [20, 1]);
+    assert.equal(toolbarLayout.separatorColor, palette.border);
+    assert.deepEqual(toolbarLayout.heights, {
+      "tb-undo": 32,
+      "tb-spell": 32,
+      "tb-marks": 32,
+      "tb-symbol": 32,
+      "tb-more": 32,
+      "tb-copy": 32,
+      "tb-bold": 26,
+    });
+
+    // A radio group moves whole: its items stay on one row, also when the long label overflows
+    // its 360px Toolbar, and stack in a column in a vertical Toolbar.
+    assert.deepEqual(toolbarLayout.alignRows, { narrow: 1, long: 1 });
+    assert.ok(
+      toolbarLayout.longOverflow > 0,
+      `the long group overflows: ${toolbarLayout.longOverflow}`,
+    );
+    assert.deepEqual(toolbarLayout.verticalStack, { items: 2, sameLeft: true, stacked: true });
+    assert.equal(toolbarLayout.verticalColumn, true, "a vertical Toolbar stacks its controls");
+
+    for (const [id, row] of Object.entries(toolbarLayout.radios)) {
+      assert.deepEqual(row, { height: 32, shrink: "0", whiteSpace: "nowrap", lines: 1 }, id);
+    }
+
+    // Popups: Enter opens the Popover 4px below its trigger; Tab reaches its content and Escape
+    // returns to the trigger, which keeps the Toolbar's tab stop. Enter opens the Menu on its
+    // first item and Escape returns; ArrowDown opens it too.
+    const popupOpen = (id) =>
+      page.waitForFunction((id) => document.getElementById(id).matches(":popover-open"), id);
+    const popupClosed = (id) =>
+      page.waitForFunction((id) => !document.getElementById(id).matches(":popover-open"), id);
+
+    await focusByKeyboard("#tb-symbol");
+    await page.keyboard.press("Enter");
+    await popupOpen("tb-symbol-content");
+    assert.equal(await attribute("tb-symbol", "aria-expanded"), "true");
+
+    const symbolGap =
+      (await toggleRect("#tb-symbol-content")).top - (await toggleRect("#tb-symbol")).bottom;
+
+    assert.ok(Math.abs(symbolGap - 4) <= 0.5, `the Popover's gap ${symbolGap}`);
+    await page.keyboard.press("Tab");
+    assert.equal(await activeId(), "tb-symbol-star");
+    await page.keyboard.press("Escape");
+    await popupClosed("tb-symbol-content");
+    assert.equal(await activeId(), "tb-symbol");
+    await rendered();
+    assert.equal(await attribute("tb-symbol", "tabindex"), "0");
+    await focusByKeyboard("#tb-more");
+    await page.keyboard.press("Enter");
+    await popupOpen("tb-more-content");
+    await page.waitForFunction(() => document.activeElement?.id === "tb-clear");
+    await page.keyboard.press("Escape");
+    await popupClosed("tb-more-content");
+    assert.equal(await activeId(), "tb-more");
+    await rendered();
+    await page.keyboard.press("ArrowDown");
+    await popupOpen("tb-more-content");
+    await page.keyboard.press("Escape");
+    await popupClosed("tb-more-content");
+
+    // Reduced motion: nothing to animate on the button looks.
+    assert.deepEqual(
+      await page.evaluate(() =>
+        ["#toggle-mute", "#seg-all", "#tb-undo", "#tb-spell"].map(
+          (selector) => getComputedStyle(document.querySelector(selector)).transitionProperty,
+        ),
+      ),
+      ["none", "none", "none", "none"],
+    );
+
+    // Forced colors, from a fresh page: a pressed control opts out and paints Highlight with
+    // HighlightText, also hovered, with no author shadow; projected text follows it; disabled is
+    // GrayText, or Canvas on GrayText while pressed; a pressed control's focus ring is
+    // CanvasText; the separator is GrayText; the dot takes its item's text color.
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await fresh();
+
+    const forced = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      const read = (value) => {
+        probe.style.cssText = `position: fixed; forced-color-adjust: none; color: ${value}`;
+
+        return getComputedStyle(probe).color;
+      };
+
+      document.body.append(probe);
+
+      const result = {
+        canvas: read("Canvas"),
+        canvasText: read("CanvasText"),
+        highlight: read("Highlight"),
+        highlightText: read("HighlightText"),
+        grayText: read("GrayText"),
+        linkText: read("LinkText"),
+      };
+
+      probe.remove();
+
+      return result;
+    });
+    const forcedLook = (selector) =>
+      styleOf(selector, ["backgroundColor", "color", "boxShadow", "forcedColorAdjust"]);
+    const forcedPressed = {
+      backgroundColor: forced.highlight,
+      color: forced.highlightText,
+      boxShadow: "none",
+      forcedColorAdjust: "none",
+    };
+
+    for (const selector of ["#toggle-lg", "#seg-active", "#tb-spell", "#tb-bold"]) {
+      assert.deepEqual(await forcedLook(selector), forcedPressed, `forced ${selector}`);
+    }
+
+    const forcedInk = { backgroundColor: forced.highlight, color: forced.highlightText };
+
+    await page.hover("#toggle-lg");
+    assert.deepEqual(await styleOf("#toggle-lg", ["backgroundColor", "color"]), forcedInk, "hover");
+    assert.deepEqual(await held("#toggle-lg", ["backgroundColor", "color"]), forcedInk, "held");
+    assert.deepEqual(await held("#seg-active", ["backgroundColor", "color"]), forcedInk, "held");
+    assert.notEqual((await forcedLook("#toggle-mute")).backgroundColor, forced.highlight);
+    assert.equal((await forcedLook("#toggle-mute")).forcedColorAdjust, "auto");
+    assert.equal(
+      (await styleOf("#toggle-count-span", ["color"])).color,
+      (await styleOf("#toggle-count", ["color"])).color,
+    );
+    assert.equal((await styleOf("#toggle-off-disabled", ["color"])).color, forced.grayText);
+    assert.deepEqual(await styleOf("#toggle-on-disabled", ["backgroundColor", "color"]), {
+      backgroundColor: forced.grayText,
+      color: forced.canvas,
+    });
+    await focusByKeyboard("#toggle-count");
+    assert.equal(await activeId(), "toggle-count");
+    assert.deepEqual(await outline("#toggle-count"), ringOutline(forced.canvasText));
+    await focusByKeyboard("#tb-undo");
+    assert.equal(await activeId(), "tb-undo");
+
+    const undoForcedOutline = await outline("#tb-undo");
+
+    assert.deepEqual(
+      { ...undoForcedOutline, color: null },
+      ringOutline(null),
+      "an off control keeps the 2px ring",
+    );
+    assert.notEqual(undoForcedOutline.color, forced.canvasText);
+    assert.equal(
+      (await styleOf("#tb-sep-1", ["backgroundColor"])).backgroundColor,
+      forced.grayText,
+    );
+    assert.equal(
+      (await styleOf(dotOf("seg-active"), ["backgroundColor"])).backgroundColor,
+      forced.highlightText,
+    );
+    assert.equal(
+      (await styleOf(dotOf("tg-disabled-all"), ["backgroundColor"])).backgroundColor,
+      forced.canvas,
+    );
+    // Chromium's palettes have HighlightText equal to Canvas, so a probe color tells
+    // currentColor from a fixed system color.
+    await page.evaluate(() => {
+      document.getElementById("tg-disabled-all").style.color = "LinkText";
+    });
+    assert.equal(
+      (await styleOf(dotOf("tg-disabled-all"), ["backgroundColor"])).backgroundColor,
+      forced.linkText,
+    );
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 
