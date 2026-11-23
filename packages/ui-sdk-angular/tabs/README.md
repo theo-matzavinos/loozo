@@ -49,6 +49,8 @@ import {
 
 `state: Signal<TabsState<T>>` is `{ value, orientation, direction }`; `direction` is which way the last selection moved. `valueChange` is the proposal, emitted before core commits it: with `[(value)]` it lands when the binding writes it back; uncontrolled, core stores it after your listeners return. Read the committed state from `state()`. Tabs have no completion output.
 
+`T` isn't checked against the tabs: each `uiTabsTab` takes any string, and its value reaches `valueChange` and `[(value)]` typed as `T`. With a narrower model than `string`, like `"profile" | "billing" | null`, give every tab a `value` from that union.
+
 ## Parts
 
 | Directive         | `exportAs`        | Inputs                                                      | `state()`                    |

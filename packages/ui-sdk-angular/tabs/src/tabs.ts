@@ -51,7 +51,11 @@ const classes = { internal: [], fixed: [], excluded: [] } as const;
   host: { "[attr.data-ui-sdk-id]": "instanceId" },
 })
 export class UiTabs<T extends string = string> implements OnInit {
-  /** The selected tab's value; `null` selects none. Set it to control the tabs. */
+  /**
+   * The selected tab's value; `null` selects none. Set it to control the tabs. `T` isn't checked
+   * against the tabs, which take any string: with a narrower `T` than `string`, give every tab a
+   * `value` from `T`.
+   */
   readonly value = input<T | null | undefined>(undefined);
   /** The tab selected at first, when uncontrolled. */
   readonly defaultValue = input<T | null | undefined>(undefined);

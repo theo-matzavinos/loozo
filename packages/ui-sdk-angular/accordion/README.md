@@ -68,7 +68,7 @@ import {
 `state: Signal<AccordionItemState>` is `{ open, disabled, index }`.
 
 - **A made value.** An item without `value` gets one made for it (`ui-sdk-s<n>` on the server), rendered as its `data-ui-sdk-id` so hydration keeps it; its trigger's and panel's ids derive from it. It appears in the accordion's `value` when the item opens.
-- **Made values need a `string[]` model.** The accordion's `T` isn't checked against its items, so a made value reaches `valueChange` and `[(value)]` typed as `T`. With a narrower model, like `("shipping" | "billing")[]`, give every item an explicit `value` from that union.
+- **`T` isn't checked against the items.** Each item's `value` is any string, and a made value is a generated one; both reach `valueChange` and `[(value)]` typed as `T`. With a narrower model than `string[]`, like `("shipping" | "billing")[]`, give every item an explicit `value` from that union.
 - **An item has no `openChange`.** What an item reports is a request and its panel settling, never a commit, because the commit is the accordion's.
 
 ### Requests, then the commit
