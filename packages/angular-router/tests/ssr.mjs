@@ -149,6 +149,149 @@ export default defineRoute("handle-only/$id", {
 ]);
 `,
 );
+// Retained search keys before the first client commit (SPEC §6 "Retained search keys"): browser-
+// only guards and resolvers hold or redirect the client's navigations by query marker. `a` acts on
+// orders (A): `guard` and `resolver` hold, `redirect` sends the navigation to other (B) with B's own
+// `workspace`; `b` holds B at its `guard` or `resolver`. `eager` selects eager URL updates. Every
+// resolver key is a string, so the server's seed stands (F11).
+await writeFile(
+  join(fixture, "src/hold.ts"),
+  `import { PLATFORM_ID, inject } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Router } from "@angular/router";
+
+type Proof = { proofHeld?: Record<string, boolean>; proofRelease?: Record<string, () => void> };
+
+/** The current navigation's marker, in the browser; null on the server. Call before any await. */
+export function marker(name: string): string | null {
+  if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+    return null;
+  }
+
+  return inject(Router).currentNavigation()?.extractedUrl.queryParamMap.get(name) ?? null;
+}
+
+/** Waits until the test calls proofRelease[name](). */
+export function hold(name: string): Promise<void> {
+  const proof = window as unknown as Proof;
+
+  proof.proofHeld = { ...proof.proofHeld, [name]: true };
+
+  return new Promise((resolve) => {
+    proof.proofRelease = { ...proof.proofRelease, [name]: resolve };
+  });
+}
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/+workspace/orders/route.ts"),
+  `import { inject } from "@angular/core";
+import { RedirectCommand, Router } from "@angular/router";
+import { defineRoute } from "@loozo/angular-router";
+import workspace from "../route.js";
+import { hold, marker } from "../../../hold.js";
+
+export default defineRoute("orders", { parent: workspace })
+  .canActivate([
+    async () => {
+      const a = marker("a");
+
+      if (a === "redirect") {
+        return new RedirectCommand(
+          inject(Router).parseUrl("/other?workspace=beta&b=" + marker("b")),
+        );
+      }
+
+      if (a === "guard") {
+        await hold("a");
+      }
+
+      return true;
+    },
+  ])
+  .resolve({
+    label: async () => {
+      if (marker("a") === "resolver") {
+        await hold("a");
+      }
+
+      return "orders";
+    },
+  });
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/other/route.ts"),
+  `import { defineRoute, retained, stringParam } from "@loozo/angular-router";
+import { hold, marker } from "../../hold.js";
+
+export default defineRoute("other", { search: { workspace: retained(stringParam) } })
+  .canActivate([
+    async () => {
+      if (marker("b") === "guard") {
+        await hold("b");
+      }
+
+      return true;
+    },
+  ])
+  .resolve({
+    label: async () => {
+      if (marker("b") === "resolver") {
+        await hold("b");
+      }
+
+      return "other";
+    },
+  });
+`,
+);
+// B's page records its own and the shell's retained links in its constructor: during B's
+// activation, before the first client success.
+await writeFile(
+  join(fixture, "src/routes/other/page.ts"),
+  `import { Component, PLATFORM_ID, computed, inject } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Router, RouterLink, RouterOutlet } from "@angular/router";
+import { injectRoute } from "./route.generated.js";
+import { destination as child } from "./child/destination.generated.js";
+import { destination as order } from "../+workspace/orders/$id/destination.generated.js";
+
+@Component({
+  imports: [RouterLink, RouterOutlet],
+  template: \`
+    <article id="other">
+      <h2>{{ route.data().label }}</h2>
+      <a id="other-child" [routerLink]="child()">Child</a>
+      <router-outlet />
+    </article>
+  \`,
+})
+export default class Other {
+  readonly route = injectRoute();
+  readonly child = computed(() => this.route.link({ to: child }));
+
+  constructor() {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return;
+    }
+
+    const router = inject(Router);
+    const proof = window as any;
+
+    proof.proofOtherConstructor = {
+      success: router.lastSuccessfulNavigation() !== null,
+      page: {
+        order: router.serializeUrl(this.route.link({ to: order, params: { id: 7 } })),
+        otherChild: router.serializeUrl(this.route.link({ to: child })),
+      },
+      shell: proof.proofApp?.retainedHrefs() ?? null,
+    };
+  }
+}
+`,
+);
+
 // Resolver values JSON can't carry unchanged give no seed; a shared reference seeds.
 await mkdir(join(fixture, "src/routes/values/$kind"), { recursive: true });
 await writeFile(
@@ -236,6 +379,7 @@ import {
   Router,
   UrlHandlingStrategy,
   provideRouter,
+  withRouterConfig,
   type UrlTree,
 } from "@angular/router";
 import { provideClientHydration, withNoHttpTransferCache } from "@angular/platform-browser";
@@ -249,9 +393,21 @@ function marked(name: string): boolean {
   return isPlatformBrowser(inject(PLATFORM_ID)) && new URLSearchParams(window.location.search).has(name);
 }
 
+// Read once, when the configuration evaluates: Angular takes the strategy as a static option.
+function urlUpdateStrategy(): "eager" | "deferred" {
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("eager")) {
+    return "eager";
+  }
+
+  return "deferred";
+}
+
 export const config: ApplicationConfig = {
   providers: [
-    provideRouter([{ path: "wrapped/:tenant", children: routes }, ...routes]),
+    provideRouter(
+      [{ path: "wrapped/:tenant", children: routes }, ...routes],
+      withRouterConfig({ urlUpdateStrategy: urlUpdateStrategy() }),
+    ),
     {
       provide: UrlHandlingStrategy,
       useFactory: (): UrlHandlingStrategy => {
@@ -336,18 +492,27 @@ await writeFile(
   join(fixture, "src/app.ts"),
   `import { ApplicationRef, Component, PLATFORM_ID, afterNextRender, computed, inject } from "@angular/core";
 import { isPlatformBrowser } from "@angular/common";
-import { ActivationEnd, RouteConfigLoadEnd, Router, RouterOutlet } from "@angular/router";
+import { ActivationEnd, RouteConfigLoadEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
 import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
+import { destination as order } from "./routes/+workspace/orders/$id/destination.generated.js";
+import { destination as otherChild } from "./routes/other/child/destination.generated.js";
 
 @Component({
   selector: "proof-app",
-  imports: [RouterOutlet],
+  imports: [RouterLink, RouterOutlet],
   template: \`
     <main>
       <h1>Router SSR proof</h1>
       <p id="active-route">{{ activeText() }}</p>
+      @if (shellLinks(); as links) {
+        <nav>
+          <a id="shell-order" [routerLink]="links.order">Order 7</a>
+          <a id="shell-other-child" [routerLink]="links.otherChild">Other child</a>
+        </nav>
+      }
+      <a id="go-b" routerLink="/other" [queryParams]="goB">Other</a>
       <router-outlet />
     </main>
   \`,
@@ -358,6 +523,22 @@ export default class App {
   readonly active = injectActiveRoute();
   // Never read by the template: adopts at the handover without a live consumer.
   readonly quiet = injectActiveRoute();
+  // Retained links from the active handle, seeded or live, to a page below +workspace and to one
+  // below other, which owns a workspace key of its own.
+  readonly shellLinks = computed(() => {
+    const route = this.active();
+
+    if (!route) {
+      return undefined;
+    }
+
+    return {
+      order: route.link({ to: order, params: { id: 7 } }),
+      otherChild: route.link({ to: otherChild }),
+    };
+  });
+  // A plain link to B, carrying the test's B marker.
+  readonly goB = { workspace: "beta", b: this.markerB() };
   readonly activeText = computed(() => {
     const route = this.active();
 
@@ -373,6 +554,28 @@ export default class App {
 
     return "other";
   });
+
+  /** The shell's retained links read now, serialized; null without an active route. */
+  retainedHrefs(): { order: string; otherChild: string } | null {
+    const route = this.active();
+
+    if (!route) {
+      return null;
+    }
+
+    return {
+      order: this.router.serializeUrl(route.link({ to: order, params: { id: 7 } })),
+      otherChild: this.router.serializeUrl(route.link({ to: otherChild })),
+    };
+  }
+
+  markerB(): string | null {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return null;
+    }
+
+    return new URLSearchParams(window.location.search).get("b");
+  }
 
   constructor() {
     // The client's initial navigation: when each children table resolves, each route
@@ -391,6 +594,7 @@ export default class App {
       proof.proofFirst = first;
       proof.proofQuietFirst = this.quiet();
       proof.proofFirstData = first?.data();
+      proof.proofFirstRetained = this.retainedHrefs();
 
       if (first?.is(item)) {
         proof.proofFirstLink = this.router.serializeUrl(
@@ -944,6 +1148,36 @@ function transferredSeed(body) {
   return JSON.parse(match[1])[seedKey];
 }
 
+// Each anchor's href by id, as the server rendered it.
+function hrefs(body, ids) {
+  const window = new Window();
+  const template = window.document.createElement("template");
+
+  template.innerHTML = body;
+
+  const result = {};
+
+  for (const id of ids) {
+    result[id] = template.content.querySelector("#" + id)?.getAttribute("href") ?? null;
+  }
+
+  window.close();
+
+  return result;
+}
+
+const retainedIds = [
+  "shell-order",
+  "shell-other-child",
+  "layout-order",
+  "orders-order",
+  "orders-drop",
+  "orders-login",
+  "order-back",
+  "login-orders",
+  "other-child",
+];
+
 // The seed of an item page: the team record, then the item record with its resolver data,
 // each with the primary segments it consumed, after `offset` segments of native wrappers.
 function itemSeed(url, teamId, id, score, offset = 0) {
@@ -1010,6 +1244,69 @@ try {
   await save("http-legacy.json", legacy);
   assert.equal(legacy.status, 302);
   assert.equal(legacy.headers.location, "/handle-only/7");
+
+  // Retained search keys in server-rendered hrefs (SPEC §6): the page, the +workspace layout's own
+  // handle and the shell's active handle keep workspace below +workspace; explicit undefined drops
+  // it; login and other's subtree never receive acme.
+  const retainedPages = {};
+
+  for (const path of [
+    "/orders?workspace=acme",
+    "/orders/7?workspace=acme",
+    "/login?workspace=acme",
+    "/other?workspace=beta",
+  ]) {
+    const response = await requestSsr(origin + path);
+
+    assert.equal(response.status, 200, path);
+    retainedPages[path] = {
+      hrefs: hrefs(response.body, retainedIds),
+      seed: transferredSeed(response.body),
+    };
+  }
+
+  await save("http-retained.json", retainedPages);
+
+  const missing = Object.fromEntries(retainedIds.map((id) => [id, null]));
+  const workspaceSeed = (url, routes) => ({ url, routes });
+
+  assert.deepEqual(retainedPages["/orders?workspace=acme"], {
+    hrefs: {
+      ...missing,
+      "shell-order": "/orders/7?workspace=acme",
+      "shell-other-child": "/other/child",
+      "layout-order": "/orders/7?workspace=acme",
+      "orders-order": "/orders/7?workspace=acme",
+      "orders-drop": "/orders",
+      "orders-login": "/login",
+    },
+    seed: workspaceSeed("/orders?workspace=acme", [
+      { id: "src/routes/+workspace/route.ts", from: 0, to: 0 },
+      { id: "src/routes/+workspace/orders/route.ts", from: 0, to: 1, data: { label: "orders" } },
+    ]),
+  });
+  assert.deepEqual(retainedPages["/orders/7?workspace=acme"].hrefs, {
+    ...missing,
+    "shell-order": "/orders/7?workspace=acme",
+    "shell-other-child": "/other/child",
+    "layout-order": "/orders/7?workspace=acme",
+    "orders-order": "/orders/7?workspace=acme",
+    "orders-drop": "/orders",
+    "orders-login": "/login",
+    "order-back": "/orders?workspace=acme",
+  });
+  assert.deepEqual(retainedPages["/login?workspace=acme"].hrefs, {
+    ...missing,
+    "shell-order": "/orders/7",
+    "shell-other-child": "/other/child",
+    "login-orders": "/orders",
+  });
+  assert.deepEqual(retainedPages["/other?workspace=beta"].hrefs, {
+    ...missing,
+    "shell-order": "/orders/7",
+    "shell-other-child": "/other/child?workspace=beta",
+    "other-child": "/other/child?workspace=beta",
+  });
 
   // The ordinary redirect beats the ordinary catchall page, which matches its control URL.
   const ordering = {
@@ -2038,6 +2335,252 @@ try {
     assert.deepEqual(fallbackCase.errors, [], name);
   }
 
+  // Retained search keys through hydration (SPEC §6 "Retained search keys", §7 "Hydrated pages").
+  // Each case is a fresh document; the server renders A (orders below +workspace, workspace=acme)
+  // and the browser's first navigation is held, redirected to B (other, its own workspace=beta) or
+  // superseded by a click on B, by query marker.
+  const retainedCases = {};
+
+  async function retainedVisit(name, path) {
+    const visitPage = await context.newPage();
+    const visitErrors = [];
+    let visitDocuments = 0;
+
+    videos["retained-" + name] = await visitPage.video()?.path();
+    visitPage.on("pageerror", (error) => visitErrors.push(error.message));
+    visitPage.on("console", (message) => {
+      if (message.type() === "error") {
+        visitErrors.push(message.text());
+      }
+    });
+    visitPage.on("request", (request) => {
+      if (request.isNavigationRequest() && request.frame() === visitPage.mainFrame()) {
+        visitDocuments += 1;
+      }
+    });
+    await visitPage.route("**/*", async (route) => {
+      if (new URL(route.request().url()).origin !== baseUrl) {
+        await route.abort();
+
+        return;
+      }
+
+      await route.continue();
+    });
+
+    const response = await visitPage.goto(baseUrl + path, { waitUntil: "commit" });
+    const serverHrefs = hrefs(await response.text(), ["shell-order", "shell-other-child"]);
+
+    await visitPage.waitForFunction(() => window.proofApp !== undefined);
+
+    // The shell's links read now and as rendered after the next frames, with what the browser
+    // and the router show.
+    const read = () =>
+      visitPage.evaluate(async () => {
+        const state = {
+          address: location.pathname + location.search,
+          success: window.proofApp.router.lastSuccessfulNavigation() !== null,
+          shell: window.proofApp.retainedHrefs(),
+        };
+
+        for (let frame = 0; frame < 2; frame += 1) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+
+        const href = (id) => document.querySelector("#" + id)?.getAttribute("href") ?? null;
+
+        return {
+          ...state,
+          rendered: { order: href("shell-order"), otherChild: href("shell-other-child") },
+        };
+      });
+    const first = await visitPage.evaluate(() => window.proofFirstRetained);
+    const finish = async (extra = {}) => {
+      await visitPage.screenshot({ path: join(evidence, `retained-${name}.png`) });
+      retainedCases[name] = {
+        path,
+        serverHrefs,
+        first,
+        ...extra,
+        documents: visitDocuments,
+        errors: visitErrors,
+      };
+      await visitPage.close();
+
+      return retainedCases[name];
+    };
+
+    return { page: visitPage, serverHrefs, first, read, finish };
+  }
+
+  const acmeShell = { order: "/orders/7?workspace=acme", otherChild: "/other/child" };
+  const bareShell = { order: "/orders/7", otherChild: "/other/child" };
+  const betaShell = { order: "/orders/7", otherChild: "/other/child?workspace=beta" };
+  const shellHrefs = (links) => ({
+    "shell-order": links.order,
+    "shell-other-child": links.otherChild,
+  });
+  const committed = (target) =>
+    target.waitForFunction(() => window.proofApp.router.lastSuccessfulNavigation() !== null);
+
+  // The server's hrefs, the shell's first browser read and every rendered link agree; a click
+  // keeps the workspace in one document; undefined drops it; login never has it.
+  const retainedMain = await retainedVisit("orders", "/orders?workspace=acme");
+
+  assert.deepEqual(retainedMain.serverHrefs, shellHrefs(acmeShell));
+  assert.deepEqual(retainedMain.first, acmeShell);
+  await retainedMain.page.waitForFunction(
+    () => document.documentElement.dataset.proofStable === "true",
+  );
+  await retainedMain.page.click("#orders-order");
+  await retainedMain.page.waitForFunction(
+    () => document.querySelector("#order-id")?.textContent === "7",
+  );
+
+  const retainedDetail = await retainedMain.page.evaluate(() => ({
+    address: location.pathname + location.search,
+    hrefs: Object.fromEntries(
+      ["shell-order", "layout-order", "orders-drop", "orders-login", "order-back"].map((id) => [
+        id,
+        document.querySelector("#" + id)?.getAttribute("href") ?? null,
+      ]),
+    ),
+  }));
+
+  await retainedMain.page.click("#orders-login");
+  await retainedMain.page.waitForSelector("#login-orders");
+
+  const retainedLogin = await retainedMain.page.evaluate(() => ({
+    address: location.pathname + location.search,
+    loginOrders: document.querySelector("#login-orders").getAttribute("href"),
+    shell: window.proofApp.retainedHrefs(),
+  }));
+  const retainedMainCase = await retainedMain.finish({
+    detail: retainedDetail,
+    login: retainedLogin,
+  });
+
+  assert.deepEqual(retainedDetail, {
+    address: "/orders/7?workspace=acme",
+    hrefs: {
+      "shell-order": "/orders/7?workspace=acme",
+      "layout-order": "/orders/7?workspace=acme",
+      "orders-drop": "/orders",
+      "orders-login": "/login",
+      "order-back": "/orders?workspace=acme",
+    },
+  });
+  assert.deepEqual(retainedLogin, {
+    address: "/login",
+    loginOrders: "/orders",
+    shell: bareShell,
+  });
+  assert.equal(retainedMainCase.documents, 1);
+  assert.deepEqual(retainedMainCase.errors, []);
+
+  // F10: values and owners always come from one URL before the first client commit.
+  for (const strategy of ["deferred", "eager"]) {
+    let eager = "";
+
+    if (strategy === "eager") {
+      eager = "&eager=1";
+    }
+
+    // Held A: the seed's URL is the browser's, so the seed supplies the owners.
+    for (const hold of ["guard", "resolver"]) {
+      const name = `${strategy}-hold-a-${hold}`;
+      const path = `/orders?workspace=acme&a=${hold}${eager}`;
+      const visited = await retainedVisit(name, path);
+
+      await visited.page.waitForFunction(() => window.proofHeld?.a === true);
+
+      const held = await visited.read();
+
+      await visited.page.evaluate(() => window.proofRelease.a());
+      await committed(visited.page);
+
+      const after = await visited.read();
+      const result = await visited.finish({ held, after });
+
+      assert.deepEqual(result.serverHrefs, shellHrefs(acmeShell), name);
+      assert.deepEqual(result.first, acmeShell, name);
+      assert.deepEqual(
+        held,
+        { address: path, success: false, shell: acmeShell, rendered: acmeShell },
+        name,
+      );
+      assert.deepEqual(
+        after,
+        { address: path, success: true, shell: acmeShell, rendered: acmeShell },
+        name,
+      );
+      assert.deepEqual(result.errors, [], name);
+    }
+
+    // B pending after a guard redirect or a superseding click, held at its guard or resolver.
+    for (const mode of ["redirect", "click"]) {
+      for (const hold of ["guard", "resolver"]) {
+        const name = `${strategy}-${mode}-b-${hold}`;
+        let a = "redirect";
+
+        if (mode === "click") {
+          a = "guard";
+        }
+
+        const path = `/orders?workspace=acme&a=${a}&b=${hold}${eager}`;
+        const target = `/other?workspace=beta&b=${hold}`;
+        const visited = await retainedVisit(name, path);
+
+        if (mode === "click") {
+          await visited.page.waitForFunction(() => window.proofHeld?.a === true);
+          await visited.page.click("#go-b");
+        }
+
+        await visited.page.waitForFunction(() => window.proofHeld?.b === true);
+
+        const held = await visited.read();
+
+        await visited.page.evaluate(() => window.proofRelease.b());
+        await committed(visited.page);
+
+        const constructed = await visited.page.evaluate(() => window.proofOtherConstructor);
+        const after = await visited.read();
+        const result = await visited.finish({ held, constructed, after });
+
+        assert.deepEqual(result.serverHrefs, shellHrefs(acmeShell), name);
+        assert.deepEqual(result.first, acmeShell, name);
+
+        // Deferred: the browser still shows A, the seed's URL, so A's owners keep acme. Eager:
+        // the browser shows B while neither the router state nor the seed matches it, so
+        // nothing is retained, in the rendered shell too (it follows the address bar). Never
+        // beta copied into A's link.
+        if (strategy === "deferred") {
+          assert.deepEqual(
+            held,
+            { address: path, success: false, shell: acmeShell, rendered: acmeShell },
+            name,
+          );
+        } else {
+          assert.deepEqual(
+            held,
+            { address: target, success: false, shell: bareShell, rendered: bareShell },
+            name,
+          );
+        }
+
+        // B's constructor runs before the first success, against B's installed state.
+        assert.deepEqual(constructed, { success: false, page: betaShell, shell: betaShell }, name);
+        assert.deepEqual(
+          after,
+          { address: target, success: true, shell: betaShell, rendered: betaShell },
+          name,
+        );
+        assert.deepEqual(result.errors, [], name);
+      }
+    }
+  }
+
+  await save("retained-hydration.json", retainedCases);
   await save("seed-handover.json", { main: seedHandover, devSeed, cases, videos });
   await context.close();
 } catch (error) {

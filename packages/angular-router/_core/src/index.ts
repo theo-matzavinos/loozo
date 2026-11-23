@@ -5,8 +5,10 @@ export {
   enumParam,
   withFallback,
   arrayParam,
+  retained,
   codecFallback,
   isArrayCodec,
+  isRetained,
 } from "./codecs.js";
 export type { ParamCodec } from "./codecs.js";
 export { defineDestination, defineRoute, routeMetadata } from "./route.js";
@@ -42,7 +44,7 @@ export type {
   StepSignature,
   UrlFacts,
 } from "./fluent.js";
-export { branchPath, createUrl } from "./url.js";
+export { branchPath, createUrl, withSearch } from "./url.js";
 export { localeUrls } from "./locale-urls.js";
 export type { LocaleUrl } from "./locale-urls.js";
 export { angularPath } from "./path.js";

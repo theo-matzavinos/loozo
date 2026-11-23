@@ -8,6 +8,7 @@ import {
   booleanParam,
   withFallback,
   arrayParam,
+  retained,
   serverRoutePath,
   type LocaleUrl,
   type Route,
@@ -1014,6 +1015,38 @@ arrayParam(withFallback(numberParam, 1));
 arrayParam(arrayParam(numberParam));
 // @ts-expect-error A promise-valued element codec fails where it is declared.
 arrayParam(promisedCodec);
+// A retained key reads and writes exactly like its wrapped codec; omission and
+// `undefined` stay allowed for every key (retention is a runtime difference).
+const retainedRoute = defineRoute("retained", {
+  search: {
+    workspace: retained(stringParam),
+    page: retained(withFallback(numberParam, 1)),
+    tag: retained(arrayParam(enumParam(["a", "b"]))),
+  },
+});
+type RetainedSearch = NonNullable<typeof retainedRoute.__search>;
+declare const retainedHandle: Handle<typeof retainedRoute>;
+
+exact<Equal<RetainedSearch["workspace"], string | undefined>>();
+exact<Equal<RetainedSearch["page"], number>>();
+exact<Equal<RetainedSearch["tag"], readonly ("a" | "b")[]>>();
+createUrl(retainedRoute, {});
+createUrl(retainedRoute, { search: { workspace: undefined, page: 2, tag: ["a"] } });
+retainedHandle.link({ search: { page: 3 } });
+void retainedHandle.navigate({ search: { workspace: undefined } });
+// @ts-expect-error A retained key keeps the codec's type.
+createUrl(retainedRoute, { search: { page: "2" } });
+// @ts-expect-error A codec is retained once.
+retained(retained(stringParam));
+// @ts-expect-error retained is outermost: withFallback can't wrap it.
+withFallback(retained(numberParam), 1);
+// @ts-expect-error retained is outermost: arrayParam can't wrap it.
+arrayParam(retained(numberParam));
+// The wrapper copies parse and stringify only, so its type has no other member of the codec.
+// @ts-expect-error A retained codec doesn't promise the wrapped codec's extra members.
+void retained({ ...stringParam, label: "workspace" }).label;
+// @ts-expect-error Retained codecs are search-only.
+defineRoute("retained/$id", { params: { id: retained(numberParam) } });
 defineRoute("articles-replace", {}).redirect({
   to: articlesTo,
   search: { mode: "replace", values: { tag: ["news"], single: undefined } },

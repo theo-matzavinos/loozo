@@ -50,8 +50,9 @@ export { routegen$route as route };
  * Data holds the resolver results of this route and its ancestors, a nearer
  * key hiding an ancestor's; native static data and the title stay out. Title
  * is the nearest declared title in the chain, or undefined when none declares one.
- * Navigation values are explicit; links and navigations compose with the current URL,
- * keeping the named-outlet branches a navigation doesn't touch.
+ * Navigation values are explicit, except omitted retained search keys; links and
+ * navigations compose with the current URL, keeping the named-outlet branches a
+ * navigation doesn't touch.
  *
  * @returns A noncallable handle for this declaration.
  * @throws A synchronous wiring error outside an injection context or when the

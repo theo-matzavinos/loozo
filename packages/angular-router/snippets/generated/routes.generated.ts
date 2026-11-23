@@ -4,12 +4,15 @@ import type { Routes } from '@angular/router';
 import { record, nativeOptions, callbacks, lazyRedirect, injectGeneratedActiveRoute, type RouteSchema, type ActiveRoute as GeneratedActiveRoute, type ActiveHandle as GeneratedActiveHandle } from '@loozo/angular-router/_generated';
 import { route as route_$segments___route } from "../src/routes/$segments[]/route.generated.js";
 import { route as route_products_$productId_route } from "../src/routes/products/$productId/route.generated.js";
+import { route as route_projects_route } from "../src/routes/projects/route.generated.js";
 import { route as route_reports_$reportId_route } from "../src/routes/reports/$reportId/route.generated.js";
 import { route as route_teams_$teamId_route } from "../src/routes/teams/$teamId/route.generated.js";
+import type { route as route_projects_$projectId_route } from "../src/routes/projects/$projectId/route.generated.js";
 import type { route as route_teams_$teamId_items_$id_route } from "../src/routes/teams/$teamId/items/$id/route.generated.js";
 import type { route as route_teams_$teamId_members_$memberId_route } from "../src/routes/teams/$teamId/members/$memberId/route.generated.js";
 import { destination as destination_$segments___route } from "../src/routes/$segments[]/destination.generated.js";
 import { destination as destination_products_$productId_route } from "../src/routes/products/$productId/destination.generated.js";
+import { destination as destination_projects_route } from "../src/routes/projects/destination.generated.js";
 import { destination as destination_reports_$reportId_route } from "../src/routes/reports/$reportId/destination.generated.js";
 import { destination as destination_teams_$teamId_old_items_$id_route } from "../src/routes/teams/$teamId/old-items/$id/destination.generated.js";
 import { destination as destination_teams_$teamId_route } from "../src/routes/teams/$teamId/destination.generated.js";
@@ -26,6 +29,10 @@ redirectTo: lazyRedirect(() => import("../src/routes/teams/$teamId/old-items/$id
 ...record(destination_products_$productId_route),
 ...callbacks(route_products_$productId_route),
 loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => import("../src/routes/products/$productId/page") },
+{ path: "projects",
+...record(destination_projects_route),
+...callbacks(route_projects_route),
+loadChildren: (): ReturnType<NonNullable<Routes[number]["loadChildren"]>> => import("../src/routes/projects/children.generated.js").then((m) => m.routes) },
 { ...nativeOptions(route_reports_$reportId_route),
 path: "reports/:reportId",
 ...record(destination_reports_$reportId_route),
@@ -44,6 +51,8 @@ loadComponent: (): ReturnType<NonNullable<Routes[number]["loadComponent"]>> => i
 export type RouteTypes = {
 "src/routes/$segments[]/route.ts": { schema: RouteSchema<typeof route_$segments___route> };
 "src/routes/products/$productId/route.ts": { schema: RouteSchema<typeof route_products_$productId_route> };
+"src/routes/projects/$projectId/route.ts": { schema: RouteSchema<typeof route_projects_$projectId_route>; up: typeof destination_projects_route };
+"src/routes/projects/route.ts": { schema: RouteSchema<typeof route_projects_route> };
 "src/routes/reports/$reportId/route.ts": { schema: RouteSchema<typeof route_reports_$reportId_route> };
 "src/routes/teams/$teamId/items/$id/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_items_$id_route>; up: typeof destination_teams_$teamId_route };
 "src/routes/teams/$teamId/members/$memberId/route.ts": { schema: RouteSchema<typeof route_teams_$teamId_members_$memberId_route>; up: typeof destination_teams_$teamId_route };

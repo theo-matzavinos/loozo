@@ -2345,8 +2345,9 @@ const injectDoc = `/**
  * Data holds the resolver results of this route and its ancestors, a nearer
  * key hiding an ancestor's; native static data and the title stay out. Title
  * is the nearest declared title in the chain, or undefined when none declares one.
- * Navigation values are explicit; links and navigations compose with the current URL,
- * keeping the named-outlet branches a navigation doesn't touch.
+ * Navigation values are explicit, except omitted retained search keys; links and
+ * navigations compose with the current URL, keeping the named-outlet branches a
+ * navigation doesn't touch.
  *
  * @returns A noncallable handle for this declaration.
  * @throws A synchronous wiring error outside an injection context or when the
@@ -2842,6 +2843,42 @@ export const link = () => injectItem().link({ params: { teamId: 7, id: "x" } });
   );
 
   // The application type-checks over the generated overlay.
+  const { program } = createValidationProgram(sources, desired, []);
+  const shellFile = program.getSourceFile(resolve(project.root, "src/shell.ts"));
+
+  assert.deepEqual(
+    program
+      .getSemanticDiagnostics(shellFile)
+      .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")),
+    [],
+  );
+});
+
+test("route copies: a destination copy keeps a retained mark and its import", async () => {
+  const project = await copyProject();
+  const header =
+    'import { defineRoute, numberParam, retained, stringParam } from "@loozo/angular-router";\n';
+  const routes = {
+    ws: `${header}export default defineRoute("ws", { search: { workspace: retained(stringParam) } });\n`,
+    "ws/orders/$id": `${header}import ws from "../../route.js";\nexport default defineRoute("orders/$id", { parent: ws, params: { id: numberParam } });\n`,
+  };
+  const shell = `import { destination as order } from "./routes/ws/orders/$id/destination.generated.js";
+import { injectRoute } from "./routes/ws/route.generated.js";
+
+export const link = () => injectRoute().link({ to: order, params: { id: 7 } });
+export const drop = () => injectRoute().link({ search: { workspace: undefined } });
+`;
+  const { sources, desired, copy } = await project.analyze(routes, {
+    files: { "src/shell.ts": shell },
+  });
+  const destination = copy("ws", "destination");
+
+  assert.match(destination, /^import \{ retained, stringParam \} from "@loozo\/angular-router";$/m);
+  assert.match(
+    destination,
+    /routegen\$defineDestination\("ws", \{ search: \{ workspace: retained\(stringParam\) \} \}, "src\/routes\/ws\/route\.ts"\);/,
+  );
+
   const { program } = createValidationProgram(sources, desired, []);
   const shellFile = program.getSourceFile(resolve(project.root, "src/shell.ts"));
 

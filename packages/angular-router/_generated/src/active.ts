@@ -18,7 +18,7 @@ import {
   type LocaleUrl,
   type UrlValues,
 } from "@loozo/angular-router/_core";
-import { injectNavigationBase } from "./base.js";
+import { injectNavigationState } from "./base.js";
 import { committedChain } from "./committed.js";
 import { observeRecord, seededView, type RouteView } from "./handle.js";
 import { SEED, type SeededChain } from "./hydration.js";
@@ -178,7 +178,7 @@ function currentValues(destination: Destination<AnyRoute>, view: RouteView): Url
  * that same commit; otherwise, and once that reconcile is done, it drops them for good.
  *
  * Every handle the reader creates, seeded, live or at a later commit, composes its links
- * with the URL from one navigation base this call injects, so creating and using a handle
+ * with the URL from one navigation state this call injects, so creating and using a handle
  * needs no injection context. Before narrowing, `link` and `navigate` take a destination.
  */
 export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal<
@@ -187,7 +187,7 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
   const router = inject(Router);
   const destroyRef = inject(DestroyRef);
   const seed = inject(SEED, { optional: true });
-  const base = injectNavigationBase();
+  const current = injectNavigationState();
   // Extension members build with the reader's injector: Angular exposes no activated
   // route's environment injector.
   const injector = inject(Injector);
@@ -215,7 +215,7 @@ export function injectGeneratedActiveRoute<Types extends RouteTypeMap>(): Signal
     }
 
     const chain: ActiveEntryHandle[] = [...(parent?.handle.chain ?? [])];
-    const destinationHandle = createDestinationHandle(own, up, router, view, base);
+    const destinationHandle = createDestinationHandle(own, up, router, view, current);
     const handle: ActiveEntryHandle = {
       ...destinationHandle,
       is: (destination) => {

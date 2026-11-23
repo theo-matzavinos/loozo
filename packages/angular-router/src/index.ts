@@ -22,6 +22,7 @@ export {
   enumParam,
   withFallback,
   arrayParam,
+  retained,
 } from "@loozo/angular-router/_core";
 export type {
   Route,

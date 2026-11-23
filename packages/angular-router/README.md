@@ -156,6 +156,7 @@ The member directory is inside the team directory, so the team route is its pare
 | `enumParam(values)`          | One of the listed strings, typed as their union                               |
 | `withFallback(codec, value)` | Search only: reads `value` when the key is missing, repeated or invalid       |
 | `arrayParam(codec)`          | Search only: reads every value of a repeated key (`?tag=a&tag=b`) as an array |
+| `retained(codec)`            | Search only: links and navigation keep its current value (below)              |
 
 For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
 
@@ -175,7 +176,7 @@ search: {
 | `withFallback`       | The fallback | The fallback | The fallback                  |
 | `arrayParam` (`tag`) | `[]`         | Every value  | `[]`, if any value is invalid |
 
-`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). An array key always reads a readonly array: `?tag=news&tag=guides` reads `["news", "guides"]`, `?tag=news` reads `["news"]`, and `?tag=news&tag=other` reads `[]`. Values keep their URL order, duplicates included. Links, `createUrl`, navigation and redirects can leave out any search key. An array key takes an array and writes one `tag=` pair per element; `[]` writes nothing, so an empty list and a missing key are the same URL. For the same reason an array key can't have a fallback: to default to some tags, check `tag.length` in the page.
+`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). An array key always reads a readonly array: `?tag=news&tag=guides` reads `["news", "guides"]`, `?tag=news` reads `["news"]`, and `?tag=news&tag=other` reads `[]`. Values keep their URL order, duplicates included. Links, `createUrl`, navigation and redirects can leave out any search key. An array key takes an array and writes one `tag=` pair per element; `[]` writes nothing, so an empty list and a missing key are the same URL. For the same reason an array key can't have a fallback: to default to some tags, check `tag.length` in the page. `retained` goes outside the other wrappers: `retained(withFallback(numberParam, 1))`, `retained(arrayParam(stringParam))`.
 
 A custom codec implements `ParamCodec<Value>`. Both methods are synchronous: `parse` receives the already-decoded text and returns the value, and `stringify` returns the text:
 
@@ -185,7 +186,7 @@ Parsing should be pure and deterministic. A path codec runs twice per navigation
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `localeUrls`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route`, `ParamCodec`, `Destination`, `LocaleUrl`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
+The package root exports exactly `defineRoute`, `createUrl`, `localeUrls`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`, `arrayParam` and `retained`, plus the types `Route`, `ParamCodec`, `Destination`, `LocaleUrl`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
 
 ### Fragments
 
@@ -232,11 +233,23 @@ Reading `params` or `search` throws only if a path codec rejects a value it acce
 
 Without `to`, the call targets this route. `".."` targets the parent route: the nearest route above it with a shorter path, or the root route for a top-level route; TypeScript offers it only when that route exists. Otherwise `to` is a route's `destination`, imported from its `destination.generated.ts`. There are no string paths and no other relative selectors, and the values are always typed for the target route.
 
-Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. The URL itself is composed with the current one, so open [named outlets](#named-outlets) stay open where they still fit; call `link` where it renders, in a template or a `computed`, so it follows navigations.
+Values aren't carried over from the current URL, except [retained search keys](#retained-search-keys). Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. The URL itself is composed with the current one, so open [named outlets](#named-outlets) stay open where they still fit; call `link` where it renders, in a template or a `computed`, so it follows navigations.
 
 The rest of a `navigate` object is Angular's `NavigationBehaviorOptions`, such as `replaceUrl`, `state`, `info` or `skipLocationChange`, passed to `navigateByUrl` as given. The last call above uses `replaceUrl` to replace the current history entry instead of adding one, as a filter input that updates the search on every keystroke would. `link` takes no behavior options; set them as `RouterLink` inputs instead, such as `[replaceUrl]` or `[state]`.
 
 `to` takes only a genuine destination imported from a `destination.generated.ts`. A spread or copy of one, a declaration, or the `route` a `route.generated.ts` exports fails to type-check and throws a `TypeError` at runtime.
+
+### Retained search keys
+
+Wrap a search key's codec in `retained` to keep it across links and navigation, such as a workspace that every page below a layout shares, or a list's view mode:
+
+[src/routes/projects/route.ts](snippets/src/routes/projects/route.ts)
+
+[src/routes/projects/$projectId/links.ts](snippets/src/routes/projects/$projectId/links.ts)
+
+When `link` or `navigate` targets a route that inherits the key, the current URL is inside the route that declares it, and your `search` leaves the key out, the current value is copied. Pass a value to replace it, and `undefined` to drop it; a spread like `{ ...defaults, view: undefined }` drops it too. Only a valid value is copied, parsed and written again by the codec, so a repeated or invalid one isn't, and a fallback is never written. It doesn't matter which handle calls: a page, a layout above it linking to a child, or the shell's active route all keep the key. A link to a route outside the declaring route, such as a login page, never gets it, and neither does a route below another route that declares a key of the same name. `createUrl`, `localeUrls` and redirects never retain: they build exactly the URL you describe.
+
+The values and the route they belong to always come from the same URL. Before the browser's first navigation completes, a server-rendered shell keeps the key through [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages): the server's route says which keys the page is inside. With `urlUpdateStrategy: "eager"`, during that first navigation the browser shows the new URL before any route state matches it, so links read then leave retained keys out until the navigation completes. A route chain whose resolver uses a symbol key isn't seeded, so its shell keeps nothing until then either.
 
 ### Named outlets
 
@@ -294,7 +307,7 @@ Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads th
 
 `injectActiveRoute()` needs an injection context and returns a signal of the deepest active route in the primary outlet; a route in a [named outlet](#named-outlets) is never the active route. It's `undefined` before the first navigation (on a server-rendered page with [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), the server's route until then), and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
 
-Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, `link` and `navigate` with a `to` destination (a close included, [Named outlets](#named-outlets)), and:
+Its `link` and `navigate` keep [retained search keys](#retained-search-keys) like a page's. Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, `link` and `navigate` with a `to` destination (a close included, [Named outlets](#named-outlets)), and:
 
 - `is(destination)`: whether it's exactly that route, not one of its ancestors. It narrows the route to that route's handle, with its `link` and `navigate`.
 - `contains(destination)`: whether that route is this one or one of its ancestors.
@@ -738,6 +751,7 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - Route declarations can't use custom matchers or write `loadChildren`; generation emits `loadChildren` for every route with children ([Lazy route children](#lazy-route-children)).
 - [Named outlets](#named-outlets) don't nest, have no empty-path routes, own no search or fragments, and can't hold redirect sources. One navigation opens or closes one branch. Filesystem mode has no directory convention for them: write `outlet` in the route file. Hand-written outlet routes aren't validated against generated ones, and next to a generated empty route they leave it full-match, so declare branches with `outlet`.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
+- Only marked search keys are carried over by links and navigation ([Retained search keys](#retained-search-keys)); there's no general query merge, and `createUrl` and redirects never carry values over. Under eager URL updates, links read during the first client navigation leave retained keys out until it completes.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
 - [Translated URLs](#translated-urls) have no locale detection or redirects, switching locale inside one build, or translated param, catchall or search values (`localeUrls` keeps them as they are), and no built-in head manager: hreflang links are the documented snippet in your app; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - Angular drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`. This was found on Angular 22.2.2, and the package's lifecycle test still checks it on 22.3.0.
