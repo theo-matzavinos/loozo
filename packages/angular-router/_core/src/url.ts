@@ -166,24 +166,33 @@ export function withSearch(
   const mark = rest.indexOf("?");
   const path = mark === -1 ? rest : rest.slice(0, mark);
   const parts = mark === -1 ? [] : rest.slice(mark + 1).split("&");
+  const keys = Object.keys(extra).sort();
   const query: string[] = [];
+  let next = 0;
 
-  for (const key of Object.keys(metadata.search).sort()) {
-    const name = encode(key);
-
-    if (!Object.hasOwn(extra, key)) {
-      // An encoded key holds no `=`, so the prefix matches this key's parts only.
-      query.push(...parts.filter((part) => part.startsWith(`${name}=`)));
-
-      continue;
-    }
-
+  function add(key: string): void {
     const codec = metadata.search[key];
     const value = extra[key];
 
     for (const element of isArrayCodec(codec) ? (value as readonly unknown[]) : [value]) {
-      query.push(`${name}=${stringify(codec, element, false)}`);
+      query.push(`${encode(key)}=${stringify(codec, element, false)}`);
     }
+  }
+
+  // `url`'s pairs are in createUrl's key order, and `extra`'s keys are absent from them: merge.
+  // An encoded name holds no `=`, and decodes, since createUrl encoded it.
+  for (const part of parts) {
+    const key = decodeURIComponent(part.slice(0, part.indexOf("=")));
+
+    while (next < keys.length && keys[next] < key) {
+      add(keys[next++]);
+    }
+
+    query.push(part);
+  }
+
+  while (next < keys.length) {
+    add(keys[next++]);
   }
 
   let result = path;

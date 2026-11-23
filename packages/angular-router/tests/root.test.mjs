@@ -2037,6 +2037,17 @@ test("link and navigate copy an omitted retained key from the current URL inside
   );
   assert.equal(stringified, 1);
   assert.equal(gets, 1);
+
+  // Only written pairs are encoded: a declared key whose name can't be encoded, omitted, doesn't
+  // stop a copy, as it doesn't stop createUrl.
+  const odd = defineDestination(
+    "odd",
+    { parent: workspace, search: { "\uD800": stringParam } },
+    "retain-odd",
+  );
+
+  assert.equal(createUrl(odd, {}), "/odd");
+  assert.equal(href(page.link({ to: odd })), "/odd?page=2&workspace=acme");
 });
 
 test("extension record stamps carry the copy's runtime and chain, and handle members stay lazy", async () => {
