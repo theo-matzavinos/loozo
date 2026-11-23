@@ -16,6 +16,7 @@ import {
   validate,
 } from "@angular/forms/signals";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
+import { OrigamiMeter, OrigamiMeterOptions } from "@loozo/origami-ui/meter";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
 import { Button, ButtonLink } from "#ui/button";
@@ -48,6 +49,7 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { FileFieldParts } from "#ui/file-field";
 import { Input } from "#ui/input";
 import { MenuParts } from "#ui/menu";
+import { Meter, MeterRing } from "#ui/meter";
 import { NumberFieldParts } from "#ui/number-field";
 import { OtpField, OtpFieldInput } from "#ui/otp-field";
 import { PopoverParts } from "#ui/popover";
@@ -74,6 +76,11 @@ import {
   LucideTriangleAlert,
   LucideUpload,
 } from "@lucide/angular";
+// Meter's internal thresholds directive, which the Options probe below composes as a copied Meter
+// does. The path resolves in the generated app (src/app → src/ui), not in this repository; an
+// expect-error directive would fail the generated app's build, where it does resolve.
+// @ts-ignore
+import { MeterThresholds } from "../ui/meter/meter-thresholds";
 
 const PLANETS = [
   { id: 1, name: "Mercury", dwarf: false },
@@ -1077,6 +1084,322 @@ export class FileFields {
   }
 }
 
+// A replaced Options whose factory reads the bound, required value: fold's thresholds must not
+// resolve Options before Origami's first read, or the prerender throws NG0950.
+@Component({
+  selector: "[appMeterOptionsProbe]",
+  hostDirectives: [
+    { directive: OrigamiMeter, inputs: ["value"] },
+    { directive: MeterThresholds, inputs: ["low", "high", "optimum"] },
+  ],
+  providers: [
+    OrigamiMeterOptions.provideFactory(() => ({
+      value: signal(inject(OrigamiMeter).value()),
+      min: signal(0),
+      max: signal(200),
+      valueText: signal(null),
+    })),
+  ],
+  template: "",
+})
+export class MeterOptionsProbe {}
+
+// Meter and MeterRing: regions, edges, sizes, live bounds and values, themes, right to left,
+// forced colors and the README's recipes. Every root's name is unique on the page.
+@Component({
+  selector: "app-meters",
+  imports: [Button, Meter, MeterOptionsProbe, MeterRing],
+  template: `
+    <section id="meters" class="grid w-[626px] max-w-full gap-5 bg-surface p-5 text-foreground">
+      <h3 id="meter-system-disk-title" class="text-title">System disk</h3>
+      <div
+        zzMeter
+        [value]="72"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-labelledby="meter-system-disk-title"
+        id="meter-disk-72"
+      ></div>
+      <div class="flex flex-wrap items-center gap-4">
+        <div
+          zzMeterRing
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Disk ring 35%"
+          id="ring-disk-35"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="72"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Disk ring"
+          id="ring-disk-72"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Disk ring 92%"
+          id="ring-disk-92"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="12"
+          [max]="40"
+          valueText="12 of 40 seats"
+          aria-label="Seats taken"
+          id="ring-seats"
+        ></div>
+        <div zzMeterRing [value]="72" aria-label="Big ring 72%" class="size-32" id="ring-big"></div>
+      </div>
+      <div zzMeter [value]="42" aria-label="Plain 42%" id="meter-plain"></div>
+      <div
+        zzMeter
+        [value]="35"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="Disk 35%"
+        id="meter-disk-35"
+      ></div>
+      <div
+        zzMeter
+        [value]="92"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="Disk 92%"
+        id="meter-disk-92"
+      ></div>
+      <div zzMeter [value]="72" aria-label="Thick 72%" class="h-4 w-60" id="meter-thick"></div>
+      <div
+        zzMeter
+        [value]="92"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="Recoloured 92%"
+        class="data-[region=worst]:[--meter-fill:var(--destructive-text)]"
+        id="meter-recolour"
+      ></div>
+      <div
+        zzMeter
+        [value]="15"
+        [min]="20"
+        [max]="10"
+        low="20"
+        aria-label="Inverted range"
+        id="meter-inverted"
+      ></div>
+      <div
+        zzMeter
+        [value]="90"
+        [max]="nan"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="No maximum"
+        id="meter-nan-max"
+      ></div>
+      <div
+        appMeterOptionsProbe
+        [value]="90"
+        low="60"
+        high="85"
+        aria-label="Options probe"
+        id="meter-options"
+      ></div>
+
+      <div class="flex flex-wrap items-center gap-4">
+        <button zzButton (click)="toggleMaximum()" id="meter-toggle-max">Change maximum</button>
+        <button zzButton (click)="toggleLow()" id="meter-toggle-low">Toggle threshold</button>
+        <div
+          zzMeterRing
+          [value]="70"
+          [max]="maximum()"
+          low="60"
+          high="80"
+          aria-label="Live maximum"
+          id="ring-bounds"
+        ></div>
+      </div>
+      <div
+        zzMeter
+        [value]="70"
+        [low]="singleLow()"
+        aria-label="Single threshold"
+        id="meter-threshold"
+      ></div>
+
+      <div class="grid justify-items-start gap-3" id="meter-arrivals-card">
+        <h3 id="meter-arrivals-title" class="text-title">Arrivals</h3>
+        @if (arrivals(); as result) {
+          <div
+            zzMeterRing
+            [value]="result.percentage"
+            low="40"
+            high="70"
+            optimum="100"
+            aria-labelledby="meter-arrivals-title"
+            id="ring-arrivals"
+          ></div>
+        } @else {
+          <p id="meter-arrivals-empty">No arrivals data for this period</p>
+        }
+        <button zzButton (click)="nextPeriod()" id="meter-next-period">Next period</button>
+      </div>
+
+      <div dir="rtl" class="flex items-center gap-4" id="meter-rtl">
+        <div
+          zzMeter
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Right-to-left disk 35%"
+          id="meter-rtl-35"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Right-to-left disk ring 35%"
+          id="ring-rtl-35"
+        ></div>
+      </div>
+
+      <div class="light grid gap-4 bg-surface p-4 text-foreground" id="meter-light">
+        <div zzMeter [value]="42" aria-label="Light plain 42%" id="meter-light-plain"></div>
+        <div
+          zzMeter
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk 35%"
+          id="meter-light-35"
+        ></div>
+        <div
+          zzMeter
+          [value]="72"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk 72%"
+          id="meter-light-72"
+        ></div>
+        <div
+          zzMeter
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk 92%"
+          id="meter-light-92"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk ring 35%"
+          id="ring-light-35"
+        ></div>
+      </div>
+
+      <div
+        class="flex items-center gap-4 bg-muted p-4 forced-color-adjust-none"
+        id="meter-forced-panel"
+      >
+        <div
+          zzMeter
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Forced disk 92%"
+          id="meter-forced-92"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Forced disk ring 92%"
+          id="ring-forced-92"
+        ></div>
+      </div>
+
+      <div class="grid gap-2">
+        <div class="flex items-baseline justify-between gap-3">
+          <h3 id="meter-recipe-title" class="text-title">Disk capacity</h3>
+          <span aria-hidden="true" class="tabular-nums" id="meter-recipe-text">{{
+            diskText()
+          }}</span>
+        </div>
+        <div
+          zzMeter
+          [value]="disk().used"
+          low="60"
+          high="85"
+          optimum="0"
+          [valueText]="diskText()"
+          aria-labelledby="meter-recipe-title"
+          id="meter-recipe"
+        ></div>
+      </div>
+    </section>
+  `,
+})
+export class Meters {
+  protected readonly nan = NaN;
+  protected readonly maximum = signal(100);
+  protected readonly singleLow = signal<number | undefined>(65);
+  protected readonly disk = signal({ used: 92 });
+  protected readonly diskText = computed(() => `${this.disk().used}% used, critically full`);
+
+  // 25 → 75 → 130 (clamped to 100) → no data → 25 again.
+  readonly #periods: ({ percentage: number } | undefined)[] = [
+    { percentage: 25 },
+    { percentage: 75 },
+    { percentage: 130 },
+    undefined,
+  ];
+  readonly #period = signal(0);
+  protected readonly arrivals = computed(() => this.#periods[this.#period()]);
+
+  protected toggleMaximum(): void {
+    if (this.maximum() === 100) {
+      this.maximum.set(140);
+      return;
+    }
+    this.maximum.set(100);
+  }
+
+  protected toggleLow(): void {
+    if (this.singleLow() === undefined) {
+      this.singleLow.set(65);
+      return;
+    }
+    this.singleLow.set(undefined);
+  }
+
+  protected nextPeriod(): void {
+    this.#period.set((this.#period() + 1) % this.#periods.length);
+  }
+}
+
 @Component({
   selector: "app-root",
   imports: [
@@ -1106,6 +1429,7 @@ export class FileFields {
     LucideTrash,
     LucideTriangleAlert,
     MenuParts,
+    Meters,
     NumberFieldParts,
     OtpFields,
     PopoverParts,
@@ -2636,6 +2960,7 @@ export class FileFields {
         <div zzProgress [value]="40" aria-label="Light upload" id="progress-light"></div>
       </div>
     </section>
+    <app-meters />
     <!-- Toast fixtures: every toast but the timed one stays until it's closed. -->
     <section id="toasts" class="flex max-w-3xl flex-wrap items-start gap-2 p-5">
       <button zzButton (click)="toastSuccesses()" id="toast-successes">Three saves</button>

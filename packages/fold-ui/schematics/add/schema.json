@@ -24,6 +24,7 @@
           "file-field",
           "input",
           "menu",
+          "meter",
           "number-field",
           "otp-field",
           "popover",
