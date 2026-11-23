@@ -11,6 +11,9 @@ const components = [
   { name: "checkbox", title: "Checkbox and CheckboxGroup" },
   { name: "switch", title: "Switch" },
   { name: "radio", title: "RadioGroup" },
+  { name: "tabs", title: "Tabs" },
+  { name: "accordion", title: "Accordion" },
+  { name: "collapsible", title: "Collapsible" },
 ];
 
 const root = new URL("../", import.meta.url);

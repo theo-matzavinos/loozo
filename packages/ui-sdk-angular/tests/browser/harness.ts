@@ -38,9 +38,10 @@ export function expectClean(messages: Messages): void {
 /**
  * Loads `path` with main.js held until the observer is installed on the server-rendered DOM, so
  * it sees every attribute change from the first line of application code. Lazy chunks can be
- * delayed afterwards, to stretch an incremental block's hydration as P1c did.
+ * delayed afterwards, to stretch an incremental block's hydration as P1c did. `beforeRelease`
+ * runs on the server-rendered page, before main.js does.
  */
-export async function openObserved(page: Page, path: string) {
+export async function openObserved(page: Page, path: string, beforeRelease?: () => Promise<void>) {
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -62,7 +63,12 @@ export async function openObserved(page: Page, path: string) {
   await page.goto(path, { waitUntil: "commit" });
   await page.locator("[data-testid=app-ready]").waitFor({ state: "attached" });
   await page.evaluate(observeSlots);
-  release();
+
+  try {
+    await beforeRelease?.();
+  } finally {
+    release();
+  }
 
   return state;
 }
@@ -90,6 +96,17 @@ export function falsifiers(records: Evidence): Mutation[] {
   }
 
   return counted;
+}
+
+/** Each falsifier record as `instance slot attribute`, deduplicated and sorted. */
+export async function changedOffServer(page: Page): Promise<string[]> {
+  const changed = new Set<string>();
+
+  for (const mutation of falsifiers(await evidence(page))) {
+    changed.add(`${mutation.instance} ${mutation.slot} ${mutation.name}`);
+  }
+
+  return [...changed].sort();
 }
 
 /** The instance id the server rendered on the root with this `data-testid`. */

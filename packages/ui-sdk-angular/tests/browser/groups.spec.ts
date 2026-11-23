@@ -10,6 +10,16 @@ import {
   modeOf,
   openObserved,
 } from "./harness";
+import {
+  bound,
+  frameAndTask,
+  hydrate,
+  openPanels,
+  outputs,
+  readLog,
+  recordPanelLog,
+  waitBound,
+} from "./panel-log";
 
 async function hydrated(page: Page, path = "/groups"): Promise<void> {
   await page.goto(path);
@@ -366,3 +376,60 @@ test("hydrate on interaction: a deferred toggle group joins its toolbar, a defer
   await expect(page.getByRole("option", { name: "Lime" })).toHaveAttribute("aria-selected", "true");
   expectClean(messages);
 });
+
+for (const ordered of [false, true]) {
+  test(`R2-F1: a key and a press dispatched during the bind pass reach core once every button bound${ordered ? ", after an earlier queued End" : ""}`, async ({
+    page,
+  }, testInfo) => {
+    const messages = captureMessages(page);
+
+    await recordPanelLog(page);
+    await openPanels(page, `/bind-pass/toolbar${ordered ? "?order=1" : ""}`);
+    await hydrate(page, testInfo);
+    await waitBound(page, "toolbar", "b1", "b2", "b3", "b4");
+    await frameAndTask(page);
+
+    const { entries } = await readLog(page);
+    const key = outputs(entries, 0, { name: "bind-pass-start", label: "key" })[0]!;
+    const click = outputs(entries, 0, { name: "bind-pass-start", label: "click" })[0]!;
+    const [b1, b2, b3, b4] = ["b1", "b2", "b3", "b4"].map((label) => bound(entries, label)!);
+    const calls = [];
+
+    for (const entry of entries) {
+      if (
+        entry.kind === "focus" &&
+        entry.stack?.includes("keydown") === true &&
+        /roving|focusOn/.test(entry.stack)
+      ) {
+        calls.push(entry);
+      }
+    }
+
+    // Validity: the key lands after the toolbar bound and before any button; the click after
+    // its own button bound and before the others.
+    expect(bound(entries, "toolbar")!.seq, "ordering not reached").toBeLessThan(key.seq);
+    expect(b1!.seq, "ordering not reached").toBeGreaterThan(key.seq);
+    expect(b1!.seq, "ordering not reached").toBeLessThan(click.seq);
+
+    for (const later of [b2, b3, b4]) {
+      expect(later!.seq, "ordering not reached").toBeGreaterThan(click.seq);
+    }
+
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("data-probe"))).toBe(
+      "b2",
+    );
+    await expect(page.locator("[data-probe=b2]")).toHaveAttribute("tabindex", "0");
+    expect(calls.map((call) => call.label)).toEqual(ordered ? ["b4", "b2"] : ["b2"]);
+
+    for (const call of calls) {
+      expect(call.seq, "core focuses after the last button bound").toBeGreaterThan(b4!.seq);
+    }
+
+    // `press` reads the button's state through `afterBind`, which waits for the read phase too.
+    const presses = outputs(entries, 0, { name: "press" });
+
+    expect(presses.map((press) => press.label)).toEqual(["b1"]);
+    expect(presses[0]!.seq, "the press runs after the last button bound").toBeGreaterThan(b4!.seq);
+    expectClean(messages);
+  });
+}

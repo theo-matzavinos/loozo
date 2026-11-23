@@ -37,6 +37,20 @@ const files = [
   "radio/src/radio.ts",
   "radio/src/radio-indicator.ts",
   "radio/src/radio-input.ts",
+  "tabs/src/tabs.ts",
+  "tabs/src/tabs-list.ts",
+  "tabs/src/tabs-tab.ts",
+  "tabs/src/tabs-tab-icon.ts",
+  "tabs/src/tabs-indicator.ts",
+  "tabs/src/tabs-panel.ts",
+  "accordion/src/accordion.ts",
+  "accordion/src/accordion-item.ts",
+  "accordion/src/accordion-header.ts",
+  "accordion/src/accordion-trigger.ts",
+  "accordion/src/accordion-panel.ts",
+  "collapsible/src/collapsible.ts",
+  "collapsible/src/collapsible-trigger.ts",
+  "collapsible/src/collapsible-panel.ts",
 ];
 
 /** Each entry point's core primitive, which its root and part directives render. */
@@ -47,6 +61,9 @@ const primitives = {
   switch: ["@ui-sdk/core/switch", "switchPrimitive"],
   radio: ["@ui-sdk/core/radio", "radioGroup"],
   toolbar: ["@ui-sdk/core/toolbar", "toolbar"],
+  tabs: ["@ui-sdk/core/tabs", "tabs"],
+  accordion: ["@ui-sdk/core/accordion", "accordion"],
+  collapsible: ["@ui-sdk/core/collapsible", "collapsible"],
 };
 
 /** Directives that render another primitive than their entry point's, like a group's. */
@@ -61,7 +78,9 @@ const transformByKind = {
   number: "optionalNumber",
   checked: "optionalChecked",
 };
-const passThroughKinds = new Set(["string", "list", "value"]);
+// An `id` kind is usually internal, made by the directive; a public one, like an Accordion item's
+// optional `value`, passes through.
+const passThroughKinds = new Set(["string", "list", "value", "id"]);
 
 function literalStrings(node) {
   const values = [];
@@ -214,6 +233,7 @@ async function readDirective(file) {
             rootByReference: ts.isArrowFunction(unwrap(root)),
             passed: objectProperties(returnedObject(props)),
             keyProp: slotOptions.get("keyProp")?.initializer.text,
+            mounts: slotOptions.get("mounts")?.initializer.kind === ts.SyntaxKind.TrueKeyword,
           };
         }
       }
@@ -249,12 +269,34 @@ function lowerFirst(name) {
   return name[0].toLowerCase() + name.slice(1);
 }
 
+/** The directive's `renamed` map: its own inputs that bind a core name of another spelling. */
+function renamedInputs(directive) {
+  const renamed = new Map();
+  const declared = directive.constants.get("renamed");
+
+  if (declared === undefined) {
+    return renamed;
+  }
+
+  for (const [name, property] of objectProperties(declared)) {
+    renamed.set(name, property.initializer.text);
+  }
+
+  return renamed;
+}
+
 /** Core's names this directive takes as inputs or outputs, mapped to core's names. */
 function boundNames(directive, schema) {
   const bound = new Map();
   const selectorInput = directive.selector.replace(/^(\w+)?\[|\]$/g, "");
+  const renamed = renamedInputs(directive);
 
   for (const [name, input] of directive.inputs) {
+    if (renamed.has(name)) {
+      bound.set(renamed.get(name), { input: name, ...input });
+      continue;
+    }
+
     if (name === selectorInput && directive.slot.keyProp === undefined) {
       // An input's reference to its control, like `[uiCheckboxInput]="terms"`: not a core name.
       continue;
@@ -278,9 +320,23 @@ function boundNames(directive, schema) {
       name.endsWith("Change") &&
       key in schema &&
       `default${key[0].toUpperCase()}${key.slice(1)}` in schema;
-    const outputs = controlled
-      ? [`${key}ChangeRequest`, `${key}Change`]
-      : [lowerFirst(name.replace(/^on/, ""))];
+    let outputs = [lowerFirst(name.replace(/^on/, ""))];
+
+    if (controlled) {
+      outputs = [`${key}ChangeRequest`, `${key}Change`];
+    }
+
+    // A cancelable callback without a controlled key, like an Accordion item's `onOpenChange`:
+    // the directive reports the request alone, since what commits is another part's value.
+    const requestOnly =
+      !controlled &&
+      name.endsWith("Change") &&
+      directive.outputs.has(`${key}ChangeRequest`) &&
+      !directive.outputs.has(`${key}Change`);
+
+    if (requestOnly) {
+      outputs = [`${key}ChangeRequest`];
+    }
 
     if (outputs.every((output) => directive.outputs.has(output))) {
       bound.set(name, { outputs });
@@ -332,12 +388,22 @@ for (const directive of directives) {
       "static host listeners must equal `events`",
     );
 
+    if (directive.slot.mounts) {
+      // A structural directive's host is its template's anchor: it can't listen for events.
+      assert.deepEqual(listeners, [], "a structural part declares no host listeners");
+    }
+
     const instance = primitive({ id: "ui-sdk-parity" });
     const props = {};
 
     if (directive.slot.keyProp) {
       props[directive.slot.keyProp] = "parity";
       props.id = "parity";
+    }
+
+    // Value-keyed parts, like a tab or an Accordion item's trigger, need a value to register.
+    if (directive.slot.passed.has("value") && props.value === undefined) {
+      props.value = "parity";
     }
 
     const handled = Object.keys(handlers(instance.part(directive.slot.name, props)));
@@ -476,7 +542,10 @@ for (const directive of directives) {
 
   test(`${directive.className}: a part outside its root's element names its control by a required reference`, () => {
     const selectorInput = directive.selector.replace(/^(\w+)?\[|\]$/g, "");
-    const reference = directive.slot.keyProp === undefined && directive.inputs.get(selectorInput);
+    const reference =
+      directive.slot.keyProp === undefined &&
+      !renamedInputs(directive).has(selectorInput) &&
+      directive.inputs.get(selectorInput);
 
     assert.equal(
       Boolean(reference),

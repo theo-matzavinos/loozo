@@ -20,7 +20,10 @@
       "@loozo/ui-sdk-angular/checkbox": ["./checkbox/src/public-api.ts"],
       "@loozo/ui-sdk-angular/switch": ["./switch/src/public-api.ts"],
       "@loozo/ui-sdk-angular/radio": ["./radio/src/public-api.ts"],
-      "@loozo/ui-sdk-angular/toolbar": ["./toolbar/src/public-api.ts"]
+      "@loozo/ui-sdk-angular/toolbar": ["./toolbar/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/tabs": ["./tabs/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/accordion": ["./accordion/src/public-api.ts"],
+      "@loozo/ui-sdk-angular/collapsible": ["./collapsible/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -36,6 +39,9 @@
     "switch/src/**/*.ts",
     "radio/src/**/*.ts",
     "toolbar/src/**/*.ts",
+    "tabs/src/**/*.ts",
+    "accordion/src/**/*.ts",
+    "collapsible/src/**/*.ts",
     "tests/*.ts"
   ]
 }
