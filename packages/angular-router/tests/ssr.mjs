@@ -187,11 +187,14 @@ await writeFile(
   join(fixture, "src/routes/+workspace/orders/route.ts"),
   `import { inject } from "@angular/core";
 import { RedirectCommand, Router } from "@angular/router";
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute, numberParam, remembered, retained, withFallback } from "@loozo/angular-router";
 import workspace from "../route.js";
 import { hold, marker } from "../../../hold.js";
 
-export default defineRoute("orders", { parent: workspace })
+export default defineRoute("orders", {
+  parent: workspace,
+  search: { pageSize: retained(remembered(withFallback(numberParam, 20), "orders.pageSize")) },
+})
   .canActivate([
     async () => {
       const a = marker("a");
@@ -217,6 +220,7 @@ export default defineRoute("orders", { parent: workspace })
 
       return "orders";
     },
+    rows: ({ search }) => String(search.pageSize) + " rows",
   });
 `,
 );
@@ -383,7 +387,12 @@ import {
   type UrlTree,
 } from "@angular/router";
 import { provideClientHydration, withNoHttpTransferCache } from "@angular/platform-browser";
-import { provideActiveRouteHydration, routes } from "../generated/routes.generated.js";
+import {
+  provideActiveRouteHydration,
+  provideSearchStorage,
+  routes,
+} from "../generated/routes.generated.js";
+import { cookieSearchStorage } from "./search-cookies.js";
 
 function race(): string | null {
   return new URLSearchParams(window.location.search).get("race");
@@ -482,6 +491,8 @@ export const config: ApplicationConfig = {
     }),
     provideClientHydration(withNoHttpTransferCache()),
     provideActiveRouteHydration(),
+    // The committed workspace layout remembers its density.
+    provideSearchStorage(cookieSearchStorage),
   ],
 };
 `,
@@ -1282,7 +1293,12 @@ try {
     },
     seed: workspaceSeed("/orders?workspace=acme", [
       { id: "src/routes/+workspace/route.ts", from: 0, to: 0 },
-      { id: "src/routes/+workspace/orders/route.ts", from: 0, to: 1, data: { label: "orders" } },
+      {
+        id: "src/routes/+workspace/orders/route.ts",
+        from: 0,
+        to: 1,
+        data: { label: "orders", rows: "20 rows" },
+      },
     ]),
   });
   assert.deepEqual(retainedPages["/orders/7?workspace=acme"].hrefs, {
@@ -2915,3 +2931,813 @@ try {
 }
 
 console.log("Sibling pathless groups SSR, hydration and route-extraction hint proof passed");
+
+// Remembered search keys under SSR (SPEC §7 "Remembered search keys", router README "Remembered
+// search keys on the server"): the committed ssr-proof app as is, with the README's cookie
+// adapter and not-found handler. The copy adds an unrelated HttpOnly cookie to every response,
+// counts the server's NavigationStart events in a response header, exposes navigation to the
+// browser test, and runs two server-only sequences on the first commit of a URL marked
+// `sequence`: `multi` commits page sizes 100 and 50 more in one render under PendingTasks, and
+// `adapter` drives the store's own cookie adapter (write, read, forget twice, read, write) and
+// reports its reads in a header. Rows run against the built production server through Node's
+// writer and against the development server, then in Chromium.
+const rememberedSsr = join(evidence, "remembered");
+const rememberedObservations = {};
+
+try {
+  await cp(join(repository, "examples/angular-router/ssr-proof"), rememberedSsr, {
+    recursive: true,
+    filter: (path) => !/(?:^|\/)(?:node_modules|dist|\.angular|out-tsc)(?:\/|$)/.test(path),
+  });
+
+  for (const name of new Set([
+    ...Object.keys(metadata.dependencies),
+    ...Object.keys(metadata.devDependencies),
+    "@loozo/angular-router",
+  ])) {
+    const leaf = join(rememberedSsr, "node_modules", name);
+    let target = join(packageDirectory, "node_modules", name);
+
+    if (name === "@loozo/angular-router") {
+      target = packageDirectory;
+    }
+
+    await mkdir(dirname(leaf), { recursive: true });
+    await symlink(target, leaf, "dir");
+  }
+
+  const committedConfig = await readFile(join(rememberedSsr, "src/app.config.ts"), "utf8");
+
+  await writeFile(
+    join(rememberedSsr, "src/app.config.ts"),
+    committedConfig
+      .replace(
+        'import type { ApplicationConfig } from "@angular/core";',
+        `import { InjectionToken, PLATFORM_ID, PendingTasks, RESPONSE_INIT, inject, provideEnvironmentInitializer, type ApplicationConfig } from "@angular/core";
+import { isPlatformServer } from "@angular/common";
+import { EventType, ROUTER_CONFIGURATION, Router } from "@angular/router";
+import { REQUEST } from "@angular/core";
+import type { SearchStorage } from "@loozo/angular-router";
+
+// The store's adapter, so the adapter sequence drives the same instance and effective map.
+const proofStorage = new InjectionToken<SearchStorage>("proof storage", {
+  providedIn: "root",
+  factory: cookieSearchStorage,
+});`,
+      )
+      .replace(
+        "    provideSearchStorage(cookieSearchStorage),\n",
+        `    provideSearchStorage(() => inject(proofStorage)),
+    // A server render of a URL marked \`eager\` updates the URL eagerly.
+    {
+      provide: ROUTER_CONFIGURATION,
+      useFactory: () => {
+        const request = inject(REQUEST, { optional: true });
+        const eager = request !== null && new URL(request.url).searchParams.has("eager");
+
+        return { urlUpdateStrategy: eager ? "eager" : "deferred" };
+      },
+    },
+    provideEnvironmentInitializer(() => {
+      const response = inject(RESPONSE_INIT, { optional: true });
+      const router = inject(Router);
+      const pending = inject(PendingTasks);
+      const storage = inject(proofStorage);
+      const server = isPlatformServer(inject(PLATFORM_ID));
+      let starts = 0;
+      let sequenced = false;
+
+      if (typeof window !== "undefined") {
+        (window as any).proofStarts = () => starts;
+        (window as any).proofGo = (url: string, extras?: object) => router.navigateByUrl(url, extras);
+      }
+
+      function header(name: string, value: string) {
+        if (response) {
+          let headers = response.headers;
+
+          if (!(headers instanceof Headers)) {
+            headers = new Headers(headers);
+            response.headers = headers;
+          }
+
+          headers.set(name, value);
+        }
+      }
+
+      router.events.subscribe((event) => {
+        if (event.type === EventType.NavigationEnd && server && !sequenced) {
+          const sequence = router.parseUrl(event.urlAfterRedirects).queryParamMap.get("sequence");
+
+          if (sequence === "multi") {
+            sequenced = true;
+
+            const done = pending.add();
+
+            void (async () => {
+              try {
+                // After this commit's delivery, so each commit is a navigation of its own.
+                await Promise.resolve();
+                await router.navigateByUrl("/orders?pageSize=100&sequence=multi");
+                await router.navigateByUrl("/orders?pageSize=50&sequence=multi");
+              } finally {
+                done();
+              }
+            })();
+          } else if (sequence === "adapter") {
+            sequenced = true;
+            storage.write("orders.pageSize", "100");
+
+            const afterWrite = storage.read("orders.pageSize") ?? null;
+
+            storage.forget("orders.pageSize");
+            storage.forget("orders.pageSize");
+
+            const afterForget = storage.read("orders.pageSize") ?? null;
+
+            storage.write("orders.pageSize", "50");
+            header("x-adapter-trace", JSON.stringify({ afterWrite, afterForget, end: storage.read("orders.pageSize") ?? null }));
+          }
+        }
+
+        if (event.type !== EventType.NavigationStart) {
+          return;
+        }
+
+        starts += 1;
+        header("x-navigation-starts", String(starts));
+      });
+
+      if (response) {
+        const headers = new Headers(response.headers);
+
+        headers.append("Set-Cookie", "session=kept; Path=/; HttpOnly; SameSite=Lax");
+        response.headers = headers;
+      }
+    }),
+`,
+      ),
+  );
+
+  const { buildFixture: buildRememberedSsr } = await import("./sibling-groups.mjs");
+
+  await buildRememberedSsr(rememberedSsr);
+
+  // One document request with a Cookie header; the response's raw status, headers and body.
+  function document(origin, url, cookie) {
+    return new Promise((done, fail) => {
+      const headers = {};
+
+      if (cookie !== undefined) {
+        headers.cookie = cookie;
+      }
+
+      const request = get(origin + url, { headers }, (response) => {
+        let body = "";
+
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.once("end", () => {
+          const searchCookies = [];
+          const otherCookies = [];
+
+          for (const value of response.headers["set-cookie"] ?? []) {
+            if (value.startsWith("search.")) {
+              searchCookies.push(value);
+            } else {
+              otherCookies.push(value.split(";")[0]);
+            }
+          }
+
+          let location = null;
+
+          // Path, query and hash of the redirect, whether Angular wrote it absolute or not.
+          if (response.headers.location !== undefined) {
+            const target = new URL(response.headers.location, origin);
+
+            location = target.pathname + target.search + target.hash;
+          }
+
+          done({
+            status: response.statusCode,
+            location,
+            vary: response.headers.vary ?? null,
+            starts: Number(response.headers["x-navigation-starts"] ?? 0),
+            searchCookies,
+            otherCookies,
+            pageSize: body.match(/<span id="page-size"[^>]*>([^<]*)<\/span>/)?.[1] ?? null,
+            rows: body.match(/<span id="rows"[^>]*>([^<]*)<\/span>/)?.[1] ?? null,
+            title: body.match(/<title>([^<]*)<\/title>/)?.[1] ?? null,
+            trace: JSON.parse(response.headers["x-adapter-trace"] ?? "null"),
+            notFound: body.includes('id="not-found"'),
+            empty: body === "",
+            body,
+          });
+        });
+      });
+
+      request.setTimeout(15000, () => request.destroy(new Error("timed out: " + url)));
+      request.once("error", fail);
+    });
+  }
+
+  const deletion = "search.orders.pageSize=; Path=/; Max-Age=0";
+  const stored = (text) =>
+    `search.orders.pageSize=${text}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
+
+  // The rows every server answers alike; `observe` records each response without its body.
+  async function serverRows(origin, label) {
+    const seen = {};
+
+    async function observe(name, url, cookie) {
+      const response = await document(origin, url, cookie);
+
+      seen[name] = { ...response, body: undefined };
+      await writeFile(join(rememberedSsr, `${label}-${name}.html`), response.body);
+
+      return response;
+    }
+
+    const first = await observe("first", "/orders", "search.orders.pageSize=50");
+
+    assert.equal(first.status, 302, label);
+    assert.equal(first.location, "/orders?pageSize=50", label);
+    assert.equal(first.empty, true, label);
+    assert.deepEqual(first.searchCookies, [], label);
+    assert.deepEqual(first.otherCookies, ["session=kept"], label);
+
+    const recovered = await observe(
+      "recovered",
+      "/orders?origin=kept",
+      "search.orders.pageSize=99",
+    );
+    const recoveredAgain = await observe("recoveredAgain", "/orders?origin=kept");
+
+    assert.equal(recovered.status, 200, label);
+    assert.equal(recovered.location, null, label);
+    assert.equal(recovered.pageSize, "20", label);
+    assert.equal(recovered.starts, 3, label);
+    assert.deepEqual(recovered.searchCookies, [deletion], label);
+    assert.deepEqual(recovered.otherCookies, ["session=kept"], label);
+    assert.equal(recoveredAgain.status, 200, label);
+    assert.equal(recoveredAgain.starts, 1, label);
+    assert.deepEqual(recoveredAgain.searchCookies, [], label);
+
+    const missing = await observe("missing", "/orders/42?origin=kept", "search.orders.pageSize=50");
+    const missingAgain = await observe("missingAgain", "/orders/42?origin=kept");
+
+    assert.equal(missing.status, 404, label);
+    assert.equal(missing.location, null, label);
+    assert.equal(missing.notFound, true, label);
+    assert.equal(missing.starts, 4, label);
+    assert.deepEqual(missing.searchCookies, [deletion], label);
+    assert.equal(missingAgain.status, 404, label);
+    assert.equal(missingAgain.starts, 2, label);
+    assert.deepEqual(missingAgain.searchCookies, [], label);
+
+    // A typed redirect into a missing order: after the retry, the not-found page answers at the
+    // requested URL, with and without a remembered value.
+    const aliased = await observe("aliased", "/old-order/42", "search.orders.pageSize=50");
+    const aliasedBare = await observe("aliasedBare", "/old-order/42");
+
+    // The same with eager URL updates, which move Location to the alias's target first.
+    const aliasedEager = await observe(
+      "aliasedEager",
+      "/old-order/42?eager=1",
+      "search.orders.pageSize=50",
+    );
+
+    for (const [response, cookies] of [
+      [aliased, [deletion]],
+      [aliasedBare, []],
+      [aliasedEager, [deletion]],
+    ]) {
+      assert.equal(response.status, 404, label);
+      assert.equal(response.location, null, label);
+      assert.equal(response.notFound, true, label);
+      assert.deepEqual(response.searchCookies, cookies, label);
+    }
+
+    // Pages that use a remembered key vary on the cookies, redirects included; others don't.
+    const plain = await observe("plain", "/login");
+
+    for (const response of [first, recovered, recoveredAgain, missing]) {
+      assert.match(response.vary ?? "", /(?:^|,\s*)Cookie(?:\s*,|$)/, label);
+    }
+
+    assert.doesNotMatch(plain.vary ?? "", /Cookie/, label);
+    assert.equal(plain.status, 200, label);
+
+    // One render commits 50, 100 and 50 again under PendingTasks: the response carries 100 then
+    // 50, in order, and the page renders the last commit.
+    const multi = await observe(
+      "multi",
+      "/orders?pageSize=50&sequence=multi",
+      "search.orders.pageSize=50",
+    );
+
+    assert.equal(multi.status, 200, label);
+    assert.equal(multi.location, null, label);
+    assert.equal(multi.pageSize, "50", label);
+    assert.equal(multi.rows, "50 rows", label);
+    assert.equal(multi.title, "Orders (50)", label);
+    assert.equal(multi.starts, 3, label);
+    assert.deepEqual(multi.searchCookies, [stored("100"), stored("50")], label);
+    assert.deepEqual(multi.otherCookies, ["session=kept"], label);
+
+    // The store's adapter in one server injector: a read sees the write before it, a second
+    // forget appends nothing, and the request's unrelated cookie is never touched.
+    const adapter = await observe(
+      "adapter",
+      "/login?sequence=adapter",
+      "search.orders.pageSize=70; other=1",
+    );
+
+    assert.equal(adapter.status, 200, label);
+    assert.deepEqual(adapter.trace, { afterWrite: "100", afterForget: null, end: "50" }, label);
+    assert.deepEqual(adapter.searchCookies, [stored("100"), deletion, stored("50")], label);
+    assert.deepEqual(adapter.otherCookies, ["session=kept"], label);
+
+    return seen;
+  }
+
+  const httpPort = await port();
+  const origin = "http://127.0.0.1:" + httpPort;
+  const server = spawn(process.execPath, [join(rememberedSsr, "dist/proof/server/server.mjs")], {
+    cwd: rememberedSsr,
+    env: { ...process.env, PORT: String(httpPort) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const closed = new Promise((done) => server.once("close", done));
+  let serverErrors = "";
+
+  server.stderr.on("data", (data) => {
+    serverErrors += data.toString();
+  });
+
+  // Serves the browser files beside the Node server, and forwards documents with their cookies,
+  // status, Location and Set-Cookie headers.
+  const front = createHttpServer(async (request, response) => {
+    const path = new URL(request.url, origin).pathname;
+
+    if (path.endsWith(".js") || path.endsWith(".css")) {
+      try {
+        const body = await readFile(join(rememberedSsr, "dist/proof/browser", path));
+        let type = "text/css";
+
+        if (path.endsWith(".js")) {
+          type = "text/javascript";
+        }
+
+        response.writeHead(200, { "content-type": type }).end(body);
+      } catch {
+        response.writeHead(404).end();
+      }
+
+      return;
+    }
+
+    get(origin + request.url, { headers: { cookie: request.headers.cookie ?? "" } }, (rendered) => {
+      response.writeHead(rendered.statusCode, rendered.headers);
+      rendered.pipe(response);
+    });
+  });
+
+  await new Promise((done) => front.listen(0, "127.0.0.1", done));
+
+  const frontOrigin = "http://127.0.0.1:" + front.address().port;
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+
+  try {
+    await ready(origin);
+    rememberedObservations.built = await serverRows(origin, "built");
+
+    const built = rememberedObservations.built;
+
+    // The remembered value's own document: 200 at 50, a seed of string-keyed data only.
+    const second = await document(origin, "/orders?pageSize=50", "search.orders.pageSize=50");
+    const seed = transferredSeed(second.body);
+
+    rememberedObservations.second = { ...second, body: undefined, seed };
+    assert.equal(second.status, 200);
+    assert.equal(second.pageSize, "50");
+    assert.deepEqual(second.searchCookies, []);
+    assert.deepEqual(seed, {
+      url: "/orders?pageSize=50",
+      routes: [
+        { id: "src/routes/+workspace/route.ts", from: 0, to: 0 },
+        {
+          id: "src/routes/+workspace/orders/route.ts",
+          from: 0,
+          to: 1,
+          data: { label: "orders", rows: "50 rows" },
+          title: "Orders (50)",
+        },
+      ],
+    });
+
+    // Stored text that doesn't read as a value: no redirect, the fallback, one deletion.
+    for (const text of ["bad%zz", "abc"]) {
+      const bad = await document(origin, "/orders", "search.orders.pageSize=" + text);
+
+      rememberedObservations[`bad ${text}`] = { ...bad, body: undefined };
+      assert.equal(bad.status, 200, text);
+      assert.equal(bad.pageSize, "20", text);
+      assert.deepEqual(bad.searchCookies, [deletion], text);
+    }
+
+    // Parallel requests never see each other's values.
+    const parallel = await Promise.all(
+      ["30", "70", "abc"].map((text) =>
+        document(origin, "/orders", "search.orders.pageSize=" + text),
+      ),
+    );
+
+    rememberedObservations.parallel = parallel.map((response) => [
+      response.status,
+      response.location,
+    ]);
+    assert.deepEqual(rememberedObservations.parallel, [
+      [302, "/orders?pageSize=30"],
+      [302, "/orders?pageSize=70"],
+      [200, null],
+    ]);
+
+    // A typed redirect into the owner is followed by the restore, in one hop.
+    const typed = await document(origin, "/old-orders", "search.orders.pageSize=50");
+
+    rememberedObservations.typed = { ...typed, body: undefined };
+    assert.equal(typed.status, 302);
+    assert.equal(typed.location, "/orders?pageSize=50");
+
+    // Two owners restored in one redirect, then not found: both values forgotten, 200.
+    const twoOwners = await document(
+      origin,
+      "/orders?origin=kept",
+      "search.orders.pageSize=99; search.workspace.density=compact",
+    );
+
+    rememberedObservations.twoOwners = { ...twoOwners, body: undefined };
+    assert.equal(twoOwners.status, 200);
+    assert.equal(twoOwners.starts, 3);
+    assert.deepEqual(twoOwners.searchCookies.sort(), [
+      deletion,
+      "search.workspace.density=; Path=/; Max-Age=0",
+    ]);
+
+    // An explicit value restores nothing: the ordinary 404, and the stored value stays.
+    const explicit = await document(origin, "/orders?pageSize=99", "search.orders.pageSize=50");
+
+    rememberedObservations.explicit = { ...explicit, body: undefined };
+    assert.equal(explicit.status, 404);
+    assert.equal(explicit.starts, 2);
+    assert.deepEqual(explicit.searchCookies, []);
+
+    // An explicit fallback commits and forgets.
+    const fallback = await document(origin, "/orders?pageSize=20", "search.orders.pageSize=50");
+
+    rememberedObservations.fallback = { ...fallback, body: undefined };
+    assert.equal(fallback.status, 200);
+    assert.deepEqual(fallback.searchCookies, [deletion]);
+    assert.ok(built.first && built.recovered && built.missing);
+
+    // Chromium: the cookie entry redirects, hydrates at 50 and never shows another value; the
+    // client neither restores nor retries.
+    async function visit(url, cookies, after) {
+      const context = await browser.newContext({ colorScheme: "dark" });
+      const page = await context.newPage();
+      const pageErrors = [];
+      const consoleErrors = [];
+
+      page.on("pageerror", (error) => pageErrors.push(String(error)));
+      page.on("console", (message) => {
+        if (message.type() === "error") {
+          consoleErrors.push(message.text());
+        }
+      });
+      await context.addCookies(
+        Object.entries(cookies).map(([name, value]) => ({ name, value, url: frontOrigin })),
+      );
+      // Every page size and not-found text the document ever shows, from parsing on.
+      await page.addInitScript(() => {
+        const shown = (window.proofShown = []);
+
+        new MutationObserver(() => {
+          const size = document.querySelector("#page-size")?.textContent ?? null;
+          const missing = document.querySelector("#not-found") !== null;
+
+          if (shown.at(-1)?.size !== size || shown.at(-1)?.missing !== missing) {
+            shown.push({ size, missing });
+          }
+        }).observe(document, { subtree: true, childList: true, characterData: true });
+      });
+      await page.goto(frontOrigin + url);
+      await page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+
+      const extra = await after?.(page);
+      const seen = await page.evaluate(() => ({
+        url: location.pathname + location.search,
+        shown: window.proofShown,
+        starts: window.proofStarts(),
+        shellOrder: document.querySelector("#shell-order")?.getAttribute("href") ?? null,
+        cookie: document.cookie,
+      }));
+
+      await page.screenshot({
+        path: join(evidence, `remembered-${url.replace(/[^a-z0-9]+/gi, "_")}.png`),
+      });
+      await context.close();
+
+      return { ...seen, extra, pageErrors, consoleErrors };
+    }
+
+    const hydrated = await visit("/orders", { "search.orders.pageSize": "50" });
+
+    rememberedObservations.hydrated = hydrated;
+    assert.equal(hydrated.url, "/orders?pageSize=50");
+    assert.deepEqual(
+      hydrated.shown.filter((entry) => entry.size !== null),
+      [{ size: "50", missing: false }],
+    );
+    assert.equal(hydrated.starts, 1);
+    assert.equal(hydrated.shellOrder, "/orders/7?pageSize=50");
+    assert.deepEqual(hydrated.pageErrors, []);
+    assert.deepEqual(hydrated.consoleErrors, []);
+
+    const recoveredPage = await visit("/orders?origin=kept", { "search.orders.pageSize": "99" });
+
+    rememberedObservations.recoveredPage = recoveredPage;
+    assert.equal(recoveredPage.url, "/orders?origin=kept");
+    assert.deepEqual(
+      recoveredPage.shown.filter((entry) => entry.size !== null || entry.missing),
+      [{ size: "20", missing: false }],
+    );
+    assert.equal(recoveredPage.starts, 1);
+    assert.doesNotMatch(recoveredPage.cookie, /search\.orders\.pageSize/);
+    assert.deepEqual(recoveredPage.pageErrors, []);
+    assert.deepEqual(recoveredPage.consoleErrors, []);
+
+    // Client-only: from /login, a click into orders restores 99, the handler forgets it and
+    // retries; the browser's cookie is deleted.
+    const client = await visit("/login", {}, async (page) => {
+      await page
+        .context()
+        .addCookies([{ name: "search.orders.pageSize", value: "99", url: frontOrigin }]);
+      await page.click("#login-orders");
+      await page.waitForFunction(() => location.pathname === "/orders");
+      await page.waitForFunction(() => document.querySelector("#page-size")?.textContent === "20");
+
+      return page.evaluate(() => window.proofStarts());
+    });
+
+    rememberedObservations.client = client;
+    assert.equal(client.url, "/orders");
+    assert.equal(client.extra, 4);
+    assert.doesNotMatch(client.cookie, /search\.orders\.pageSize/);
+    assert.deepEqual(client.pageErrors, []);
+
+    // The browser's jar after the multi-commit render and the adapter sequence: 50, with the
+    // unrelated cookies kept.
+    async function jar(page) {
+      const result = {};
+
+      for (const cookie of await page.context().cookies()) {
+        result[cookie.name] = cookie.value;
+      }
+
+      return result;
+    }
+
+    const multiPage = await visit(
+      "/orders?pageSize=50&sequence=multi",
+      { "search.orders.pageSize": "50" },
+      jar,
+    );
+    const adapterPage = await visit(
+      "/login?sequence=adapter",
+      { "search.orders.pageSize": "70", other: "1" },
+      jar,
+    );
+
+    rememberedObservations.multiPage = multiPage;
+    rememberedObservations.adapterPage = adapterPage;
+    assert.deepEqual(multiPage.extra, { "search.orders.pageSize": "50", session: "kept" });
+    assert.deepEqual(
+      multiPage.shown.filter((entry) => entry.size !== null),
+      [{ size: "50", missing: false }],
+    );
+    assert.deepEqual(multiPage.pageErrors, []);
+    assert.deepEqual(adapterPage.extra, {
+      "search.orders.pageSize": "50",
+      other: "1",
+      session: "kept",
+    });
+    assert.deepEqual(adapterPage.pageErrors, []);
+
+    // Inside the hydrated orders page, clearing the page size shows the fallback with matching
+    // rows and title and deletes the cookie; leaving and coming back doesn't restore.
+    const flow = await visit("/orders", { "search.orders.pageSize": "50" }, async (page) => {
+      const state = () =>
+        page.evaluate(() => ({
+          url: location.pathname + location.search,
+          size: document.querySelector("#page-size")?.textContent ?? null,
+          rows: document.querySelector("#rows")?.textContent ?? null,
+          title: document.title,
+          stored: /search\.orders\.pageSize=/.test(document.cookie),
+          starts: window.proofStarts(),
+        }));
+      const restored = await state();
+
+      await page.click("#orders-clear");
+      await page.waitForFunction(
+        () => location.search === "" && document.querySelector("#page-size")?.textContent === "20",
+      );
+
+      const cleared = await state();
+
+      await page.click("#orders-login");
+      await page.waitForFunction(() => location.pathname === "/login");
+      await page.click("#login-orders");
+      await page.waitForFunction(() => document.querySelector("#page-size") !== null);
+
+      return { restored, cleared, reentered: await state() };
+    });
+
+    rememberedObservations.flow = flow;
+    assert.deepEqual(flow.extra, {
+      restored: {
+        url: "/orders?pageSize=50",
+        size: "50",
+        rows: "50 rows",
+        title: "Orders (50)",
+        stored: true,
+        starts: 1,
+      },
+      cleared: {
+        url: "/orders",
+        size: "20",
+        rows: "20 rows",
+        title: "Orders (20)",
+        stored: false,
+        starts: 2,
+      },
+      reentered: {
+        url: "/orders",
+        size: "20",
+        rows: "20 rows",
+        title: "Orders (20)",
+        stored: false,
+        starts: 4,
+      },
+    });
+    assert.deepEqual(flow.pageErrors, []);
+    assert.deepEqual(flow.consoleErrors, []);
+
+    // Client-only entries from /login with the caller's state, each twice with /login between:
+    // a missing page gets one retry, then the not-found page at its own address; two owners are
+    // both forgotten and the page shows the fallbacks with the caller's state. The second entry
+    // never restores.
+    async function clientEntries(cookies, url) {
+      return visit("/login", {}, async (page) => {
+        await page
+          .context()
+          .addCookies(
+            Object.entries(cookies).map(([name, value]) => ({ name, value, url: frontOrigin })),
+          );
+
+        const entries = [];
+
+        for (let index = 0; index < 2; index += 1) {
+          const before = await page.evaluate(() => window.proofStarts());
+          const result = await page.evaluate(
+            (target) => window.proofGo(target, { state: { entry: "client" } }),
+            url,
+          );
+
+          entries.push(
+            await page.evaluate(
+              ([start, value]) => ({
+                result: value,
+                location: location.pathname + location.search,
+                starts: window.proofStarts() - start,
+                entry: history.state?.entry ?? null,
+                size: document.querySelector("#page-size")?.textContent ?? null,
+                density: document.querySelector("#density-value")?.textContent ?? null,
+                notFound: document.querySelector("#not-found") !== null,
+                cookie: document.cookie,
+              }),
+              [before, result],
+            ),
+          );
+          await page.evaluate(() => window.proofGo("/login"));
+        }
+
+        return entries;
+      });
+    }
+
+    const clientMissing = await clientEntries({ "search.orders.pageSize": "50" }, "/orders/42");
+    const clientOwners = await clientEntries(
+      { "search.orders.pageSize": "99", "search.workspace.density": "compact" },
+      "/orders",
+    );
+
+    rememberedObservations.clientMissing = clientMissing;
+    rememberedObservations.clientOwners = clientOwners;
+    assert.deepEqual(
+      clientMissing.extra.map(({ result, location, starts, notFound, cookie }) => ({
+        result,
+        location,
+        starts,
+        notFound,
+        cookie,
+      })),
+      [
+        { result: true, location: "/orders/42", starts: 4, notFound: true, cookie: "" },
+        { result: true, location: "/orders/42", starts: 2, notFound: true, cookie: "" },
+      ],
+    );
+    assert.deepEqual(clientMissing.pageErrors, []);
+    assert.deepEqual(clientOwners.extra, [
+      {
+        result: true,
+        location: "/orders",
+        starts: 3,
+        entry: "client",
+        size: "20",
+        density: "default",
+        notFound: false,
+        cookie: "",
+      },
+      {
+        result: true,
+        location: "/orders",
+        starts: 1,
+        entry: "client",
+        size: "20",
+        density: "default",
+        notFound: false,
+        cookie: "",
+      },
+    ]);
+    assert.deepEqual(clientOwners.pageErrors, []);
+  } finally {
+    await browser.close();
+    await new Promise((done) => front.close(done));
+    server.kill("SIGTERM");
+    await closed;
+    rememberedObservations.serverErrors = serverErrors;
+  }
+
+  assert.equal(serverErrors, "");
+
+  // The development server: the same rows, with Angular's development-only redirect checks.
+  const devHost = core.workspaces.createWorkspaceHost(new NodeJsSyncHost());
+  const { workspace: devWorkspace } = await core.workspaces.readWorkspace(rememberedSsr, devHost);
+  const devRegistry = new core.json.schema.CoreSchemaRegistry();
+
+  devRegistry.addPostTransform(core.json.schema.transforms.addUndefinedDefaults);
+
+  const devArchitect = new Architect(
+    new WorkspaceNodeModulesArchitectHost(devWorkspace, rememberedSsr),
+    devRegistry,
+  );
+  const devLogs = [];
+  const devLogger = new core.logging.Logger("remembered-ssr");
+
+  devLogger.subscribe((entry) => devLogs.push(entry));
+
+  const devServe = await devArchitect.scheduleTarget(
+    { project: "proof", target: "serve" },
+    {},
+    { logger: devLogger },
+  );
+  const devOutputs = [];
+  const devSubscription = devServe.output.subscribe((output) => devOutputs.push(output));
+
+  try {
+    const deadline = Date.now() + 90000;
+
+    while (!devOutputs.some((output) => output.success && output.baseUrl)) {
+      assert.ok(Date.now() < deadline, JSON.stringify(devLogs));
+      await new Promise((done) => setTimeout(done, 100));
+    }
+
+    const devOrigin = new URL(devOutputs.find((output) => output.success).baseUrl).origin;
+
+    rememberedObservations.development = await serverRows(devOrigin, "development");
+  } finally {
+    devSubscription.unsubscribe();
+    await devServe.stop();
+  }
+} catch (error) {
+  process.exitCode = 1;
+
+  throw error;
+} finally {
+  await save("remembered-ssr.json", rememberedObservations);
+}
+
+console.log("Remembered search keys SSR, recovery and hydration proof passed");

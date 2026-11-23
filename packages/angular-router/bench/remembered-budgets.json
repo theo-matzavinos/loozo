@@ -1,0 +1,21 @@
+{
+  "100": {
+    "generate.ms": 4000,
+    "build.ms": 9000,
+    "typecheck.ngcMs": 3000,
+    "typecheck.instantiations": 267000,
+    "bundle.initial.raw": 256000,
+    "bundle.initial.gzip": 78000,
+    "bundle.initial.brotli": 69000,
+    "bundle.initial.files": 1,
+    "bundle.initial.routeCopies": 10,
+    "bundle.lazy.raw": 100000,
+    "bundle.lazy.gzip": 60000,
+    "bundle.lazy.brotli": 53000,
+    "runtime.bootstrapMs": 42,
+    "runtime.navigateColdMs": 31.1,
+    "runtime.navigateWarmMs": 1.5,
+    "runtime.navigateWarmP95Ms": 2.2
+  },
+  "bench": "angular-router-remembered"
+}

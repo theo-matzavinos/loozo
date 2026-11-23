@@ -9,10 +9,13 @@ import {
   withFallback,
   arrayParam,
   retained,
+  remembered,
   serverRoutePath,
   type LocaleUrl,
   type Route,
   type ParamCodec,
+  type SearchRestore,
+  type SearchStorage,
 } from "@loozo/angular-router";
 import { authoredRouteOf, defineDestination, routeOf } from "@loozo/angular-router/_core";
 import type {
@@ -1047,6 +1050,48 @@ arrayParam(retained(numberParam));
 void retained({ ...stringParam, label: "workspace" }).label;
 // @ts-expect-error Retained codecs are search-only.
 defineRoute("retained/$id", { params: { id: retained(numberParam) } });
+// A remembered key reads and writes like its wrapped codec, in either order with retained.
+const rememberedRoute = defineRoute("remembered", {
+  search: {
+    pageSize: retained(remembered(withFallback(numberParam, 20), "list.pageSize")),
+    tags: remembered(retained(arrayParam(enumParam(["a", "b"]))), "list.tags"),
+    sort: remembered(enumParam(["newest", "oldest"]), "list.sort"),
+  },
+});
+type RememberedSearch = NonNullable<typeof rememberedRoute.__search>;
+
+exact<Equal<RememberedSearch["pageSize"], number>>();
+exact<Equal<RememberedSearch["tags"], readonly ("a" | "b")[]>>();
+exact<Equal<RememberedSearch["sort"], "newest" | "oldest" | undefined>>();
+createUrl(rememberedRoute, {});
+createUrl(rememberedRoute, { search: { pageSize: 50, sort: undefined } });
+// @ts-expect-error A remembered key keeps the codec's type.
+createUrl(rememberedRoute, { search: { pageSize: "50" } });
+// @ts-expect-error A codec is remembered once.
+remembered(remembered(stringParam, "a"), "b");
+// @ts-expect-error The id is required.
+remembered(stringParam);
+// @ts-expect-error remembered is outermost: withFallback can't wrap it.
+withFallback(remembered(numberParam, "a"), 1);
+// @ts-expect-error remembered is outermost: arrayParam can't wrap it.
+arrayParam(remembered(numberParam, "a"));
+// @ts-expect-error Remembered codecs are search-only.
+defineRoute("remembered/$id", { params: { id: remembered(numberParam, "id") } });
+// @ts-expect-error A remembered codec doesn't promise the wrapped codec's extra members.
+void remembered({ ...stringParam, label: "workspace" }, "label").label;
+// The storage adapter and the restore view are plain types.
+const memory = new Map<string, string>();
+const storage: SearchStorage = {
+  read: (id) => memory.get(id),
+  write: (id, text) => void memory.set(id, text),
+  forget: (id) => void memory.delete(id),
+};
+declare const restore: SearchRestore;
+
+exact<Equal<ReturnType<SearchStorage["read"]>, string | undefined>>();
+exact<Equal<typeof restore.originalUrl, string>>();
+restore.forget();
+void storage;
 defineRoute("articles-replace", {}).redirect({
   to: articlesTo,
   search: { mode: "replace", values: { tag: ["news"], single: undefined } },

@@ -8,7 +8,8 @@ import { destination as order } from "./orders/$id/destination.generated.js";
   template: `
     <section id="workspace-layout">
       <p>
-        Workspace: <span id="workspace-value">{{ route.search().workspace ?? "none" }}</span>
+        Workspace: <span id="workspace-value">{{ route.search().workspace ?? "none" }}</span>,
+        density <span id="density-value">{{ route.search().density ?? "default" }}</span>
       </p>
       <nav>
         <a id="layout-order" [routerLink]="order()">Order 7, from the layout</a>

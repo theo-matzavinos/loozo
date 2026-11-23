@@ -106,13 +106,10 @@ function withoutFragment(router: Router, url: string): string {
   return router.serializeUrl(new UrlTree(tree.root, tree.queryParams));
 }
 
-function stateOwners(root: ActivatedRouteSnapshot): ReadonlySet<Destination<AnyRoute>> {
-  const cached = ownerCache.get(root);
-
-  if (cached) {
-    return cached;
-  }
-
+/** The destination of a state's deepest generated primary record, or undefined. */
+export function deepestDestination(
+  root: ActivatedRouteSnapshot,
+): Destination<AnyRoute> | undefined {
   let deepest: Destination<AnyRoute> | undefined;
 
   for (
@@ -127,7 +124,18 @@ function stateOwners(root: ActivatedRouteSnapshot): ReadonlySet<Destination<AnyR
     }
   }
 
-  const owners = ancestry(deepest);
+  return deepest;
+}
+
+/** The declaration ancestry of a state's deepest generated primary record; cached per state. */
+export function stateOwners(root: ActivatedRouteSnapshot): ReadonlySet<Destination<AnyRoute>> {
+  const cached = ownerCache.get(root);
+
+  if (cached) {
+    return cached;
+  }
+
+  const owners = ancestry(deepestDestination(root));
 
   ownerCache.set(root, owners);
 

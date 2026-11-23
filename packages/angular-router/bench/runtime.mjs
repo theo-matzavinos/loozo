@@ -147,7 +147,7 @@ async function waitInPage(page, failed, description, timeoutMs, predicate, argum
 }
 
 // A fresh context booted at the boot route; resolves once its marker was observed.
-async function boot(browser, origin, timeoutMs) {
+async function boot(browser, origin, timeoutMs, bootSearch) {
   const context = await browser.newContext();
   let fail;
   const failed = new Promise((resolvePromise, reject) => {
@@ -164,7 +164,7 @@ async function boot(browser, origin, timeoutMs) {
   page.on("pageerror", (error) => fail(new Error(`The page threw: ${error.message}`)));
 
   try {
-    await page.goto(`${origin}/${bootRoute}`, { timeout: timeoutMs });
+    await page.goto(`${origin}/${bootRoute}${bootSearch}`, { timeout: timeoutMs });
     await waitInPage(
       page,
       failed,
@@ -203,7 +203,8 @@ async function navigate({ page, failed }, link, timeoutMs) {
 
 // Bootstrap and cold navigation on fresh contexts, then warm navigation on one page, all in one
 // browser process. samples: { boot, cold, warm }.
-export async function measureNavigation(browserDirectory, { samples, timeoutMs }) {
+// `bootSearch` is the boot URL's query, such as the remembered workload's page size.
+export async function measureNavigation(browserDirectory, { samples, timeoutMs, bootSearch = "" }) {
   const server = await serveBrowser(browserDirectory);
   const values = {
     bootstrapMs: [],
@@ -221,7 +222,7 @@ export async function measureNavigation(browserDirectory, { samples, timeoutMs }
     const fresh = Math.max(samples.boot, samples.cold);
 
     for (let sample = 0; sample < fresh; sample++) {
-      const session = await boot(browser, server.origin, timeoutMs);
+      const session = await boot(browser, server.origin, timeoutMs, bootSearch);
 
       try {
         if (sample < samples.boot) {
@@ -242,7 +243,7 @@ export async function measureNavigation(browserDirectory, { samples, timeoutMs }
       }
     }
 
-    const session = await boot(browser, server.origin, timeoutMs);
+    const session = await boot(browser, server.origin, timeoutMs, bootSearch);
 
     try {
       for (let roundTrip = 0; roundTrip < warmRoundTrips; roundTrip++) {

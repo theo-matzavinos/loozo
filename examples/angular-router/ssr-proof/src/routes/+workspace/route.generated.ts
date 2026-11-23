@@ -1,8 +1,13 @@
 import { defineRoute,  } from "@loozo/angular-router";
 
 // A pathless layout that owns an app-wide key: every typed link to a page below it keeps
-// the current workspace unless the caller sets or drops it.
-/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination);
+// the current workspace unless the caller sets or drops it. Its density is remembered.
+/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination)
+
+
+
+
+;
 import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
 import { destination as routegen$destination } from "./destination.generated.js";
 export { routegen$route as route };

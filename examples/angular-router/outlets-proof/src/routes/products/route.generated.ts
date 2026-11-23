@@ -1,6 +1,13 @@
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute,  } from "@loozo/angular-router";
 
-/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination);
+// The layout is remembered per tab (session storage): a server-rendered page shows the default
+// until the browser restores it.
+/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination)
+
+
+
+
+;
 import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
 import { destination as routegen$destination } from "./destination.generated.js";
 import { destination as routegen$up } from "../+home/destination.generated.js";

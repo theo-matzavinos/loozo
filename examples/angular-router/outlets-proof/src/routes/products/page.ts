@@ -8,7 +8,8 @@ import { injectRoute } from "./route.generated.js";
     <article id="products">
       <h2>Products</h2>
       <p>
-        sort <span id="products-sort">{{ route.search().sort ?? "none" }}</span>
+        sort <span id="products-sort">{{ route.search().sort ?? "none" }}</span>, view
+        <span id="products-view">{{ route.search().view ?? "default" }}</span>
       </p>
       <div class="panes">
         <section id="products-primary"><router-outlet /></section>

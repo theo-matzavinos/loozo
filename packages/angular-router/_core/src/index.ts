@@ -6,11 +6,14 @@ export {
   withFallback,
   arrayParam,
   retained,
+  remembered,
   codecFallback,
   isArrayCodec,
   isRetained,
+  rememberedId,
 } from "./codecs.js";
 export type { ParamCodec } from "./codecs.js";
+export type { SearchRestore, SearchStorage } from "./search-storage.js";
 export { defineDestination, defineRoute, routeMetadata } from "./route.js";
 export type { RouteMetadata } from "./route.js";
 export { destinationRecord } from "./destination.js";
