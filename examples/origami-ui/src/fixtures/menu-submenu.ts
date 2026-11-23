@@ -28,10 +28,10 @@ import {
 // and Share with a checkbox item, and a disabled one; Format reads right to left; Tools is in a
 // Dialog; Files has a submenu placed below its sub-trigger and one that arrives open; Panels has
 // two submenus whose effects run in the reverse of their document order; Mail has a submenu in an
-// open shadow root inside its Content and a sibling submenu outside it. MN54–MN57: the Narrow
+// open shadow root inside its Content and a sibling submenu outside it. MN54–MN58: the Narrow
 // Menus, mounted on demand with fixed positions, are sized like fold's, so a submenu covers the
 // rows it overlaps: Narrow (left to right), Narrow RTL, Narrow root inline, Narrow vertical
-// (vertical-rl, right to left) and Narrow short.
+// (vertical-rl, right to left), Narrow short and, for MN58, Narrow square.
 // Controls the tests use as script actions are buttons.
 
 function increment(value: number): number {
@@ -379,7 +379,7 @@ export class MenuSubmenuShadow {
       <output data-testid="long-state">{{ longOpen() }} {{ longSubOpen() }}</output>
     </section>
 
-    <!-- MN54–MN57: fixed Menus for phone-width viewports. -->
+    <!-- MN54–MN58: fixed Menus for phone-width viewports. -->
     <section>
       <h2>Narrow</h2>
       <button
@@ -636,6 +636,36 @@ export class MenuSubmenuShadow {
             </div>
           </div>
         </div>
+
+        <div ogMenu [(open)]="narrowSquareOpen">
+          <button
+            ogMenuTrigger
+            class="narrow-trigger narrow-square-trigger"
+            data-testid="narrow-square-trigger"
+          >
+            Square
+          </button>
+          <div
+            ogMenuContent
+            data-testid="narrow-square-content"
+            class="narrow-short narrow-square-root"
+          >
+            <div ogMenuSub [(open)]="narrowSquareSubOpen">
+              <button ogMenuSubTrigger class="narrow-square-cell" data-testid="narrow-square-cell">
+                Cell
+              </button>
+              <div
+                ogMenuContent
+                [gap]="4"
+                data-testid="narrow-square-sub"
+                class="narrow-short narrow-square-sub"
+              >
+                <button ogMenuItem data-testid="narrow-square-red">Red</button>
+                <button ogMenuItem data-testid="narrow-square-blue">Blue</button>
+              </div>
+            </div>
+          </div>
+        </div>
       }
       <output data-testid="narrow-state"
         >{{ narrowOpen() }} {{ narrowMoveOpen() }} {{ narrowMoreOpen() }} {{ narrowCopyOpen() }}
@@ -800,6 +830,29 @@ export class MenuSubmenuShadow {
       max-height: var(--og-available-height);
       overflow: auto;
     }
+    /* MN58: Cell spans x 250–290 and y 210–250; its submenu's width follows its capped height. */
+    .narrow-square-trigger {
+      left: 250px;
+      top: 20px;
+      inline-size: 40px;
+      block-size: 30px;
+      padding: 0;
+      border: 0;
+    }
+    .narrow-square-root {
+      inline-size: 40px;
+      padding-block-start: 160px;
+    }
+    .narrow-short .narrow-square-cell {
+      block-size: 40px;
+    }
+    .narrow-square-sub {
+      inline-size: auto;
+      height: 300px;
+      aspect-ratio: 1;
+      max-height: var(--og-available-height);
+      overflow: auto;
+    }
   `,
 })
 export class MenuSubmenu {
@@ -841,6 +894,8 @@ export class MenuSubmenu {
   readonly narrowNestedOpen = signal(false);
   readonly narrowShortOpen = signal(false);
   readonly narrowFoldersOpen = signal(false);
+  readonly narrowSquareOpen = signal(false);
+  readonly narrowSquareSubOpen = signal(false);
   readonly narrowFolders = Array.from({ length: 10 }, (_, index) => index + 1);
   /** `name@testid`: each Narrow `(select)` and what was focused while it ran. */
   readonly narrowSelections = signal<readonly string[]>([]);

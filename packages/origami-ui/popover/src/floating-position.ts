@@ -8,7 +8,7 @@ import {
   shift,
   size,
 } from "@floating-ui/dom";
-import type { Placement, Side } from "@floating-ui/dom";
+import type { Middleware, Placement, Side } from "@floating-ui/dom";
 
 export interface PositionConfiguration {
   readonly id: string;
@@ -55,17 +55,6 @@ export interface PositionResolution {
   readonly side: PositionConfiguration["side"];
 }
 
-/** Content's sizing writes, which the caller guards; both run inside a calculation. */
-export interface PositionMeasured {
-  /** After `flip` and `shift`: the final position's measurements. */
-  readonly size: (size: PositionSize) => void;
-  /**
-   * Before the block fallback's room check: the reference's border-box width. Returns whether that
-   * changed the written value, so Content is measured again with it.
-   */
-  readonly anchorWidth: (width: number) => boolean;
-}
-
 /**
  * `names` labels errors with the owning primitive and its reference, such as "Popover" and "Anchor".
  * `measured` runs inside the calculation, so a Content resize it causes is measured again before
@@ -77,7 +66,7 @@ export function positionContent(
   configuration: PositionConfiguration,
   axes: PositionAxes,
   names: { readonly label: string; readonly referenceLabel: string },
-  measured: PositionMeasured,
+  measured: (size: PositionSize) => void,
 ): Promise<PositionResolution> {
   let blockStart: Side;
   let inlineStart: Side;
@@ -174,8 +163,33 @@ export function positionContent(
       );
     }
 
-    return { placement, fallbackPlacements };
+    return { side, placement, fallbackPlacements };
   };
+
+  // Shared by the block fallback's room check and the placement, so the room check measures
+  // Content at the size an inline placement gives it.
+  const sizing: Middleware[] = [
+    // After flip, so flip chooses from unshifted candidates. Floating UI's mainAxis is the
+    // alignment axis (x on top/bottom placements); the limiter keeps Content touching its reference.
+    shift({
+      mainAxis: true,
+      crossAxis: false,
+      limiter: limitShift({ crossAxis: false }),
+      boundary: "clippingAncestors",
+      rootBoundary: "viewport",
+    }),
+    // After flip and shift, so it measures the final position.
+    size({
+      boundary: "clippingAncestors",
+      rootBoundary: "viewport",
+      apply: ({ rects, availableHeight }) => {
+        measured({
+          anchorWidth: rects.reference.width,
+          availableHeight: Math.max(0, availableHeight),
+        });
+      },
+    }),
+  ];
 
   const place = ({
     placement,
@@ -196,26 +210,7 @@ export function positionContent(
           boundary: "clippingAncestors",
           rootBoundary: "viewport",
         }),
-        // After flip, so flip chooses from unshifted candidates. Floating UI's mainAxis is the
-        // alignment axis (x on top/bottom placements); the limiter keeps Content touching its reference.
-        shift({
-          mainAxis: true,
-          crossAxis: false,
-          limiter: limitShift({ crossAxis: false }),
-          boundary: "clippingAncestors",
-          rootBoundary: "viewport",
-        }),
-        // After flip and shift, so it measures the final position.
-        size({
-          boundary: "clippingAncestors",
-          rootBoundary: "viewport",
-          apply: ({ rects, availableHeight }) => {
-            measured.size({
-              anchorWidth: rects.reference.width,
-              availableHeight: Math.max(0, availableHeight),
-            });
-          },
-        }),
+        ...sizing,
       ],
     }).then(({ x, y, placement: placed }) => {
       const placedSide = placed.split("-")[0];
@@ -237,19 +232,28 @@ export function positionContent(
 
   // Validates the side and alignment before anything is computed.
   const requested = candidatesFor(configuration.side);
-  const inline = configuration.side === "inline-start" || configuration.side === "inline-end";
 
-  if (!configuration.blockFallback || !inline) {
+  if (
+    !configuration.blockFallback ||
+    (configuration.side !== "inline-start" && configuration.side !== "inline-end")
+  ) {
     return place(requested);
   }
 
-  let first = opposites[inlineStart];
+  let opposite: PositionConfiguration["side"] = "inline-start";
 
   if (configuration.side === "inline-start") {
-    first = inlineStart;
+    opposite = "inline-end";
   }
 
-  return inlineSideFits(reference, content, first, configuration.gap, measured).then((fits) => {
+  return inlineSideFits(
+    reference,
+    content,
+    requested,
+    candidatesFor(opposite),
+    configuration.gap,
+    sizing,
+  ).then((fits) => {
     if (fits) {
       return place(requested);
     }
@@ -259,57 +263,50 @@ export function positionContent(
 }
 
 /**
- * Whether the main edge of `first`, else of its opposite side, fits: flip's own first test of
- * each inline candidate, since the main-side overflow is the same for either alignment. Publishes
- * Content's own anchor width first and measures again when that changed it, so consumer sizing
- * from it applies. Positions nothing and writes nothing else.
+ * Whether the main edge of `first`, else of `second`, fits once Content is sized for that
+ * placement: flip's own first test of each inline candidate. Runs the placement's `shift` and
+ * `size`, so their guarded writes give Content the anchor width and available height that
+ * placement would, and `size` measures again when they resize it. Then `detectOverflow` reads the
+ * main side, which neither alignment nor the alignment-axis shift moves. Places nothing; when
+ * neither fits, the block placement's own `size` replaces these writes in the same READ.
  */
 async function inlineSideFits(
   reference: HTMLElement,
   content: HTMLElement,
-  first: Side,
+  first: { readonly side: Side; readonly placement: Placement },
+  second: { readonly side: Side; readonly placement: Placement },
   gap: number,
-  measured: PositionMeasured,
+  sizing: Middleware[],
 ): Promise<boolean> {
   let probed = first;
-  let anchorPublished = false;
   let fits = false;
 
   await computePosition(reference, content, {
-    placement: first,
+    placement: first.placement,
     strategy: "fixed",
     platform: { ...platform, isRTL: () => false },
     middleware: [
       offset(gap),
+      ...sizing,
       {
         name: "origamiInlineRoom",
         async fn(state) {
-          if (!anchorPublished) {
-            anchorPublished = true;
-
-            const changed = measured.anchorWidth(state.rects.reference.width);
-
-            if (changed) {
-              return { reset: { rects: true } };
-            }
-          }
-
           // Flip's boundaries, so this is the overflow flip records for the side.
           const overflow = await detectOverflow(state, {
             boundary: "clippingAncestors",
             rootBoundary: "viewport",
           });
 
-          if (overflow[probed] <= 0) {
+          if (overflow[probed.side] <= 0) {
             fits = true;
 
             return {};
           }
 
           if (probed === first) {
-            probed = opposites[first];
+            probed = second;
 
-            return { reset: { placement: probed } };
+            return { reset: { placement: second.placement } };
           }
 
           return {};

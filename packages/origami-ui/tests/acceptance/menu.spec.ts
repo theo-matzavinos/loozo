@@ -4557,3 +4557,165 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
   await step(page, "Escape", nested);
   await step(page, "Escape", verticalTrigger);
 });
+
+test("MN58: a submenu whose width follows its height cap, too wide beside its sub-trigger under the inline cap and narrow enough under the block one, settles below it once and stays: no inline side committed, and its cap, box and size unchanged across a second of animation frames", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await mountNarrow(page, 540, 460);
+
+  const scrollbar = await page.evaluate(
+    () => window.innerWidth - document.documentElement.clientWidth,
+  );
+
+  await page.setViewportSize({ width: 540 + scrollbar, height: 460 });
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+      })),
+    )
+    .toEqual({ width: 540, height: 460 });
+
+  const trigger = page.getByTestId("narrow-square-trigger");
+  const content = page.getByTestId("narrow-square-content");
+  const cell = page.getByTestId("narrow-square-cell");
+  const sub = page.getByTestId("narrow-square-sub");
+
+  // From before it opens: every `data-side` value committed, rebuilt from each record's old
+  // value, and every size its ResizeObserver reports.
+  await sub.evaluate((node) => {
+    const previous: string[] = [];
+    const resizes: string[] = [];
+    const sides = new MutationObserver((records) => {
+      for (const record of records) {
+        previous.push(record.oldValue ?? "none");
+      }
+    });
+    const sizes = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        resizes.push(`${entry.contentRect.width}x${entry.contentRect.height}`);
+      }
+    });
+
+    sides.observe(node, {
+      attributes: true,
+      attributeFilter: ["data-side"],
+      attributeOldValue: true,
+    });
+    sizes.observe(node);
+    (window as unknown as { squareSides: () => string[] }).squareSides = () => {
+      const values = [...previous, ...sides.takeRecords().map((r) => r.oldValue ?? "none")];
+
+      values.push(node.getAttribute("data-side") ?? "none");
+
+      return values.filter((value, index) => index === 0 || value !== values[index - 1]);
+    };
+    (window as unknown as { squareResizes: () => string[] }).squareResizes = () => [...resizes];
+  });
+
+  await trigger.focus();
+  await step(page, "Enter", cell);
+  await expectOpen(trigger, content);
+  await settled(page, "narrow-square-trigger", "narrow-square-content");
+
+  const anchor = await cell.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+  });
+
+  expect(anchor).toEqual({ left: 250, right: 290, top: 210, bottom: 250 });
+
+  // The discriminating geometry: under the inline cap (the viewport's full height) the submenu is
+  // 300 px wide and misses both 250 px rooms with the gap; under the block cap (206 px of room
+  // below or above) it is 206 px wide and would fit either.
+  const widths = await sub.evaluate((node) => {
+    const widthUnder = (cap: number) => {
+      const copy = node.cloneNode(true) as HTMLElement;
+
+      copy.removeAttribute("popover");
+      copy.removeAttribute("id");
+      copy.removeAttribute("style");
+      copy.style.setProperty("--og-available-height", `${cap}px`);
+      copy.style.position = "fixed";
+      copy.style.visibility = "hidden";
+      copy.style.display = "flex";
+      copy.style.flexDirection = "column";
+      node.parentElement!.append(copy);
+
+      const width = copy.getBoundingClientRect().width;
+
+      copy.remove();
+
+      return width;
+    };
+
+    return { inline: widthUnder(460), block: widthUnder(206) };
+  });
+  const rooms = await inlineRooms(page, "narrow-square-cell");
+
+  expect(widths).toEqual({ inline: 300, block: 206 });
+  expect(rooms).toEqual({ start: 250, end: 250 });
+
+  await step(page, "ArrowRight", page.getByTestId("narrow-square-red"));
+  await expectOpen(cell, sub);
+  await settled(page, "narrow-square-cell", "narrow-square-sub");
+
+  // A second of animation frames, at least 30: any later calculation that moved or resized it shows.
+  const observed = await sub.evaluate(async (node) => {
+    const resizes = (window as unknown as { squareResizes: () => string[] }).squareResizes;
+    const sample = () => {
+      const rect = node.getBoundingClientRect();
+
+      return [
+        node.getAttribute("data-side"),
+        node.style.getPropertyValue("--og-available-height"),
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+      ].join(" ");
+    };
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const resizesBefore = resizes().length;
+    const samples = [sample()];
+    const start = performance.now();
+
+    while (performance.now() - start < 1000 || samples.length < 30) {
+      await frame();
+      samples.push(sample());
+    }
+
+    return { samples, resizesBefore, resizesAfter: resizes().length, resizes: resizes() };
+  });
+  const sides = await page.evaluate(() =>
+    (window as unknown as { squareSides: () => string[] }).squareSides(),
+  );
+  const placed = await geometry(page, "block-end", "start", 4, {
+    anchor: "narrow-square-cell",
+    content: "narrow-square-sub",
+  });
+
+  await info.attach("MN58-square", {
+    body: JSON.stringify({ widths, rooms, sides, window: observed, placed }, null, 2),
+    contentType: "application/json",
+  });
+  expect(sides).toEqual(["none", "block-end"]);
+  expect(new Set(observed.samples).size).toBe(1);
+  expect(observed.resizesAfter).toBe(observed.resizesBefore);
+
+  // Below Cell, start edges aligned, 206 px square, inside the viewport.
+  expect(Math.abs(placed.content.top - 254)).toBeLessThanOrEqual(1);
+  expect(Math.abs(placed.content.left - 250)).toBeLessThanOrEqual(1);
+  expect(Math.abs(placed.content.width - 206)).toBeLessThanOrEqual(1);
+  expect(Math.abs(placed.content.height - 206)).toBeLessThanOrEqual(1);
+  expect(placed.content.bottom).toBeLessThanOrEqual(461);
+  expect(placed.content.right).toBeLessThanOrEqual(541);
+  expect(
+    Math.abs((await ownPixels(page, "narrow-square-sub", "--og-available-height")) - 206),
+  ).toBeLessThanOrEqual(1);
+  await step(page, "Escape", cell);
+  await step(page, "Escape", trigger);
+});

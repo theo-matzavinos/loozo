@@ -735,31 +735,14 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
         configuration,
         axes,
         this.#host,
-        {
-          size: (size) => {
-            // Only the latest request writes; a superseded calculation's result is discarded anyway.
-            if (this.#positionRequest !== request || !this.#trackingAllowed(activation)) {
-              return;
-            }
+        (size) => {
+          // Only the latest request writes; a superseded calculation's result is discarded anyway.
+          if (this.#positionRequest !== request || !this.#trackingAllowed(activation)) {
+            return;
+          }
 
-            content.element.style.setProperty("--og-anchor-width", `${size.anchorWidth}px`);
-            content.element.style.setProperty("--og-available-height", `${size.availableHeight}px`);
-          },
-          anchorWidth: (width) => {
-            const value = `${width}px`;
-
-            if (
-              this.#positionRequest !== request ||
-              !this.#trackingAllowed(activation) ||
-              content.element.style.getPropertyValue("--og-anchor-width") === value
-            ) {
-              return false;
-            }
-
-            content.element.style.setProperty("--og-anchor-width", value);
-
-            return true;
-          },
+          content.element.style.setProperty("--og-anchor-width", `${size.anchorWidth}px`);
+          content.element.style.setProperty("--og-available-height", `${size.availableHeight}px`);
         },
       );
     } catch (error) {
