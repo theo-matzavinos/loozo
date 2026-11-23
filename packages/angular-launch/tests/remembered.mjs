@@ -347,6 +347,25 @@ async function http(base, build, results) {
       );
     }
   }
+  // A valid remembered filter restores by redirect. This server forwards Angular's response as
+  // is, so the redirect's Vary is what searchCookies() and Angular put there.
+  const restored = await fetch(`${base}/orders`, {
+    redirect: "manual",
+    headers: { cookie: "search.orders.filter=open" },
+  });
+
+  await restored.text();
+  results.push({
+    row: "vary",
+    status: restored.status,
+    location: restored.headers.get("location"),
+    vary: restored.headers.get("vary"),
+  });
+  expect(`${build}: a restore's redirect varies on Cookie`, () => {
+    assert.equal(restored.status, 302);
+    assert.equal(new URL(restored.headers.get("location"), base).search, "?filter=open");
+    assert.match(restored.headers.get("vary") ?? "", /(?:^|,\s*)Cookie(?:\s*,|$)/);
+  });
 }
 
 // Records what the page shows at every DOM change and frame, so a flash would be seen.

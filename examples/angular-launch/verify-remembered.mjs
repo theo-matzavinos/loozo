@@ -84,7 +84,6 @@ export async function verifyRemembered({ base, build, browser, evidence, checks 
       path,
       status: response.status,
       location: response.headers.get("location"),
-      vary: response.headers.get("vary"),
       setCookies: response.headers.getSetCookie(),
       bytes: text.length,
       view: view(text),
@@ -106,7 +105,6 @@ export async function verifyRemembered({ base, build, browser, evidence, checks 
 
     assert.equal(first.status, 302);
     assert.equal(first.location, "/todos?pageSize=50");
-    assert.match(first.vary ?? "", /(?:^|,\s*)Cookie(?:\s*,|$)/);
     assert.equal(first.bytes, 0);
     assert.equal(first.setCookies.length, 1, `entry ${time}`);
     assert.match(first.setCookies[0], /^proof-seen=\d+; /);
@@ -117,10 +115,6 @@ export async function verifyRemembered({ base, build, browser, evidence, checks 
     assert.equal(restored.view, "All · 50 per page · comfortable");
     assert.deepEqual(rememberedCookies(restored.setCookies), []);
   }
-
-  checks.push(
-    label("a page that uses a remembered value answers with Vary: Cookie, its redirect included"),
-  );
 
   // A page size the list doesn't offer, typed or remembered, reads as 20 and isn't remembered.
   const typedSize = jar({ "proof-user": "alice", [pageSize]: "50" });
