@@ -19,14 +19,16 @@
 // sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
 // forced colors, and the date fields' and DatePicker's server state, cells that keep their width
 // while typing, gaps, looks, popup placement, choosing, Escape in a Dialog, readonly and disabled
-// policies and forced colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
+// policies and forced colors, and Meter's and MeterRing's server state and paint, hydration on
+// the same nodes, regions, bounds, geometry, sweep, themes, right to left, live bounds, live value
+// and no data, the emitted mask prefix and forced colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
 // and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial focus, revealing the
 // active option or the focused control, and height caps) is consumer-scrolling.mjs's, in every
 // engine.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { chromium } from "playwright";
@@ -6985,6 +6987,1004 @@ try {
       Math.round(value * alpha + under[index] * (1 - alpha)),
     );
   };
+
+  // Meter and MeterRing, in their own block. Exact geometry and pixels are DPR-1 values. Every
+  // meter root is listed with what Origami and fold render for it; the Options probe has its own
+  // expectations, since it draws nothing.
+  {
+    const bar = (id, now, region, extra = {}) => ({
+      id,
+      kind: "bar",
+      min: 0,
+      max: 100,
+      now,
+      percent: now,
+      region,
+      defaultSize: true,
+      ...extra,
+    });
+    const ring = (id, now, region, extra = {}) => ({
+      ...bar(id, now, region, extra),
+      kind: "ring",
+    });
+    const meterRoots = [
+      bar("meter-disk-72", 72, "suboptimum"),
+      ring("ring-disk-35", 35, "optimum"),
+      ring("ring-disk-72", 72, "suboptimum"),
+      ring("ring-disk-92", 92, "worst"),
+      ring("ring-seats", 12, null, { max: 40, percent: 30, text: "12 of 40 seats" }),
+      ring("ring-big", 72, null, { defaultSize: false }),
+      bar("meter-plain", 42, null),
+      bar("meter-disk-35", 35, "optimum"),
+      bar("meter-disk-92", 92, "worst"),
+      bar("meter-thick", 72, null, { defaultSize: false }),
+      bar("meter-recolour", 92, "worst"),
+      // A max below min is raised to it: an empty range at 0%, where fold's region needs the raise.
+      bar("meter-inverted", 20, "optimum", { min: 20, max: 20, percent: 0 }),
+      // A max that isn't a number falls back to 100.
+      bar("meter-nan-max", 90, "worst"),
+      ring("ring-bounds", 70, "suboptimum"),
+      bar("meter-threshold", 70, "suboptimum"),
+      ring("ring-arrivals", 25, "worst"),
+      bar("meter-rtl-35", 35, "optimum"),
+      ring("ring-rtl-35", 35, "optimum"),
+      bar("meter-light-plain", 42, null),
+      bar("meter-light-35", 35, "optimum"),
+      bar("meter-light-72", 72, "suboptimum"),
+      bar("meter-light-92", 92, "worst"),
+      ring("ring-light-35", 35, "optimum"),
+      bar("meter-forced-92", 92, "worst"),
+      ring("ring-forced-92", 92, "worst"),
+      bar("meter-recipe", 92, "worst", { text: "92% used, critically full" }),
+    ];
+    const valueTextOf = (root) => root.text ?? `${root.percent}%`;
+    const dark = {
+      foreground: "rgb(237, 237, 235)",
+      warning: "rgb(233, 184, 106)",
+      destructive: "rgb(196, 71, 26)",
+      input: "rgb(107, 107, 104)",
+    };
+    const light = {
+      foreground: "rgb(27, 27, 27)",
+      warning: "rgb(128, 86, 10)",
+      destructive: "rgb(184, 66, 26)",
+      input: "rgb(133, 133, 129)",
+    };
+    const conic = (color, percent) => `conic-gradient(${color} ${percent}%, rgba(0, 0, 0, 0) 0deg)`;
+    const rgb = (color) => channels(color).slice(0, 3);
+
+    // 1. Server HTML: Origami's ARIA and percent and fold's region and parts, before any script.
+    for (const root of meterRoots) {
+      const tag = openingTag(html, root.id);
+      const markup = element(html, root.id);
+
+      assert.match(tag, /\brole="meter"/, `${root.id} role`);
+      assert.match(tag, new RegExp(`\\baria-valuemin="${root.min}"`), `${root.id} min`);
+      assert.match(tag, new RegExp(`\\baria-valuemax="${root.max}"`), `${root.id} max`);
+      assert.match(tag, new RegExp(`\\baria-valuenow="${root.now}"`), `${root.id} now`);
+      assert.match(
+        tag,
+        new RegExp(`--og-meter-percent:\\s*${root.percent}%`),
+        `${root.id} percent`,
+      );
+      assert.match(tag, /\bdata-slot="meter"/, `${root.id} slot`);
+      assert.equal(
+        /\baria-valuetext="([^"]*)"/.exec(tag)?.[1],
+        valueTextOf(root),
+        `${root.id} text`,
+      );
+
+      if (root.region === null) {
+        assert.doesNotMatch(tag, /\sdata-region=/, `${root.id} region`);
+      } else {
+        assert.match(tag, new RegExp(`\\bdata-region="${root.region}"`), `${root.id} region`);
+      }
+
+      if (root.kind === "bar") {
+        assert.match(markup, /<span\b[^>]*\bdata-slot="meter-fill"/, `${root.id} fill`);
+      } else {
+        const centre = /<span\b[^>]*\bdata-slot="meter-value"[^>]*>([^<]*)<\/span>/.exec(markup);
+
+        assert.match(markup, /<span\b[^>]*\bdata-slot="meter-arc"/, `${root.id} arc`);
+        assert.equal(centre?.[1].trim(), valueTextOf(root), `${root.id} centre`);
+      }
+    }
+
+    // The Options probe reads Options that replace Origami's own: its bound value over a 0–200
+    // range. An eager Options read in fold's thresholds would throw NG0950 in the prerender.
+    const optionsTag = openingTag(html, "meter-options");
+
+    assert.match(optionsTag, /\brole="meter"/);
+    assert.match(optionsTag, /\baria-valuemin="0"/);
+    assert.match(optionsTag, /\baria-valuemax="200"/);
+    assert.match(optionsTag, /\baria-valuenow="90"/);
+    assert.match(optionsTag, /\baria-valuetext="45%"/);
+    assert.match(optionsTag, /--og-meter-percent:\s*45%/);
+    assert.match(optionsTag, /\bdata-region="optimum"/);
+    assert.doesNotMatch(optionsTag, /\sdata-slot=/);
+    assert.doesNotMatch(element(html, "meter-options").slice(optionsTag.length), /<[a-z]/);
+    assert.doesNotMatch(html, /\bid="meter-arrivals-empty"/);
+
+    // 2. The ring's mask, as the consumer's production stylesheet emits it.
+    const browserOutput = join(app, "dist/consumer/browser");
+    const stylesheets = [];
+
+    for (const file of await readdir(browserOutput)) {
+      if (/^styles-[^/]*\.css$/.test(file)) {
+        stylesheets.push(file);
+      }
+    }
+
+    assert.equal(stylesheets.length, 1, `one global stylesheet: ${stylesheets.join(", ")}`);
+
+    const css = await readFile(join(browserOutput, stylesheets[0]), "utf8");
+    const maskRules = [...css.matchAll(/[^{}]*mask-image[^{}]*7\\\.5px[^{}]*\{([^}]*)\}/g)];
+    const prefixMessage =
+      "Angular's esbuild adds -webkit-mask-image for Chrome/Edge 119 (D6). If Angular's default " +
+      "targets no longer include 119, delete this check and D6's caveat.";
+
+    assert.equal(maskRules.length, 1, `one MeterRing mask rule. ${prefixMessage}`);
+
+    const maskBody = maskRules[0][1];
+    const maskDeclarations =
+      /^-webkit-mask-image:(radial-gradient\(farthest-side,[^;]+\));mask-image:(radial-gradient\(farthest-side,[^;]+\))$/.exec(
+        maskBody,
+      );
+
+    assert.ok(maskDeclarations, `the mask rule is ${maskBody}. ${prefixMessage}`);
+    assert.equal(maskDeclarations[1], maskDeclarations[2], prefixMessage);
+
+    // Pixel helpers over viewport coordinates read in-page. `ringPoint` samples a ring's interior,
+    // clockwise from twelve; `edgePoints` samples each cardinal side's outline pixel and its two
+    // gap pixels as whole-pixel offsets from the layout edge, where the circle's edge is
+    // axis-aligned.
+    const ringPoint = (rect, angle, radius) => {
+      const theta = (angle * Math.PI) / 180;
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      return [cx + radius * Math.sin(theta), cy - radius * Math.cos(theta)];
+    };
+    const edgePoints = (rect) => {
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      return {
+        top: [
+          [cx, rect.top],
+          [cx, rect.top + 1],
+          [cx, rect.top + 2],
+        ],
+        right: [
+          [rect.right - 1, cy],
+          [rect.right - 2, cy],
+          [rect.right - 3, cy],
+        ],
+        bottom: [
+          [cx, rect.bottom - 1],
+          [cx, rect.bottom - 2],
+          [cx, rect.bottom - 3],
+        ],
+        left: [
+          [rect.left, cy],
+          [rect.left + 1, cy],
+          [rect.left + 2, cy],
+        ],
+      };
+    };
+    // Every sample, rounded as it's read, lies in the viewport and the root's rounded box, so none
+    // reads past a row or off the meter.
+    const assertSamples = (points, box, viewport, label) => {
+      for (const [x, y] of points) {
+        const column = Math.round(x);
+        const row = Math.round(y);
+
+        assert.ok(
+          column >= 0 && column < viewport.width && row >= 0 && row < viewport.height,
+          `${label}: (${column}, ${row}) is outside the ${viewport.width}×${viewport.height} viewport`,
+        );
+        assert.ok(
+          column >= Math.round(box.left) &&
+            column < Math.round(box.right) &&
+            row >= Math.round(box.top) &&
+            row < Math.round(box.bottom),
+          `${label}: (${column}, ${row}) is outside the root's box`,
+        );
+      }
+    };
+    // A 1px round outline at DPR 1 covers its cardinal pixel only partly, so the pixel is the
+    // outline composited over the ground: every channel at least 90% of the way to the outline.
+    const assertOutline = (actual, outline, ground, label) => {
+      for (let index = 0; index < 3; index += 1) {
+        const coverage = (actual[index] - ground[index]) / (outline[index] - ground[index]);
+
+        assert.ok(
+          coverage >= 0.9 && coverage <= 1.02,
+          `${label}: [${actual}] isn't [${outline}] over [${ground}] at 90% or more`,
+        );
+      }
+    };
+    // The gap is the ground: its inner pixel exactly, and the pixel next to the outline at most
+    // 10% of the way to the outline, which its antialiasing bleeds into.
+    const assertGap = (outer, inner, outline, ground, label) => {
+      assert.deepEqual(inner, ground, `${label}: inner pixel`);
+
+      for (let index = 0; index < 3; index += 1) {
+        const bleed = (outer[index] - ground[index]) / (outline[index] - ground[index]);
+
+        assert.ok(
+          bleed >= 0 && bleed <= 0.1,
+          `${label}: [${outer}] is more than 10% of the way from [${ground}] to [${outline}]`,
+        );
+      }
+    };
+    const rectsOf = (target, ids) =>
+      target.evaluate((ids) => {
+        const result = {};
+
+        for (const id of ids) {
+          const element = document.getElementById(id);
+          const rect = element.getBoundingClientRect();
+          const box = {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          };
+
+          result[id] = box;
+
+          const part = element.querySelector("[data-slot=meter-fill], [data-slot=meter-arc]");
+
+          if (part !== null) {
+            const partRect = part.getBoundingClientRect();
+
+            result[`${id} part`] = {
+              left: partRect.left,
+              top: partRect.top,
+              right: partRect.right,
+              bottom: partRect.bottom,
+              width: partRect.width,
+              height: partRect.height,
+            };
+          }
+        }
+
+        return result;
+      }, ids);
+    // A page promise with a deadline: a font load or a frame that never comes throws instead, so
+    // the held page's cleanup still releases its scripts and the run exits.
+    const bounded = async (pending, label) => {
+      let timer;
+
+      try {
+        return await Promise.race([
+          pending,
+          new Promise((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} took over 10 s`)), 10_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    // Scrolls a sampled group into view and waits for its paint before anything is read.
+    const showGroup = async (target, id) => {
+      await bounded(
+        target.evaluate((id) => {
+          document.getElementById(id).scrollIntoView({ block: "center" });
+
+          return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        }, id),
+        `${id}'s paint`,
+      );
+    };
+    const groundOf = async (target, id) =>
+      rgb(
+        await target.evaluate(
+          (id) => getComputedStyle(document.getElementById(id)).backgroundColor,
+          id,
+        ),
+      );
+    const viewport = { width: 1280, height: 720 };
+
+    // 3. Server paint and hydration on the same nodes, on a page whose scripts wait.
+    const held = await browser.newPage({ deviceScaleFactor: 1, viewport });
+
+    held.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") {
+        errors.push(message.text());
+      }
+    });
+    held.on("pageerror", (error) => errors.push(String(error)));
+
+    let releaseScripts;
+    let heldRequests = 0;
+    const scriptsReleased = new Promise((resolve) => {
+      releaseScripts = resolve;
+    });
+    const holdScripts = async (route) => {
+      heldRequests += 1;
+      await scriptsReleased;
+      await route.continue();
+    };
+    const heldPixels = async (points) => {
+      await bounded(
+        held.evaluate(
+          () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+        ),
+        "the held page's paint",
+      );
+
+      const read = decodePng(await held.screenshot({ animations: "disabled" }));
+
+      return points.map(([x, y]) => read(Math.round(x), Math.round(y)));
+    };
+    const heldReading = () =>
+      held.evaluate(() => {
+        const root = document.getElementById("meter-disk-72");
+        const fill = root.querySelector("[data-slot=meter-fill]");
+        const ringRoot = document.getElementById("ring-disk-72");
+        const style = getComputedStyle(root);
+        const content =
+          root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const read = (element) => ({
+          now: element.getAttribute("aria-valuenow"),
+          min: element.getAttribute("aria-valuemin"),
+          max: element.getAttribute("aria-valuemax"),
+          text: element.getAttribute("aria-valuetext"),
+          region: element.getAttribute("data-region"),
+          percent: element.style.getPropertyValue("--og-meter-percent"),
+        });
+
+        return {
+          bar: read(root),
+          ring: read(ringRoot),
+          share: fill.getBoundingClientRect().width / content,
+          gradient: getComputedStyle(ringRoot.querySelector("[data-slot=meter-arc]"))
+            .backgroundImage,
+          centre: ringRoot.querySelector("[data-slot=meter-value]").textContent.trim(),
+        };
+      });
+
+    await held.route("**/*.js", holdScripts);
+
+    try {
+      let serverReading;
+
+      try {
+        await held.goto(base, { waitUntil: "commit" });
+        await held.waitForFunction(
+          () => document.getElementById("meter-disk-72")?.getBoundingClientRect().height === 12,
+          null,
+          { timeout: 10_000 },
+        );
+        await bounded(
+          held.evaluate(() => document.fonts.ready.then(() => undefined)),
+          "the held page's fonts",
+        );
+
+        assert.ok(heldRequests > 0, "at least one script request is held");
+        assert.equal(await held.evaluate(() => document.querySelector("[ngh]") !== null), true);
+
+        await showGroup(held, "meter-disk-72");
+        await held.evaluate(() => {
+          const bar = document.getElementById("meter-disk-72");
+          const ring = document.getElementById("ring-disk-72");
+
+          window.meterServerNodes = [
+            bar,
+            bar.querySelector("[data-slot=meter-fill]"),
+            ring,
+            ring.querySelector("[data-slot=meter-arc]"),
+            ring.querySelector("[data-slot=meter-value]"),
+          ];
+        });
+
+        serverReading = await heldReading();
+
+        const { now, min, max } = serverReading.bar;
+        const expectedShare = (Number(now) - Number(min)) / (Number(max) - Number(min));
+
+        assert.equal(expectedShare, 0.72);
+        assert.ok(
+          Math.abs(serverReading.share - expectedShare) <= 0.001,
+          `server fill share ${serverReading.share} isn't ${expectedShare}`,
+        );
+        assert.equal(serverReading.gradient, conic(dark.warning, 72));
+        assert.equal(serverReading.centre, serverReading.ring.text);
+
+        const rects = await rectsOf(held, ["meter-disk-72", "ring-disk-72"]);
+        const fillRect = rects["meter-disk-72 part"];
+        const ringRect = rects["ring-disk-72"];
+        const barMiddle = [fillRect.left + fillRect.width / 2, fillRect.top + fillRect.height / 2];
+        const ringRight = ringPoint(ringRect, 90, 41);
+        const ringHole = ringPoint(ringRect, 90, 25);
+
+        assertSamples([barMiddle], rects["meter-disk-72"], viewport, "server bar");
+        assertSamples([ringRight, ringHole], ringRect, viewport, "server ring");
+
+        const ground = await groundOf(held, "meters");
+        const [barFill, ringFill, hole] = await heldPixels([barMiddle, ringRight, ringHole]);
+
+        assert.deepEqual(barFill, rgb(dark.warning), "server bar fill");
+        assert.deepEqual(ringFill, rgb(dark.warning), "server ring arc");
+        assert.deepEqual(hole, ground, "server ring hole");
+      } finally {
+        releaseScripts();
+      }
+
+      await held.waitForFunction(() => !document.querySelector("[ngh]"), null, {
+        timeout: 10_000,
+      });
+      assert.deepEqual(
+        await held.evaluate(() => {
+          const bar = document.getElementById("meter-disk-72");
+          const ring = document.getElementById("ring-disk-72");
+          const nodes = [
+            bar,
+            bar.querySelector("[data-slot=meter-fill]"),
+            ring,
+            ring.querySelector("[data-slot=meter-arc]"),
+            ring.querySelector("[data-slot=meter-value]"),
+          ];
+          const same = [];
+
+          for (let index = 0; index < nodes.length; index += 1) {
+            same.push(nodes[index] === window.meterServerNodes[index]);
+          }
+
+          return same;
+        }),
+        [true, true, true, true, true],
+        "hydration keeps the server's meter nodes",
+      );
+      assert.deepEqual(
+        await heldReading(),
+        serverReading,
+        "hydration keeps the server's meter state",
+      );
+
+      // Each naming path names exactly one meter.
+      for (const [name, id] of [
+        ["System disk", "meter-disk-72"],
+        ["Disk ring", "ring-disk-72"],
+        ["Disk capacity", "meter-recipe"],
+      ]) {
+        const named = held.getByRole("meter", { name, exact: true });
+
+        assert.equal(await named.count(), 1, `one meter named ${name}`);
+        assert.equal(await named.evaluate((element) => element.id), id, `${name} names ${id}`);
+      }
+
+      assert.deepEqual(
+        await held.evaluate(() => {
+          const result = { rootsHidden: [], childrenHidden: [] };
+
+          for (const id of ["meter-disk-72", "ring-disk-72", "meter-recipe"]) {
+            result.rootsHidden.push(document.getElementById(id).hasAttribute("aria-hidden"));
+          }
+
+          for (const id of ["meter-disk-72", "ring-disk-72"]) {
+            for (const child of document.getElementById(id).children) {
+              result.childrenHidden.push(child.getAttribute("aria-hidden"));
+            }
+          }
+
+          return result;
+        }),
+        { rootsHidden: [false, false, false], childrenHidden: ["true", "true", "true"] },
+      );
+      // The recipe's heading row shows the meter's value text, hidden from assistive technology,
+      // which reads it from the meter.
+      assert.deepEqual(
+        await held.evaluate(() => {
+          const text = document.getElementById("meter-recipe-text");
+
+          return {
+            shown: text?.textContent.trim() ?? null,
+            hidden: text?.getAttribute("aria-hidden") ?? null,
+            valueText: document.getElementById("meter-recipe").getAttribute("aria-valuetext"),
+          };
+        }),
+        {
+          shown: "92% used, critically full",
+          hidden: "true",
+          valueText: "92% used, critically full",
+        },
+        "the recipe's visible value text",
+      );
+    } finally {
+      // A failed assertion closes the page while held scripts still wait to continue; dropping
+      // their errors keeps the failure the run reports and lets it reach the server's cleanup.
+      // Route removal can itself reject once the page or browser is gone; the page still closes and
+      // the original failure is the one the run reports.
+      await held
+        .unrouteAll({ behavior: "ignoreErrors" })
+        .finally(() => held.close())
+        .catch(() => undefined);
+    }
+
+    // The main page, fresh: the earlier blocks leave a toast over the viewport.
+    await fresh();
+    await page.mouse.move(0, 0);
+
+    // 4. Geometry: a 12px bar with a 6px fill and a 1px outline, a 96px ring with a 90px arc, both
+    // resized by an ordinary class; every fill's share is its percent.
+    const geometry = await page.evaluate((roots) => {
+      const result = {};
+
+      for (const { id, kind } of roots) {
+        const root = document.getElementById(id);
+        const style = getComputedStyle(root);
+        const rect = root.getBoundingClientRect();
+        const entry = {
+          width: rect.width,
+          height: rect.height,
+          border: style.borderTopWidth,
+        };
+
+        if (kind === "bar") {
+          const fill = root.querySelector("[data-slot=meter-fill]").getBoundingClientRect();
+          const content =
+            root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+
+          entry.fillHeight = fill.height;
+          entry.share = fill.width / content;
+        } else {
+          const arc = root.querySelector("[data-slot=meter-arc]").getBoundingClientRect();
+
+          entry.arc = [arc.width, arc.height];
+        }
+
+        result[id] = entry;
+      }
+
+      // The seats ring's two line boxes, as distances from the ring's centre to their farthest
+      // corners.
+      const seats = document.getElementById("ring-seats");
+      const seatsRect = seats.getBoundingClientRect();
+      const cx = seatsRect.left + seatsRect.width / 2;
+      const cy = seatsRect.top + seatsRect.height / 2;
+      const range = document.createRange();
+      const lines = [];
+
+      range.selectNodeContents(seats.querySelector("[data-slot=meter-value]"));
+
+      for (const line of range.getClientRects()) {
+        lines.push(
+          Math.hypot(
+            Math.max(Math.abs(line.left - cx), Math.abs(line.right - cx)),
+            Math.max(Math.abs(line.top - cy), Math.abs(line.bottom - cy)),
+          ),
+        );
+      }
+
+      result.seatsLines = lines;
+
+      return result;
+    }, meterRoots);
+
+    for (const root of meterRoots) {
+      const measured = geometry[root.id];
+
+      if (root.kind === "bar") {
+        assert.ok(
+          Math.abs(measured.share - root.percent / 100) <= 0.001,
+          `${root.id} fill share ${measured.share} isn't ${root.percent / 100}`,
+        );
+
+        if (root.defaultSize) {
+          assert.equal(measured.height, 12, `${root.id} height`);
+          assert.equal(measured.fillHeight, 6, `${root.id} fill height`);
+          assert.equal(measured.border, "1px", `${root.id} outline`);
+        }
+      } else if (root.defaultSize) {
+        assert.deepEqual([measured.width, measured.height], [96, 96], `${root.id} size`);
+        assert.deepEqual(measured.arc, [90, 90], `${root.id} arc`);
+      }
+    }
+
+    assert.equal(geometry["meter-thick"].width, 240);
+    assert.equal(geometry["meter-thick"].fillHeight, 10);
+    assert.deepEqual([geometry["ring-big"].width, geometry["ring-big"].height], [128, 128]);
+    assert.equal(geometry.seatsLines.length, 2, "the seats text is two lines");
+
+    for (const distance of geometry.seatsLines) {
+      assert.ok(distance <= 37, `a seats line reaches ${distance}px from the centre`);
+    }
+
+    // 5. The ring's mask, stops and sweep: an 8px arc from twelve, clockwise, with a clear hole.
+    await showGroup(page, "ring-disk-35");
+
+    const arcStyle = (id) =>
+      page.evaluate((id) => {
+        const style = getComputedStyle(
+          document.getElementById(id).querySelector("[data-slot=meter-arc]"),
+        );
+
+        return { mask: style.maskImage, gradient: style.backgroundImage };
+      }, id);
+    const sweep = await arcStyle("ring-disk-35");
+
+    assert.match(
+      sweep.mask,
+      /radial-gradient\(farthest-side, rgba\(0, 0, 0, 0\) calc\(100% - 8px\), rgb\(0, 0, 0\) calc\(100% - 7\.5px\)\)/,
+    );
+    assert.equal(sweep.gradient, conic(dark.foreground, 35));
+
+    const meterGround = await groundOf(page, "meters");
+    const ringSamples = async (id, label) => {
+      const rects = await rectsOf(page, [id]);
+      const rect = rects[id];
+      const interior = [
+        ringPoint(rect, 356, 41),
+        ringPoint(rect, 4, 41),
+        ringPoint(rect, 122, 41),
+        ringPoint(rect, 131, 41),
+        ringPoint(rect, 270, 41),
+        ringPoint(rect, 90, 35.5),
+        ringPoint(rect, 90, 39),
+      ];
+      const edges = edgePoints(rect);
+      const band = [...edges.top, ...edges.right, ...edges.bottom, ...edges.left];
+
+      assertSamples([...interior, ...band], rect, viewport, label);
+
+      const colors = await bounded(screenPixels([...interior, ...band]), `${label} pixels`);
+
+      return { interior: colors.slice(0, interior.length), band: colors.slice(interior.length) };
+    };
+    const ltrRing = await ringSamples("ring-disk-35", "ring-disk-35");
+
+    assert.deepEqual(
+      ltrRing.interior,
+      [
+        meterGround,
+        rgb(dark.foreground),
+        rgb(dark.foreground),
+        meterGround,
+        meterGround,
+        meterGround,
+        rgb(dark.foreground),
+      ],
+      "ring-disk-35 sweep: ground at 356°, fill at 4° and 122°, ground at 131° and 270°, a hole at r35.5, stroke at r39",
+    );
+
+    for (let side = 0; side < 4; side += 1) {
+      const [outline, outer, inner] = ltrRing.band.slice(side * 3, side * 3 + 3);
+
+      assertOutline(outline, rgb(dark.input), meterGround, `ring-disk-35 outline, side ${side}`);
+      assertGap(outer, inner, rgb(dark.input), meterGround, `ring-disk-35 gap, side ${side}`);
+    }
+
+    // 6. Colours, resolved: foreground with no region or in the optimum one, warning in the
+    // suboptimum one, destructive in the worst one; an ordinary class recolours a region.
+    const fills = await page.evaluate(() => {
+      const result = {};
+      const probe = document.createElement("span");
+
+      for (const root of document.querySelectorAll("#meters [data-slot=meter]")) {
+        const fill = root.querySelector("[data-slot=meter-fill]");
+        const arc = root.querySelector("[data-slot=meter-arc]");
+
+        result[root.id] = {
+          outline: getComputedStyle(root).borderTopColor,
+          region: root.getAttribute("data-region"),
+        };
+
+        if (fill !== null) {
+          result[root.id].fill = getComputedStyle(fill).backgroundColor;
+        } else {
+          result[root.id].gradient = getComputedStyle(arc).backgroundImage;
+        }
+      }
+
+      probe.style.color = "var(--destructive-text)";
+      document.getElementById("meters").append(probe);
+      result.destructiveText = getComputedStyle(probe).color;
+      probe.remove();
+
+      return result;
+    });
+
+    for (const [id, color] of [
+      ["meter-plain", dark.foreground],
+      ["meter-disk-35", dark.foreground],
+      ["meter-disk-72", dark.warning],
+      ["meter-disk-92", dark.destructive],
+      ["meter-light-plain", light.foreground],
+      ["meter-light-35", light.foreground],
+      ["meter-light-72", light.warning],
+      ["meter-light-92", light.destructive],
+    ]) {
+      assert.equal(fills[id].fill, color, `${id} fill`);
+    }
+
+    for (const [id, color, percent] of [
+      ["ring-disk-35", dark.foreground, 35],
+      ["ring-disk-72", dark.warning, 72],
+      ["ring-disk-92", dark.destructive, 92],
+      ["ring-light-35", light.foreground, 35],
+    ]) {
+      assert.equal(fills[id].gradient, conic(color, percent), `${id} arc`);
+    }
+
+    assert.equal(fills["meter-disk-35"].outline, dark.input);
+    assert.equal(fills["ring-disk-35"].outline, dark.input);
+    assert.equal(fills["meter-light-35"].outline, light.input);
+    assert.equal(fills["ring-light-35"].outline, light.input);
+    assert.notEqual(fills.destructiveText, dark.destructive);
+    assert.equal(fills["meter-recolour"].fill, fills.destructiveText);
+    assert.equal(fills["meter-recipe"].region, "worst");
+    assert.equal(fills["meter-recipe"].fill, dark.destructive);
+
+    // 7. Right to left: the bar fills from inline-start; the ring stays clockwise.
+    await showGroup(page, "meter-rtl");
+
+    const starts = await page.evaluate(() => {
+      const edges = (id) => {
+        const root = document.getElementById(id).getBoundingClientRect();
+        const fill = document
+          .getElementById(id)
+          .querySelector("[data-slot=meter-fill]")
+          .getBoundingClientRect();
+
+        return { left: fill.left - root.left, right: root.right - fill.right };
+      };
+
+      return { ltr: edges("meter-disk-35").left, rtl: edges("meter-rtl-35").right };
+    });
+
+    assert.ok(Math.abs(starts.ltr - 3) < 0.01, `the LTR fill starts ${starts.ltr}px in`);
+    assert.ok(Math.abs(starts.rtl - 3) < 0.01, `the RTL fill starts ${starts.rtl}px in`);
+    assert.deepEqual(await arcStyle("ring-rtl-35"), sweep, "the RTL ring draws as the LTR one");
+
+    const rtlRing = await ringSamples("ring-rtl-35", "ring-rtl-35");
+
+    assert.deepEqual(
+      [rtlRing.interior[1], rtlRing.interior[2], rtlRing.interior[0]],
+      [rgb(dark.foreground), rgb(dark.foreground), meterGround],
+      "ring-rtl-35: fill at 4° and 122°, ground at 356°",
+    );
+
+    // 8. Live bounds and threshold removal: the region and the drawing follow on the same node.
+    const ringNow = (id) =>
+      page.evaluate((id) => {
+        const root = document.getElementById(id);
+
+        return {
+          max: root.getAttribute("aria-valuemax"),
+          percent: root.style.getPropertyValue("--og-meter-percent"),
+          gradient: getComputedStyle(root.querySelector("[data-slot=meter-arc]")).backgroundImage,
+          centre: root.querySelector("[data-slot=meter-value]").textContent.trim(),
+          text: root.getAttribute("aria-valuetext"),
+          region: root.getAttribute("data-region"),
+        };
+      }, id);
+    const untilMeter = (id, name, value) =>
+      page.waitForFunction(
+        ([id, name, value]) => document.getElementById(id)?.getAttribute(name) === value,
+        [id, name, value],
+        { timeout: 10_000 },
+      );
+    const thresholdLook = () =>
+      page.evaluate(() => {
+        const root = document.getElementById("meter-threshold");
+
+        return {
+          region: root.getAttribute("data-region"),
+          fill: getComputedStyle(root.querySelector("[data-slot=meter-fill]")).backgroundColor,
+        };
+      });
+
+    await page.click("#meter-toggle-max");
+    await untilMeter("ring-bounds", "aria-valuemax", "140");
+    assert.deepEqual(await ringNow("ring-bounds"), {
+      max: "140",
+      percent: "50%",
+      gradient: conic(dark.foreground, 50),
+      centre: "50%",
+      text: "50%",
+      region: "optimum",
+    });
+
+    await page.click("#meter-toggle-max");
+    await untilMeter("ring-bounds", "aria-valuemax", "100");
+    assert.deepEqual(await ringNow("ring-bounds"), {
+      max: "100",
+      percent: "70%",
+      gradient: conic(dark.warning, 70),
+      centre: "70%",
+      text: "70%",
+      region: "suboptimum",
+    });
+
+    await page.click("#meter-toggle-low");
+    await page.waitForFunction(
+      () => !document.getElementById("meter-threshold").hasAttribute("data-region"),
+      null,
+      { timeout: 10_000 },
+    );
+    assert.deepEqual(await thresholdLook(), { region: null, fill: dark.foreground });
+
+    await page.click("#meter-toggle-low");
+    await untilMeter("meter-threshold", "data-region", "suboptimum");
+    assert.deepEqual(await thresholdLook(), { region: "suboptimum", fill: dark.warning });
+
+    // 9. A live value and no data: the centre is Origami's live value text at every state; no data
+    // is the consumer's placeholder, and data again is a new ring.
+    await showGroup(page, "meter-arrivals-card");
+    await page.evaluate(() => {
+      window.meterArrivalsRing = document.getElementById("ring-arrivals");
+    });
+
+    const arrivals = () =>
+      page.evaluate(() => {
+        const root = document.getElementById("ring-arrivals");
+        const empty = document.getElementById("meter-arrivals-empty");
+        const meters = document.querySelectorAll("#meter-arrivals-card [role=meter]").length;
+
+        if (root === null) {
+          return { meters, empty: empty?.textContent.trim() ?? null };
+        }
+
+        return {
+          meters,
+          valueNow: root.getAttribute("aria-valuenow"),
+          valueText: root.getAttribute("aria-valuetext"),
+          centre: root.querySelector("[data-slot=meter-value]").textContent.trim(),
+          percent: root.style.getPropertyValue("--og-meter-percent"),
+          gradient: getComputedStyle(root.querySelector("[data-slot=meter-arc]")).backgroundImage,
+          region: root.getAttribute("data-region"),
+          same: root === window.meterArrivalsRing,
+          empty: empty?.textContent.trim() ?? null,
+        };
+      });
+    const arrivalsState = (now, color, region, same) => ({
+      meters: 1,
+      valueNow: String(now),
+      valueText: `${now}%`,
+      centre: `${now}%`,
+      percent: `${now}%`,
+      gradient: conic(color, now),
+      region,
+      same,
+      empty: null,
+    });
+
+    assert.deepEqual(await arrivals(), arrivalsState(25, dark.destructive, "worst", true));
+
+    for (const { now, expected } of [
+      { now: "75", expected: arrivalsState(75, dark.foreground, "optimum", true) },
+      { now: "100", expected: arrivalsState(100, dark.foreground, "optimum", true) },
+      { now: null, expected: { meters: 0, empty: "No arrivals data for this period" } },
+      { now: "25", expected: arrivalsState(25, dark.destructive, "worst", false) },
+    ]) {
+      await page.click("#meter-next-period");
+
+      if (now === null) {
+        await page.waitForFunction(
+          () => document.getElementById("meter-arrivals-empty") !== null,
+          null,
+          { timeout: 10_000 },
+        );
+      } else {
+        await untilMeter("ring-arrivals", "aria-valuenow", now);
+      }
+
+      const state = await arrivals();
+
+      assert.deepEqual(state, expected, `arrivals after reaching ${now ?? "no data"}`);
+      assert.equal(state.centre, state.valueText, "the centre is the live value text");
+    }
+
+    // 10. Forced colors, in both palettes: CanvasText on the meter's own Canvas, whatever is
+    // painted behind it.
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme, forcedColors: "active" });
+      await showGroup(page, "meter-forced-panel");
+
+      const forced = await page.evaluate(() => {
+        const probe = document.createElement("span");
+
+        probe.style.cssText =
+          "position: fixed; forced-color-adjust: none; background: Canvas; color: CanvasText";
+        document.body.append(probe);
+
+        const system = {
+          canvas: getComputedStyle(probe).backgroundColor,
+          canvasText: getComputedStyle(probe).color,
+        };
+
+        probe.remove();
+
+        const barRoot = document.getElementById("meter-forced-92");
+        const ringRoot = document.getElementById("ring-forced-92");
+
+        return {
+          ...system,
+          panel: getComputedStyle(document.getElementById("meter-forced-panel")).backgroundColor,
+          barGround: getComputedStyle(barRoot).backgroundColor,
+          barOutline: getComputedStyle(barRoot).borderTopColor,
+          barFill: getComputedStyle(barRoot.querySelector("[data-slot=meter-fill]"))
+            .backgroundColor,
+          ringGround: getComputedStyle(ringRoot).backgroundColor,
+          ringOutline: getComputedStyle(ringRoot).borderTopColor,
+          arc: getComputedStyle(ringRoot.querySelector("[data-slot=meter-arc]")).backgroundImage,
+          value: getComputedStyle(ringRoot.querySelector("[data-slot=meter-value]")).color,
+        };
+      });
+      const label = `forced ${colorScheme}`;
+
+      assert.notEqual(forced.panel, forced.canvas, `${label}: the panel isn't Canvas`);
+      assert.deepEqual(
+        [forced.barGround, forced.barOutline, forced.barFill],
+        [forced.canvas, forced.canvasText, forced.canvasText],
+        `${label} bar`,
+      );
+      assert.deepEqual(
+        [forced.ringGround, forced.ringOutline, forced.value],
+        [forced.canvas, forced.canvasText, forced.canvasText],
+        `${label} ring`,
+      );
+      assert.ok(
+        forced.arc.startsWith(`conic-gradient(${forced.canvasText} 92%`),
+        `${label} arc: ${forced.arc}`,
+      );
+
+      const rects = await rectsOf(page, ["meter-forced-92", "ring-forced-92"]);
+      const barRect = rects["meter-forced-92"];
+      const fillRect = rects["meter-forced-92 part"];
+      const ringRect = rects["ring-forced-92"];
+      const barCy = barRect.top + barRect.height / 2;
+      const barPoints = [
+        edgePoints(barRect).top[1],
+        [barRect.left + barRect.width * 0.97, barCy],
+        [fillRect.left + fillRect.width / 2, fillRect.top + fillRect.height / 2],
+      ];
+      const ringEdges = edgePoints(ringRect);
+      const ringBand = [
+        ...ringEdges.top,
+        ...ringEdges.right,
+        ...ringEdges.bottom,
+        ...ringEdges.left,
+      ];
+      const ringPoints = [
+        ringPoint(ringRect, 90, 41),
+        ringPoint(ringRect, 345, 41),
+        ringPoint(ringRect, 90, 25),
+        ...ringBand,
+      ];
+
+      assertSamples(barPoints, barRect, viewport, `${label} bar`);
+      assertSamples(ringPoints, ringRect, viewport, `${label} ring`);
+
+      const colors = await bounded(screenPixels([...barPoints, ...ringPoints]), `${label} pixels`);
+      const canvas = rgb(forced.canvas);
+      const canvasText = rgb(forced.canvasText);
+
+      assert.deepEqual(
+        colors.slice(0, 6),
+        [canvas, canvas, canvasText, canvasText, canvas, canvas],
+        `${label}: bar gap, unfilled span and fill; ring arc at 90°, unfilled at 345°, hole`,
+      );
+
+      const band = colors.slice(6);
+
+      for (let side = 0; side < 4; side += 1) {
+        const [outline, outer, inner] = band.slice(side * 3, side * 3 + 3);
+
+        assertOutline(outline, canvasText, canvas, `${label} ring outline, side ${side}`);
+        assertGap(outer, inner, canvasText, canvas, `${label} ring gap, side ${side}`);
+      }
+    }
+
+    // Playwright's default scheme, which the blocks after this one ran under.
+    await page.emulateMedia({ colorScheme: "light", forcedColors: "none" });
+  }
 
   // Calendar, in its own block. Exact geometry and pixels are DPR-1 values. Every day root pins
   // today to 27 October 2026 and the Monday week start: October's rows are 28 September–4
