@@ -2046,7 +2046,7 @@ The single picker comes in two shapes, decided by where you write the Trigger:
 `DatePickerParts` imports DatePicker, DateFieldInput, DatePickerTrigger, DatePickerContent, DatePickerFooter and Calendar. The root takes Origami's `value` and `open` (both two-way), `locale`, `disabled`, `readonly` and `class`, and emits `valueChange`, `openChange` and `touch`; `#picker="foldDatePicker"` has Origami's `state`, `focus()` and `clear()`. The value is a `YYYY-MM-DD` string or null.
 
 - **Field shape.** A `DatePickerTrigger` inside the `DateFieldInput` is a 28px ghost square with a calendar icon, 1px inside the box's border, with an inset focus ring. Its `aria-label` is its only name and the popup's, in a Field too, so name the field in it ("Choose due date", not "Choose date"), or name `DatePickerContent` with its own `aria-label` or `aria-labelledby`. Write `align="end"` on Content: the popup's end then lines up with the Trigger, 2px inside the box's end and 2px below it, as NumberField's buttons sit 2px inside the same box. Without it, the popup starts at the icon and slides into view.
-- **Button shape.** A `DatePickerTrigger` written alone is Select's trigger with a trailing calendar icon, showing your text: format the date yourself, with `DatePipe` or `Intl`. It's the Field's control, labelled by the FieldLabel. fold marks it `data-placeholder` while the value is empty (null, or no days), which mutes it, and `data-readonly` while the picker is readonly, whether by its own `readonly` or a Signal Forms rule, which dashes it, drops its fill and shadow and sets the default cursor. Both are `""` or absent, never `"false"`, and the field shape has neither. A picker readonly through its own `readonly` input doesn't tell screen readers (no `aria-readonly`); a Field's readonly rule does.
+- **Button shape.** A `DatePickerTrigger` written alone is Select's trigger with a trailing calendar icon, showing your text: format the date yourself, with `DatePipe` or `Intl` (in local time; see [Several days, a range or a month](#several-days-a-range-or-a-month) for DatePipe's timezone). It's the Field's control, labelled by the FieldLabel. fold marks it `data-placeholder` while the value is empty (null, or no days), which mutes it, and `data-readonly` while the picker is readonly, whether by its own `readonly` or a Signal Forms rule, which dashes it, drops its fill and shadow and sets the default cursor. Both are `""` or absent, never `"false"`, and the field shape has neither. A picker readonly through its own `readonly` input doesn't tell screen readers (no `aria-readonly`); a Field's readonly rule does.
 - **Gate the Calendar on Content's `state.open()`,** as above, not the picker's: Content keeps the Calendar until focus is back on the Trigger. Gated on the picker's `state.open()`, focus falls to the page after a choice. Bind the form on the picker, never on the Calendar.
 - **Disabled.** A disabled root dims the whole box once; the Trigger inside it stays out of the Tab order unless it's `focusableWhenDisabled`. A Trigger disabled on its own dims itself and leaves the segments editable. Readonly and disabled together look disabled, with one dim and the `not-allowed` cursor, over the dashed readonly border.
 - **Forms.** Bind with Signal Forms' `[formField]` or `[(value)]`: a civil ISO string or `null`, with no ControlValueAccessor, so a reactive `FormControl` doesn't bind. Bind `null` for empty, not `""`: a value that isn't a canonical day counts as not empty, so the button shape shows your text for it unmuted.
@@ -2082,27 +2082,33 @@ DatePickerMultiple, DatePickerRange and MonthPicker are button-shaped only: a Da
   </div>
 </div>
 
-<div foldDatePickerRange [formField]="form.stay" #stay="foldDatePickerRange">
-  <button foldDatePickerTrigger>
-    @if (stay.state.value(); as range) {
-      {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
-    } @else {
-      Choose dates
-    }
-  </button>
-  <div foldDatePickerContent #content="foldDatePickerContent">
-    @if (content.state.open()) {
-      <div foldCalendarRange [weekStart]="1" selectedDescription="selected"></div>
-    }
+<div foldField>
+  <span foldFieldLabel>Stay</span>
+  <div foldDatePickerRange [formField]="form.stay" #stay="foldDatePickerRange">
+    <button foldDatePickerTrigger>
+      @if (stay.state.value(); as range) {
+        {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+      } @else {
+        Choose dates
+      }
+    </button>
+    <div foldDatePickerContent #content="foldDatePickerContent">
+      @if (content.state.open()) {
+        <div foldCalendarRange [weekStart]="1" selectedDescription="selected"></div>
+      }
+    </div>
   </div>
 </div>
 
-<div foldMonthPicker [formField]="form.billingMonth" #billing="foldMonthPicker">
-  <button foldDatePickerTrigger>{{ (billing.state.value() | date: "MMMM y") ?? "Choose a month" }}</button>
-  <div foldDatePickerContent #content="foldDatePickerContent">
-    @if (content.state.open()) {
-      <div foldMonthCalendar selectedDescription="selected"></div>
-    }
+<div foldField>
+  <span foldFieldLabel>Billing month</span>
+  <div foldMonthPicker [formField]="form.billingMonth" #billing="foldMonthPicker">
+    <button foldDatePickerTrigger>{{ (billing.state.value() | date: "MMMM y") ?? "Choose a month" }}</button>
+    <div foldDatePickerContent #content="foldDatePickerContent">
+      @if (content.state.open()) {
+        <div foldMonthCalendar selectedDescription="selected"></div>
+      }
+    </div>
   </div>
 </div>
 ```
@@ -2120,7 +2126,7 @@ Each Parts array imports its root, DatePickerTrigger, DatePickerContent, DatePic
 - **Values.** The multiple picker's is a `readonly string[]` of `YYYY-MM-DD` days, empty for none; the range's `{ start, end }` with `YYYY-MM-DD` days, or null; the month's a `YYYY-MM` string or null.
 - **Closing.** The multiple picker stays open while you toggle days: give it a Done button in a `DatePickerFooter` that writes `open`, as above, or rely on Escape, a click outside and Tab, which close it too; focus returns to the Trigger from Done. The range closes on its second day, and Escape drops a pending first day before it closes. The month picker closes on a month, not a year.
 - **Opening.** The popup opens on the month of the first chosen day or of the range's start (today's month when empty). Chosen days in other months, or a range's end in a later one, are a Next away.
-- **Text.** The trigger's text is yours, as for the single picker. A count never truncates; a list of days or a long range truncates in a narrow trigger, with the whole text still in its accessible name. `Intl.DateTimeFormat`'s `formatRange` writes a compact range ("3–10 Nov 2026"). `DatePipe` reads a `YYYY-MM` month as its first day in local time, so `"2026-10" | date: "MMMM y"` is "October 2026" in every time zone.
+- **Text.** The trigger's text is yours, as for the single picker. A count never truncates; a list of days or a long range truncates in a narrow trigger, with the whole text still in its accessible name. `Intl.DateTimeFormat`'s `formatRange` writes a compact range ("3–10 Nov 2026"). `DatePipe` reads a `YYYY-MM` month or `YYYY-MM-DD` day as local midnight, so it shows the chosen month or day as long as it also formats in local time: a `timezone` argument, or a `DATE_PIPE_DEFAULT_OPTIONS` timezone, that isn't the user's shifts it (with `UTC` set in Tokyo, `"2026-10" | date: "MMMM y"` is "September 2026"). Leave the timezone out for these civil values, or format them with `Intl`.
 - **Footer.** `DatePickerFooter` is a row for your own buttons at the popup's end, right-aligned, 8px apart and as wide as the Calendar: Done here, or a Today or Clear on any picker that writes `value`.
 
 ### Date and time
