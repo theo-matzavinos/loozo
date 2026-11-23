@@ -537,6 +537,407 @@ test("Z6: opening scrolls the selected option into view in a capped list of 111;
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
 });
 
+test("Z6: under a half scale and a fractional height, opening, End and Home keep the active option inside the painted list", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const trigger = page.getByTestId("long-trigger");
+  const content = page.getByTestId("long-content");
+
+  // The fraction makes `offsetHeight` round: a scale read from it clips an option far down.
+  await page.addStyleTag({
+    content:
+      '[data-testid="long-content"] { scale: 0.5; transform-origin: top left; max-block-size: 80.3px !important; }',
+  });
+
+  /** How far the option's painted box lies outside the list's painted padding box, in px. */
+  const miss = (item: number) =>
+    page.evaluate(
+      ([list, target]) => {
+        const box = document.querySelector<HTMLElement>(`[data-testid="${list}"]`);
+        const node = document.querySelector<HTMLElement>(`[data-testid="${target}"]`);
+
+        if (box === null || node === null) {
+          return Infinity;
+        }
+
+        const style = getComputedStyle(box);
+        const outer = box.getBoundingClientRect();
+        const top = outer.top + parseFloat(style.borderTopWidth) * 0.5;
+        const bottom = outer.bottom - parseFloat(style.borderBottomWidth) * 0.5;
+        const inner = node.getBoundingClientRect();
+
+        return Math.max(0, top - inner.top, inner.bottom - bottom);
+      },
+      ["long-content", `long-${item}`],
+    );
+
+  await trigger.scrollIntoViewIfNeeded();
+
+  const scrollY = await page.evaluate(() => window.scrollY);
+
+  await trigger.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+
+  for (const [key, item] of [
+    ["ArrowDown", 80],
+    ["End", 111],
+    ["Home", 1],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expectOpen(trigger, content);
+    await expectActive(trigger, page.getByTestId(`long-${item}`), content);
+    await expect.poll(() => miss(item)).toBeLessThanOrEqual(1);
+  }
+
+  expect(await content.evaluate((node) => getComputedStyle(node).scale)).toBe("0.5");
+  expect(await content.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+});
+
+test("Z6: under `zoom: 0.5` and an odd height without a scrollbar gutter, opening, End and Home land the active option at the painted list's edge", async ({
+  page,
+  browserName,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const trigger = page.getByTestId("long-trigger");
+  const content = page.getByTestId("long-content");
+
+  // WebKit rounds the zoomed 25.5 px before unzooming, so `offsetHeight` and `clientHeight` read
+  // 52 while the height is 51: a scale read from box sizes puts Option 80 out of view, or, as an
+  // uncorrected estimate, scrolls it past the edge it should land at.
+  await page.addStyleTag({
+    content: `
+      [data-testid="long-content"] {
+        zoom: 0.5;
+        box-sizing: content-box !important;
+        block-size: 51px !important;
+        max-block-size: 51px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        overflow-x: hidden !important;
+      }
+    `,
+  });
+
+  /** How far the option's edge lies from the same painted edge of the list, either way, in px. */
+  const offset = (item: number, edge: "top" | "bottom") =>
+    page.evaluate(
+      ([list, target, side]) => {
+        const box = document.querySelector<HTMLElement>(`[data-testid="${list}"]`);
+        const node = document.querySelector<HTMLElement>(`[data-testid="${target}"]`);
+
+        if (box === null || node === null) {
+          return Infinity;
+        }
+
+        return Math.abs(box.getBoundingClientRect()[side] - node.getBoundingClientRect()[side]);
+      },
+      ["long-content", `long-${item}`, edge] as const,
+    );
+
+  await trigger.scrollIntoViewIfNeeded();
+
+  const scrollY = await page.evaluate(() => window.scrollY);
+
+  await trigger.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+
+  // Each reveal scrolls the option in from beyond the edge it lands at.
+  for (const [key, item, edge] of [
+    ["ArrowDown", 80, "bottom"],
+    ["End", 111, "bottom"],
+    ["Home", 1, "top"],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expectOpen(trigger, content);
+    await expectActive(trigger, page.getByTestId(`long-${item}`), content);
+    await expect.poll(() => offset(item, edge)).toBeLessThanOrEqual(1);
+  }
+
+  expect(await content.evaluate((node) => getComputedStyle(node).zoom)).toBe("0.5");
+  expect(await content.evaluate((node) => node.getBoundingClientRect().height)).toBe(25.5);
+
+  // Chromium and Firefox read 51, so only WebKit's rounding exercises the box-size trap here.
+  if (browserName === "webkit") {
+    expect(await content.evaluate((node) => (node as HTMLElement).offsetHeight)).toBe(52);
+  }
+
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+});
+
+test("Z6: under `scroll-behavior: smooth` and a fractional height, opening, End, Home and two Ends at once each show the active option at the list's first scroll, which doesn't animate", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const trigger = page.getByTestId("long-trigger");
+  const content = page.getByTestId("long-content");
+
+  // The fraction makes `offsetHeight` round, so the box-size estimate of the scale is off by a
+  // few pixels this far down and the reveal corrects it: both of its writes must be instant.
+  await page.addStyleTag({
+    content:
+      '[data-testid="long-content"] { scroll-behavior: smooth; max-block-size: 80.3px !important; }',
+  });
+
+  type Sample = { top: number; miss: number };
+  type Recorder = HTMLElement & { target: string; samples: Sample[] };
+
+  // Every scroll event records the list's `scrollTop` and how far the target option's box lies
+  // outside the list's padding box, in px. A smooth scroll raises one per frame on its way.
+  await content.evaluate((box) => {
+    const recorder = box as Recorder;
+    recorder.target = "";
+    recorder.samples = [];
+    box.addEventListener("scroll", () => {
+      const node = document.querySelector<HTMLElement>(`[data-testid="${recorder.target}"]`);
+      const top = box.getBoundingClientRect().top + box.clientTop;
+      const bottom = top + box.clientHeight;
+      let miss = Infinity;
+
+      if (node !== null) {
+        const inner = node.getBoundingClientRect();
+        miss = Math.max(0, top - inner.top, inner.bottom - bottom);
+      }
+
+      recorder.samples.push({ top: box.scrollTop, miss });
+    });
+  });
+
+  /** Resolves once the list's `scrollTop` has held for ten frames. */
+  const still = () =>
+    content.evaluate(
+      (box) =>
+        new Promise<void>((resolve) => {
+          let last = Number.NaN;
+          let held = 0;
+          const tick = () => {
+            if (box.scrollTop === last) {
+              held++;
+            } else {
+              held = 0;
+              last = box.scrollTop;
+            }
+
+            if (held >= 10) {
+              resolve();
+            } else {
+              requestAnimationFrame(tick);
+            }
+          };
+
+          requestAnimationFrame(tick);
+        }),
+    );
+
+  const samples = () => content.evaluate((box) => (box as Recorder).samples);
+
+  await trigger.scrollIntoViewIfNeeded();
+
+  const scrollY = await page.evaluate(() => window.scrollY);
+
+  await trigger.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+
+  // The second End follows the first at once, while a smooth scroll from it would still run.
+  for (const [keys, item] of [
+    [["ArrowDown"], 80],
+    [["End"], 111],
+    [["Home"], 1],
+    [["End", "End"], 111],
+  ] as const) {
+    await content.evaluate((box, target) => {
+      const recorder = box as Recorder;
+      recorder.target = target;
+      recorder.samples = [];
+    }, `long-${item}`);
+
+    for (const key of keys) {
+      await page.keyboard.press(key);
+    }
+
+    await expectOpen(trigger, content);
+    await expectActive(trigger, page.getByTestId(`long-${item}`), content);
+    await expect.poll(async () => (await samples()).length).toBeGreaterThan(0);
+    await still();
+
+    const recorded = await samples();
+    const final = await content.evaluate((box) => box.scrollTop);
+
+    const label = `${keys.join("+")}: ${JSON.stringify(recorded)}`;
+
+    // The first scroll event already shows the option, and nothing scrolls after it.
+    expect(recorded[0].miss, label).toBeLessThanOrEqual(1);
+    for (const sample of recorded) {
+      expect(sample.top, label).toBe(final);
+    }
+  }
+
+  expect(await content.evaluate((node) => getComputedStyle(node).scrollBehavior)).toBe("smooth");
+  expect(await content.evaluate((node) => (node as HTMLElement).offsetHeight)).toBe(90);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+});
+
+for (const scale of [1, 0.5]) {
+  test(`Z6: with a classic horizontal scrollbar at scale ${scale}, opening, End and Home keep the active option inside the painted scrollport above the scrollbar`, async ({
+    page,
+    browserName,
+  }, info) => {
+    await fixture(page, "select", info);
+
+    const trigger = page.getByTestId("long-trigger");
+    const content = page.getByTestId("long-content");
+
+    // Chromium and WebKit resolve the content-box Content's height without the gutter. Whole
+    // heights keep the gutter, the layout height less the borders and the scrollport, exact.
+    await page.addStyleTag({
+      content: `
+        [data-testid="long-content"] {
+          scale: ${scale};
+          transform-origin: top left;
+          max-block-size: 200px !important;
+          overflow-x: scroll !important;
+        }
+        [data-testid="long-content"]::-webkit-scrollbar { width: 15px; height: 15px; background: #555555; }
+        [data-testid="long-content"]::-webkit-scrollbar-thumb { background: #999999; }
+      `,
+    });
+
+    /** The horizontal scrollbar's layout height. */
+    const gutter = () =>
+      content.evaluate(
+        (node) =>
+          (node as HTMLElement).offsetHeight -
+          node.clientTop -
+          node.clientHeight -
+          parseFloat(getComputedStyle(node).borderBottomWidth),
+      );
+
+    /** How far the option's painted box lies outside the painted scrollport above the gutter, in px. */
+    const miss = async (item: number) => {
+      const thickness = await gutter();
+
+      return page.evaluate(
+        ([target, factor, below]) => {
+          const box = document.querySelector<HTMLElement>('[data-testid="long-content"]');
+          const node = document.querySelector<HTMLElement>(`[data-testid="${target}"]`);
+
+          if (box === null || node === null) {
+            return Infinity;
+          }
+
+          const style = getComputedStyle(box);
+          const outer = box.getBoundingClientRect();
+          const top = outer.top + parseFloat(style.borderTopWidth) * factor;
+          const bottom = outer.bottom - (parseFloat(style.borderBottomWidth) + below) * factor;
+          const inner = node.getBoundingClientRect();
+
+          return Math.max(0, top - inner.top, inner.bottom - bottom);
+        },
+        [`long-${item}`, scale, thickness] as const,
+      );
+    };
+
+    await trigger.scrollIntoViewIfNeeded();
+
+    const scrollY = await page.evaluate(() => window.scrollY);
+
+    await trigger.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+
+    for (const [key, item] of [
+      ["ArrowDown", 80],
+      ["End", 111],
+      ["Home", 1],
+    ] as const) {
+      await page.keyboard.press(key);
+      await expectOpen(trigger, content);
+      await expectActive(trigger, page.getByTestId(`long-${item}`), content);
+      await expect.poll(() => miss(item)).toBeLessThanOrEqual(1);
+    }
+
+    // Playwright's headless Chromium runs with `--hide-scrollbars` and headless Firefox overlays
+    // its scrollbars, so here only WebKit lays out the gutter; elsewhere the case runs without one.
+    if (browserName === "webkit") {
+      expect(await gutter()).toBe(15);
+    }
+
+    expect(await content.evaluate((node) => getComputedStyle(node).boxSizing)).toBe("content-box");
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+  });
+}
+
+test("Z6: an option that no whole scroll offset shows whole lands top-aligned at the same offset on every End", async ({
+  page,
+}, info) => {
+  await fixture(page, "select", info);
+
+  const trigger = page.getByTestId("long-trigger");
+  const content = page.getByTestId("long-content");
+
+  // Each option is as tall as the 40 px scrollport and starts 0.25 px past a whole offset; the
+  // spacer leaves room to scroll past the last one, so no clamp hides where a reveal lands.
+  await page.addStyleTag({
+    content: `
+      [data-testid="long-content"] {
+        box-sizing: border-box !important;
+        max-block-size: 40px !important;
+        padding: 0.25px 0 0 !important;
+        border: 0 !important;
+      }
+      [data-testid="long-content"] [role="option"] {
+        box-sizing: border-box !important;
+        block-size: 40px !important;
+        margin: 0 !important;
+      }
+      [data-testid="long-content"]::after { content: ""; display: block; block-size: 100px; }
+    `,
+  });
+
+  /** The list's scrollTop and how far the last option's edges lie outside it, in px. */
+  const landing = () =>
+    content.evaluate((box) => {
+      const node = box.querySelector<HTMLElement>('[data-testid="long-111"]');
+
+      if (node === null) {
+        return { scrollTop: NaN, above: Infinity, below: Infinity };
+      }
+
+      const outer = box.getBoundingClientRect();
+      const inner = node.getBoundingClientRect();
+
+      return {
+        scrollTop: box.scrollTop,
+        above: outer.top - inner.top,
+        below: inner.bottom - outer.bottom,
+      };
+    });
+
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.evaluate((node) => (node as HTMLElement).focus({ preventScroll: true }));
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(trigger, content);
+  await expectActive(trigger, page.getByTestId("long-80"), content);
+
+  const landings = [];
+
+  for (let press = 0; press < 3; press++) {
+    await page.keyboard.press("End");
+    await expectActive(trigger, page.getByTestId("long-111"), content);
+    // The option is already shown before the second and third End: let their reveals render.
+    await frames(page);
+    await expect.poll(async () => (await landing()).below).toBeLessThanOrEqual(1);
+    landings.push(await landing());
+  }
+
+  expect(landings.map((entry) => entry.scrollTop)).toEqual([4400, 4400, 4400]);
+
+  for (const entry of landings) {
+    expect(entry.above).toBeLessThanOrEqual(0.02);
+  }
+
+  expect(await content.evaluate((node) => node.clientHeight)).toBe(40);
+});
+
 test("Z7: in a Dialog the first Escape and an outside click inside the dialog close only the Select; in Popover Content likewise, and choosing keeps the Popover open; a Tooltip on the Trigger closes when the Select opens", async ({
   page,
 }, info) => {
