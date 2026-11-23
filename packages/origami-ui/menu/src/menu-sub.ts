@@ -55,8 +55,10 @@ export abstract class OrigamiMenuSubOptions {
 
 /**
  * A submenu: a nested Menu root inside a Menu's Content, with an `ogMenuSubTrigger`, an item of the
- * enclosing menu that opens it, and its own `ogMenuContent`, placed beside the sub-trigger. Its
- * Content holds the same parts as any menu's, nested submenus too.
+ * enclosing menu that opens it, and its own `ogMenuContent`, placed by its `side` (default
+ * `inline-end`, beside the sub-trigger): see `ogMenuContent` for the block fallback when neither
+ * inline side's main edge fits, and for a block `side`. Its Content holds the same parts as any
+ * menu's, nested submenus too.
  *
  * ArrowRight (ArrowLeft in right to left), Enter and Space on the sub-trigger open it on its first
  * item; ArrowLeft (ArrowRight in right to left) and Escape inside it close it and focus the

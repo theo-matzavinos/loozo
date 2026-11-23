@@ -113,6 +113,8 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
   readonly #participating = signal(false);
   readonly #ready = signal(false);
   readonly #pulse = signal(0);
+  // Set once by nested Menu Content's construction; false for every other presentation.
+  readonly #blockFallback = signal(false);
   #destroyed = false;
   #presentationEpoch = 0;
   #seenIntent: ɵOrigamiIntent | null = null;
@@ -148,7 +150,13 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
       throw new RangeError(`${this.#host.label} gap must be finite and nonnegative (CSS pixels).`);
     }
 
-    return { id: options.id(), side: options.side(), align: options.align(), gap };
+    return {
+      id: options.id(),
+      side: options.side(),
+      align: options.align(),
+      gap,
+      blockFallback: this.#blockFallback(),
+    };
   });
 
   constructor(host: ɵOrigamiFloatingHost) {
@@ -195,6 +203,15 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
     this.#interactionClose = true;
     write();
     this.synchronize();
+  }
+
+  /**
+   * Opts this presentation into the block fallback: with an inline `side`, when the main edge of
+   * neither inline side fits, it positions as `block-end`. Nested Menu Content calls it at
+   * construction.
+   */
+  useBlockFallback(): void {
+    this.#blockFallback.set(true);
   }
 
   /** Stacking order of the current activation, -1 without one. */
@@ -718,14 +735,31 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
         configuration,
         axes,
         this.#host,
-        (size) => {
-          // Only the latest request writes; a superseded calculation's result is discarded anyway.
-          if (this.#positionRequest !== request || !this.#trackingAllowed(activation)) {
-            return;
-          }
+        {
+          size: (size) => {
+            // Only the latest request writes; a superseded calculation's result is discarded anyway.
+            if (this.#positionRequest !== request || !this.#trackingAllowed(activation)) {
+              return;
+            }
 
-          content.element.style.setProperty("--og-anchor-width", `${size.anchorWidth}px`);
-          content.element.style.setProperty("--og-available-height", `${size.availableHeight}px`);
+            content.element.style.setProperty("--og-anchor-width", `${size.anchorWidth}px`);
+            content.element.style.setProperty("--og-available-height", `${size.availableHeight}px`);
+          },
+          anchorWidth: (width) => {
+            const value = `${width}px`;
+
+            if (
+              this.#positionRequest !== request ||
+              !this.#trackingAllowed(activation) ||
+              content.element.style.getPropertyValue("--og-anchor-width") === value
+            ) {
+              return false;
+            }
+
+            content.element.style.setProperty("--og-anchor-width", value);
+
+            return true;
+          },
         },
       );
     } catch (error) {

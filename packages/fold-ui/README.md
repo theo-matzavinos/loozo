@@ -1302,7 +1302,7 @@ Listen to `select`, not `click`: it runs for a click, Enter or Space. A click or
 - **Icons are projected `<svg>`s.** A row's direct `<svg>` children are 16px and follow its text color; put a leading icon first, with `aria-hidden="true"`.
 - **`variant="destructive"`** colors the text and icon orange, never the highlight, which stays the neutral fill.
 - **MenuShortcut is display-only.** It binds no key, and screen readers don't hear it (`aria-hidden`). When you bind the key yourself, add `aria-keyshortcuts` to the row.
-- **Submenus open beside their trigger**, 4px from it, on the inline end, flipping to the other side when that has no room. Set `side` on a submenu's Content like any Content's.
+- **Submenus open beside their trigger**, 4px from it, on the inline end, flipping to the other side when that has no room. When neither side has room, as on a phone, they open 4px below it instead, or above it when there's no room below, over the other rows. Set `side` on a submenu's Content like any Content's.
 - **Layout on the root.** Menu and MenuSub are `display: contents`, so their classes don't lay anything out; style the Trigger and Content.
 - **One button primitive per element.** Don't add `foldButton` to a MenuTrigger; it already has the Button look.
 - **Forms don't belong in a menu.** Menu rows are actions and options; for inputs, use a [Popover](#popover).
