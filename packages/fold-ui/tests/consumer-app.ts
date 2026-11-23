@@ -63,18 +63,29 @@ import { Switch } from "#ui/switch";
 import { TabsParts } from "#ui/tabs";
 import { Textarea } from "#ui/textarea";
 import { ToastRegion, Toasts } from "#ui/toast";
+import { Toggle } from "#ui/toggle";
+import { ToggleGroupParts } from "#ui/toggle-group";
+import { ToolbarParts } from "#ui/toolbar";
 import { TooltipParts } from "#ui/tooltip";
 import {
   LucideArchive,
+  LucideBell,
+  LucideBold,
   LucideChevronDown,
+  LucideCopy,
   LucideEllipsis,
+  LucideItalic,
   LucideLink,
   LucidePencil,
+  LucidePin,
+  LucideRedo2,
   LucideRotateCcw,
   LucideStore,
   LucideTrash,
   LucideTriangleAlert,
+  LucideUndo2,
   LucideUpload,
+  LucideWrapText,
 } from "@lucide/angular";
 // Meter's internal thresholds directive, which the Options probe below composes as a copied Meter
 // does. The path resolves in the generated app (src/app → src/ui), not in this repository; an
@@ -1084,6 +1095,334 @@ export class FileFields {
   }
 }
 
+// Toggle, ToggleGroup and Toolbar: every Toggle state and size, standalone segmented controls
+// (indicator, Multiple, vertical, root-disabled, Signal Forms, a nested root), and Toolbars with
+// every control, at full width, at 360px, with a long radio label, vertical and right to left.
+@Component({
+  selector: "app-toggles",
+  imports: [
+    Button,
+    Field,
+    FieldLabel,
+    FormField,
+    LucideBell,
+    LucideBold,
+    LucideChevronDown,
+    LucideCopy,
+    LucideItalic,
+    LucidePin,
+    LucideRedo2,
+    LucideUndo2,
+    LucideWrapText,
+    MenuParts,
+    PopoverParts,
+    RadioGroupItem,
+    Toggle,
+    ToggleGroupParts,
+    ToolbarParts,
+    TooltipParts,
+  ],
+  template: `
+    <section id="toggles" class="grid gap-6 p-5">
+      <div class="flex flex-wrap items-center gap-2">
+        <button zzToggle [(checked)]="mute" id="toggle-mute">Mute</button>
+        <button
+          zzToggle
+          size="icon"
+          aria-label="Pin to sidebar"
+          [(checked)]="pinned"
+          id="toggle-pin"
+        >
+          <svg lucidePin aria-hidden="true"></svg>
+        </button>
+        <button zzToggle size="sm" [(checked)]="wrap" id="toggle-wrap">
+          <svg lucideWrapText aria-hidden="true"></svg> Wrap
+        </button>
+        <button zzToggle size="lg" [checked]="true" id="toggle-lg">Bold</button>
+        <button zzToggle [(checked)]="unreadOnly" id="toggle-count">
+          Unread <span class="text-muted-foreground" id="toggle-count-span">12</span>
+        </button>
+        <button zzToggle disabled id="toggle-off-disabled">Off</button>
+        <button zzToggle [checked]="true" disabled id="toggle-on-disabled">On</button>
+        <button
+          zzToggle
+          [checked]="true"
+          (checkedChange)="lockedChanges.set(lockedChanges() + 1)"
+          disabled
+          focusableWhenDisabled
+          id="toggle-focusable-disabled"
+        >
+          Locked
+        </button>
+        <div zzField orientation="horizontal">
+          <button zzToggle [formField]="controls.notify" size="icon" id="toggle-form">
+            <svg lucideBell aria-hidden="true"></svg>
+          </button>
+          <label zzFieldLabel id="toggle-form-label">Notify me</label>
+        </div>
+      </div>
+      <output id="toggle-result"
+        >{{ mute() }} {{ controls.notify().value() }} {{ controls.notify().touched() }}
+        {{ lockedChanges() }}</output
+      >
+
+      <div class="flex flex-wrap items-start gap-4">
+        <div zzToggleGroupSingle [(value)]="status" indicator aria-label="Status" id="tg-status">
+          <button zzToggleGroupItem value="all" id="seg-all">All</button>
+          <button zzToggleGroupItem value="active" id="seg-active">Active</button>
+          <button zzToggleGroupItem value="ending" id="seg-ending">Ending</button>
+          <button zzToggleGroupItem value="overdue" disabled id="seg-overdue">Overdue</button>
+        </div>
+        <div zzToggleGroupMultiple [(value)]="marks" aria-label="Text style" id="tg-marks">
+          <button zzToggleGroupItem value="bold" aria-label="Bold" id="tg-bold">
+            <svg lucideBold aria-hidden="true"></svg>
+          </button>
+          <button zzToggleGroupItem value="italic" aria-label="Italic" id="tg-italic">
+            <svg lucideItalic aria-hidden="true"></svg>
+          </button>
+          <button zzToggleGroupItem value="underline" aria-label="Underline" id="tg-underline">
+            U
+          </button>
+        </div>
+        <div
+          zzToggleGroupSingle
+          orientation="vertical"
+          deselectable
+          [(value)]="density"
+          aria-label="Density"
+          id="tg-density"
+        >
+          <button zzToggleGroupItem value="compact" id="density-compact">Compact</button>
+          <button zzToggleGroupItem value="comfortable" id="density-comfortable">
+            Comfortable
+          </button>
+          <span zzTooltip>
+            <button zzToggleGroupItem zzTooltipTrigger value="spacious" id="density-spacious">
+              Spacious
+            </button>
+            <span zzTooltipContent>Most room between rows</span>
+          </span>
+        </div>
+        <div
+          zzToggleGroupSingle
+          value="all"
+          disabled
+          indicator
+          aria-label="Disabled status"
+          id="tg-disabled"
+        >
+          <button zzToggleGroupItem value="all" id="tg-disabled-all">All</button>
+          <button zzToggleGroupItem value="active">Active</button>
+        </div>
+        <div zzField>
+          <span zzFieldLabel>Billing</span>
+          <div
+            zzToggleGroupSingle
+            [formField]="controls.billing"
+            aria-label="Billing"
+            id="tg-billing"
+          >
+            <button zzToggleGroupItem value="monthly" id="billing-monthly">Monthly</button>
+            <button zzToggleGroupItem value="annual" id="billing-annual">Annual</button>
+          </div>
+        </div>
+        <button zzButton (click)="controls.billing().focusBoundControl()" id="focus-billing">
+          Focus billing
+        </button>
+        <!-- The inner root sits inside the outer indicator root, outside any item. -->
+        <div zzToggleGroupSingle indicator value="outer" aria-label="Outer group" id="tg-outer">
+          <button zzToggleGroupItem value="outer" id="tg-outer-item">Outer</button>
+          <div>
+            <div zzToggleGroupSingle value="inner" aria-label="Nested group" id="tg-nested">
+              <button zzToggleGroupItem value="inner" id="tg-nested-item">Inner</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <output id="tg-result"
+        >{{ status() ?? "none" }} {{ marks().join(",") }} {{ density() ?? "none" }}</output
+      >
+
+      <div zzToolbar aria-label="Formatting" id="toolbar">
+        <button zzToolbarButton size="icon" aria-label="Undo" id="tb-undo">
+          <svg lucideUndo2 aria-hidden="true"></svg>
+        </button>
+        <button
+          zzToolbarButton
+          size="icon"
+          aria-label="Redo"
+          [disabled]="!canRedo()"
+          focusableWhenDisabled
+          (click)="canRedo() && redo()"
+          id="tb-redo"
+        >
+          <svg lucideRedo2 aria-hidden="true"></svg>
+        </button>
+        <div zzToolbarSeparator id="tb-sep-1"></div>
+        <div
+          zzToolbarToggleGroupMultiple
+          [(value)]="toolbarMarks"
+          aria-label="Text style"
+          id="tb-marks"
+        >
+          <button zzToggleGroupItem value="bold" aria-label="Bold" id="tb-bold">
+            <svg lucideBold aria-hidden="true"></svg>
+          </button>
+          <button zzToggleGroupItem value="italic" aria-label="Italic" id="tb-italic">
+            <svg lucideItalic aria-hidden="true"></svg>
+          </button>
+        </div>
+        <div zzToolbarSeparator></div>
+        <button zzToolbarToggle [(checked)]="spellcheck" id="tb-spell">Spell check</button>
+        <div
+          zzToolbarToggleGroupSingle
+          [(value)]="view"
+          deselectable
+          indicator
+          aria-label="Period"
+          id="tb-view"
+        >
+          <button zzToggleGroupItem value="week" id="tb-week">Week</button>
+          <button zzToggleGroupItem value="month" id="tb-month">Month</button>
+        </div>
+        <div zzToolbarRadioGroup [(value)]="alignment" aria-label="Alignment" id="tb-align">
+          <button zzRadioGroupItem value="left" id="tb-left">Left</button>
+          <span zzTooltip [openDelay]="0">
+            <button zzRadioGroupItem zzTooltipTrigger value="center" id="tb-center">Center</button>
+            <span zzTooltipContent id="tb-center-tooltip">Centers the paragraph</span>
+          </span>
+          <button zzRadioGroupItem value="right" id="tb-right">Right</button>
+        </div>
+        <div zzPopover>
+          <button zzToolbarPopoverTrigger id="tb-symbol">Symbol</button>
+          <div zzPopoverContent aria-label="Symbols" id="tb-symbol-content">
+            <button zzButton id="tb-symbol-star">★ Star</button>
+          </div>
+        </div>
+        <div zzMenu>
+          <button zzToolbarMenuTrigger id="tb-more">
+            More <svg lucideChevronDown aria-hidden="true"></svg>
+          </button>
+          <div zzMenuContent id="tb-more-content">
+            <button zzMenuItem (select)="cleared.set(true)" id="tb-clear">Clear formatting</button>
+          </div>
+        </div>
+        <span zzTooltip>
+          <button zzToolbarButton zzTooltipTrigger size="icon" aria-label="Copy" id="tb-copy">
+            <svg lucideCopy aria-hidden="true"></svg>
+          </button>
+          <span zzTooltipContent id="tb-copy-tooltip">Copies the link</span>
+        </span>
+      </div>
+      <output id="tb-result"
+        >{{ spellcheck() }} {{ alignment() ?? "none" }} {{ view() ?? "none" }} {{ redoRuns() }}
+        {{ cleared() }} {{ toolbarMarks().join(",") }}</output
+      >
+
+      <div class="w-[360px]">
+        <div zzToolbar aria-label="Narrow formatting" id="toolbar-narrow">
+          <button zzToolbarButton size="icon" aria-label="Undo" id="n-undo">
+            <svg lucideUndo2 aria-hidden="true"></svg>
+          </button>
+          <button zzToolbarButton size="icon" aria-label="Redo" id="n-redo">
+            <svg lucideRedo2 aria-hidden="true"></svg>
+          </button>
+          <div zzToolbarSeparator></div>
+          <div zzToolbarToggleGroupMultiple [value]="['bold']" aria-label="Text style" id="n-marks">
+            <button zzToggleGroupItem value="bold" aria-label="Bold">
+              <svg lucideBold aria-hidden="true"></svg>
+            </button>
+            <button zzToggleGroupItem value="italic" aria-label="Italic">
+              <svg lucideItalic aria-hidden="true"></svg>
+            </button>
+            <button zzToggleGroupItem value="underline" aria-label="Underline">U</button>
+          </div>
+          <div zzToolbarSeparator></div>
+          <button zzToolbarToggle [checked]="true" id="n-spell">Spell check</button>
+          <div zzToolbarSeparator></div>
+          <div zzToolbarRadioGroup value="center" aria-label="Alignment" id="n-align">
+            <button zzRadioGroupItem value="left">Left</button>
+            <button zzRadioGroupItem value="center">Center</button>
+            <button zzRadioGroupItem value="right">Right</button>
+          </div>
+          <div zzToolbarSeparator></div>
+          <div zzPopover>
+            <button zzToolbarPopoverTrigger id="n-symbol">Symbol</button>
+            <div zzPopoverContent aria-label="Symbols">★</div>
+          </div>
+          <div zzMenu>
+            <button zzToolbarMenuTrigger id="n-more">More</button>
+            <div zzMenuContent>
+              <button zzMenuItem>Clear formatting</button>
+            </div>
+          </div>
+          <button zzToolbarButton size="icon" aria-label="Copy" id="n-copy">
+            <svg lucideCopy aria-hidden="true"></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- A long unbreakable label beside breakable ones: every row stays one 32px line. -->
+      <div class="w-[360px]">
+        <div zzToolbar aria-label="Long alignment" id="toolbar-long">
+          <div zzToolbarRadioGroup value="left" aria-label="Alignment" id="long-align">
+            <button zzRadioGroupItem value="left" id="long-left">Align left</button>
+            <button zzRadioGroupItem value="center" id="long-center">Align center</button>
+            <button zzRadioGroupItem value="right" id="long-right">
+              AlignRightWithoutBreaking
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div zzToolbar orientation="vertical" aria-label="Vertical formatting" id="toolbar-vertical">
+        <button zzToolbarButton size="sm" id="vert-start">Undo</button>
+        <div zzToolbarSeparator id="vert-sep"></div>
+        <div zzToolbarRadioGroup value="center" aria-label="Alignment" id="vert-align">
+          <button zzRadioGroupItem value="left" id="vert-left">Left</button>
+          <button zzRadioGroupItem value="center" id="vert-center">Center</button>
+        </div>
+        <button zzToolbarButton id="vert-end">Options</button>
+      </div>
+
+      <div dir="rtl">
+        <div zzToolbar aria-label="Right to left" id="toolbar-rtl">
+          <button zzToolbarButton id="rtl-first">First</button>
+          <button zzToolbarButton id="rtl-second">Second</button>
+          <button zzToolbarButton id="rtl-third">Third</button>
+        </div>
+      </div>
+    </section>
+  `,
+})
+export class Toggles {
+  protected readonly mute = signal(false);
+  protected readonly pinned = signal(false);
+  protected readonly wrap = signal(false);
+  protected readonly unreadOnly = signal(true);
+  protected readonly lockedChanges = signal(0);
+  protected readonly status = signal<string | null>("active");
+  protected readonly marks = signal<readonly string[]>(["bold", "italic"]);
+  protected readonly density = signal<string | null>("compact");
+  protected readonly toolbarMarks = signal<readonly string[]>(["bold"]);
+  protected readonly spellcheck = signal(true);
+  protected readonly alignment = signal<string | null>("center");
+  protected readonly view = signal<string | null>("month");
+  protected readonly redoRuns = signal(0);
+  protected readonly cleared = signal(false);
+  protected readonly controls = form(
+    signal<{ notify: boolean; billing: string | null }>({ notify: false, billing: "annual" }),
+  );
+
+  protected canRedo(): boolean {
+    return false;
+  }
+
+  protected redo(): void {
+    this.redoRuns.set(this.redoRuns() + 1);
+  }
+}
+
 // A replaced Options whose factory reads the bound, required value: fold's thresholds must not
 // resolve Options before Origami's first read, or the prerender throws NG0950.
 @Component({
@@ -1445,6 +1784,7 @@ export class Meters {
     TabsParts,
     Textarea,
     ToastRegion,
+    Toggles,
     TooltipParts,
   ],
   template: `
@@ -3060,6 +3400,7 @@ export class Meters {
       <button zzButton id="after-country-search">After the country search</button>
     </section>
     <app-date-entries />
+    <app-toggles />
   `,
 })
 export class App {

@@ -39,6 +39,9 @@
           "tabs",
           "textarea",
           "toast",
+          "toggle",
+          "toggle-group",
+          "toolbar",
           "tooltip"
         ]
       },
