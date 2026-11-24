@@ -1,6 +1,6 @@
 # Select design map
 
-Ownership and read timing. Usage is in the [README](README.md); the contract is SPEC section 23. The composed Popover's own map is in [popover/DESIGN.md](../popover/DESIGN.md).
+Ownership and read timing. Usage is in the [README](README.md); the contract is SPEC section 23. The composed Popover's own map is in [popover/DESIGN.md](../popover/DESIGN.md). The listbox core mapped here is also held by the Combobox and the [query field](../query-field/DESIGN.md), which never reads its raw active option.
 
 ## Ownership
 

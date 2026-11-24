@@ -71,6 +71,7 @@ for (const directory of [
   "avatar/src",
   "scroll-area/src",
   "meter/src",
+  "query-field/src",
 ]) {
   await collect(directory);
 }
@@ -356,6 +357,18 @@ const directiveDefaults = {
   "OrigamiMeter.min": ["0", /\b0\b/],
   "OrigamiMeter.max": ["100", /\b100\b/],
   "OrigamiMeter.valueText": ["null", /\bnull\b/i],
+  "OrigamiQueryField.query": ["empty string", /""|empty/i],
+  "OrigamiQueryField.analysis": ["null", /\bnull\b/i],
+  "OrigamiQueryField.disabled": ["false", /\bfalse\b/i],
+  "OrigamiQueryFieldInput.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiQueryFieldContent.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiQueryFieldContent.side": ["block-end", /block-end/],
+  "OrigamiQueryFieldContent.align": ["start", /\bstart\b/],
+  "OrigamiQueryFieldContent.gap": ["0", /\b0\b/],
+  "OrigamiQueryFieldSuggestion.suggestion": ["required", /required/i],
+  "OrigamiQueryFieldSuggestion.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiQueryFieldMessage.id": ["opaque generated hosted ID", /generat/i],
+  "OrigamiQueryFieldErrors.id": ["opaque generated hosted ID", /generat/i],
   "OrigamiScrollAreaScrollbar.orientation": ["vertical", /"vertical"/],
   "OrigamiCombobox.value": ["null", /\bnull\b/i],
   "OrigamiCombobox.query": ["empty string", /""|empty/i],

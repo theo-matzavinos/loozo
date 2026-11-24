@@ -205,6 +205,16 @@ export const routes: Routes = [
       import("./fixtures/meter-block.js").then((module) => module.MeterBlockFixture),
   },
   {
+    path: "query-field",
+    loadComponent: () =>
+      import("./fixtures/query-field.js").then((module) => module.QueryFieldFixture),
+  },
+  {
+    path: "query-field-split",
+    loadComponent: () =>
+      import("./fixtures/query-field-split.js").then((module) => module.QueryFieldSplitFixture),
+  },
+  {
     path: "toast-speech",
     loadComponent: () =>
       import("./fixtures/toast-speech.js").then((module) => module.ToastSpeechFixture),

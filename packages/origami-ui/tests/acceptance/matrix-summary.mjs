@@ -110,6 +110,11 @@ applicabilitySkips.push(
       "H3: actual early capture readiness and exactly-once initiating eager action while bootstrap is held",
     hydration: "incremental",
   },
+  {
+    title:
+      "QF25 H1 H2 H4: a query field split across hydrate boundaries associates only registered parts, keeps the server's description until its describers match it, and a block destroyed mid-exit with a geometry delivery held leaves nothing to its remount",
+    hydration: "eager",
+  },
 );
 
 function applicabilitySkip(file, title, hydration) {

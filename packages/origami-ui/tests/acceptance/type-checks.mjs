@@ -136,6 +136,8 @@ import { OrigamiProgressOptions, type OrigamiProgressState } from '@loozo/origam
 import { OrigamiAvatarImageOptions, type OrigamiAvatarState, type OrigamiAvatarStatus } from '@loozo/origami-ui/avatar';
 import { OrigamiScrollAreaOptions, OrigamiScrollAreaScrollbarOptions, type OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from '@loozo/origami-ui/scroll-area';
 import { OrigamiMeterOptions, type OrigamiMeterState } from '@loozo/origami-ui/meter';
+import type { Observable } from 'rxjs';
+import { OrigamiQueryFieldOptions, OrigamiQueryFieldInputOptions, OrigamiQueryFieldContentOptions, OrigamiQueryFieldSuggestionOptions, type OrigamiQueryFieldState, type OrigamiQueryAnalysis, type OrigamiQuerySuggestion, type OrigamiQuerySegment, type OrigamiQueryToken, type OrigamiQueryRange } from '@loozo/origami-ui/query-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
 declare const contentState: OrigamiPopoverContentState;
 // @ts-expect-error Content State has no public Presence phase alias
@@ -664,6 +666,43 @@ const meterText: string = meterState.valueText();
 void meterValue;
 void meterPercent;
 void meterText;
+// Positive: whole query field factories typed by the consumer's suggestion; State is readonly.
+interface LabelledSuggestion extends OrigamiQuerySuggestion { readonly label: string; }
+OrigamiQueryFieldOptions.provideFactory<LabelledSuggestion>(() => ({query: signal(''), analysis: signal<OrigamiQueryAnalysis<LabelledSuggestion> | null>(null), disabled: signal(false)}));
+OrigamiQueryFieldOptions.provideFactory<LabelledSuggestion>(() => ({query: signal('a'), analysis: computed((): OrigamiQueryAnalysis<LabelledSuggestion> => ({query: 'a', caret: 1, tokens: [{start: 0, end: 1, qualifier: {start: 0, end: 1}, error: 'x'}], suggestions: [{start: 0, end: 1, insert: 'b', label: 'B'}]})), disabled: computed(() => false)}));
+OrigamiQueryFieldInputOptions.provideFactory(() => ({id: signal('query')}));
+OrigamiQueryFieldContentOptions.provideFactory(() => ({id: signal('list'), side: signal<OrigamiPopoverSide>('block-end'), align: signal<OrigamiPopoverAlign>('start'), gap: signal(4)}));
+OrigamiQueryFieldSuggestionOptions.provideFactory<LabelledSuggestion>(() => ({suggestion: signal({start: 0, end: 0, insert: '', label: ''})}));
+// @ts-expect-error a query field factory must supply analysis
+OrigamiQueryFieldOptions.provideFactory(() => ({query: signal(''), disabled: signal(false)}));
+// @ts-expect-error a query field query is writable
+OrigamiQueryFieldOptions.provideFactory(() => ({query: computed(() => ''), analysis: signal(null), disabled: signal(false)}));
+// @ts-expect-error analysis offsets are numbers, never strings
+OrigamiQueryFieldOptions.provideFactory(() => ({query: signal(''), analysis: signal<OrigamiQueryAnalysis | null>({query: '', caret: null, tokens: [{start: '0', end: 1}], suggestions: []}), disabled: signal(false)}));
+// @ts-expect-error a suggestion needs its insert text
+const missingInsert: OrigamiQuerySuggestion = {start: 0, end: 0};
+void missingInsert;
+// @ts-expect-error a row factory must supply its suggestion
+OrigamiQueryFieldSuggestionOptions.provideFactory(() => ({}));
+declare const queryState: OrigamiQueryFieldState<LabelledSuggestion>;
+// @ts-expect-error query field State caret is readonly
+queryState.caret.set(1);
+// @ts-expect-error query field State query is readonly
+queryState.query.set('');
+const queryLabels: readonly LabelledSuggestion[] = queryState.suggestions();
+const queryCaret: number | null = queryState.caret();
+const queryTokens: readonly OrigamiQueryToken[] = queryState.tokens();
+const querySegments: readonly OrigamiQuerySegment[] = queryState.segments();
+const queryRange: OrigamiQueryRange | null = queryState.caretToken();
+const querySearch: Observable<string> = queryState.search;
+const queryCarets: Observable<number | null> = queryState.caretChange;
+void queryLabels;
+void queryCaret;
+void queryTokens;
+void querySegments;
+void queryRange;
+void querySearch;
+void queryCarets;
 // Positive: whole Avatar Image factories, with ordinary signals.
 OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>(null)}));
 OrigamiAvatarImageOptions.provideFactory(() => ({src: computed(() => 'data:image/png;base64,')}));
@@ -1090,6 +1129,11 @@ abstract class AbstractProgress {
   abstract readonly max: Signal<number>;
   abstract readonly valueText: Signal<string | null>;
 }
+abstract class AbstractQueryField {
+  abstract readonly query: WritableSignal<string>;
+  abstract readonly analysis: Signal<OrigamiQueryAnalysis | null>;
+  abstract readonly disabled: Signal<boolean>;
+}
 abstract class AbstractMeter {
   abstract readonly value: Signal<number>;
   abstract readonly min: Signal<number>;
@@ -1212,6 +1256,7 @@ export const providers: Provider[] = [
   OrigamiProgressOptions.provideExisting(() => AbstractProgress),
   OrigamiMeterOptions.provideFactory(() => ({value: signal(40), min: signal(10), max: signal(70), valueText: signal<string | null>(null)})),
   OrigamiMeterOptions.provideExisting(() => AbstractMeter),
+  OrigamiQueryFieldOptions.provideExisting(() => AbstractQueryField),
   OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>('/avatar.png')})),
   OrigamiAvatarImageOptions.provideExisting(() => AbstractAvatarImage),
   OrigamiScrollAreaOptions.provideFactory(() => ({hideDelay: signal(600)})),
@@ -1570,6 +1615,18 @@ import { OrigamiMeter } from "@loozo/origami-ui/meter";
 export class AppGauge {}`,
     directives: "AppGauge",
     members: "",
+  },
+  "query-field": {
+    imports: `import { OrigamiQueryField, OrigamiQueryFieldInput, OrigamiQueryFieldContent, OrigamiQueryFieldSuggestion, OrigamiQueryFieldMessage, OrigamiQueryFieldErrors, type OrigamiQueryAnalysis, type OrigamiQuerySuggestion } from "@loozo/origami-ui/query-field";
+interface ReportSuggestion extends OrigamiQuerySuggestion { readonly label: string; }`,
+    directives:
+      "OrigamiQueryField, OrigamiQueryFieldInput, OrigamiQueryFieldContent, OrigamiQueryFieldSuggestion, OrigamiQueryFieldMessage, OrigamiQueryFieldErrors",
+    members: `
+  readonly query = signal("");
+  readonly analysis = signal<OrigamiQueryAnalysis<ReportSuggestion> | null>(null);
+  labelOutput(value: string): void { void value; }
+  caretOutput(value: number | null): void { void value; }
+  searchOutput(value: string): void { void value; }`,
   },
   "scroll-area": {
     imports: `import { OrigamiScrollArea, OrigamiScrollAreaViewport, OrigamiScrollAreaContent, OrigamiScrollAreaScrollbar, OrigamiScrollAreaThumb, OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from "@loozo/origami-ui/scroll-area";`,
@@ -2601,6 +2658,52 @@ const templates = [
       code: 2345,
       span: "value",
       message: /number \| null.*not assignable to parameter of type 'string \| null'/s,
+    },
+  },
+  {
+    name: "query-field-positive",
+    family: "query-field",
+    template: `<div ogQueryField #qf="ogQueryField" [(query)]="query" [analysis]="analysis()" (caretChange)="caretOutput($event)" (search)="searchOutput($event)"><input ogQueryFieldInput aria-label="Search" /><div ogQueryFieldContent [gap]="4">@if (qf.state.caretToken()?.error; as error) {<p ogQueryFieldMessage id="query-message">{{ error }}</p>}@for (s of qf.state.suggestions(); track $index) {<div ogQueryFieldSuggestion [suggestion]="s" [id]="'query-row-' + $index" (click)="labelOutput(s.label)">{{ s.label }}</div>}</div><div ogQueryFieldErrors id="query-errors" hidden></div></div>`,
+  },
+  {
+    name: "query-field-part-id-typed",
+    family: "query-field",
+    template: `<div ogQueryField><div ogQueryFieldErrors [id]="1"></div></div>`,
+    expected: {
+      code: 2322,
+      span: "id",
+      message: /number.*not assignable to type 'string'/s,
+    },
+  },
+  {
+    name: "query-field-suggestion-missing",
+    family: "query-field",
+    template: `<div ogQueryField><div ogQueryFieldContent><div ogQueryFieldSuggestion></div></div></div>`,
+    expected: {
+      code: -998008,
+      span: "div",
+      message:
+        /Required input 'suggestion' from directive OrigamiQueryFieldSuggestion must be specified/,
+    },
+  },
+  {
+    name: "query-field-suggestion-label-typed",
+    family: "query-field",
+    template: `<div ogQueryField #qf="ogQueryField" [analysis]="analysis()">@for (s of qf.state.suggestions(); track $index) {<span (click)="caretOutput(s.label)"></span>}</div>`,
+    expected: {
+      code: 2345,
+      span: "label",
+      message: /string.*not assignable to parameter of type 'number'/s,
+    },
+  },
+  {
+    name: "query-field-caret-output",
+    family: "query-field",
+    template: `<div ogQueryField (caretChange)="labelOutput($event)"></div>`,
+    expected: {
+      code: 2345,
+      span: "$event",
+      message: /number \| null.*not assignable to parameter of type 'string'/s,
     },
   },
   {
