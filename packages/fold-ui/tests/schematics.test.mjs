@@ -429,12 +429,14 @@ describe("add", () => {
   test("copies the form controls, the lists, the floating layers, Tabs, Dialog, Sheet and the display components with only what they import", async () => {
     const cases = {
       avatar: ["avatar", "cn"],
+      badge: ["badge", "cn"],
       calendar: ["button", "calendar", "cn"],
       checkbox: ["checkbox", "cn"],
       combobox: ["cn", "combobox", "input", "popup", "scroll-area"],
       "date-field": ["cn", "date-field"],
       "date-picker": ["button", "calendar", "cn", "date-field", "date-picker", "popup"],
       dialog: ["button", "cn", "dialog", "scroll-area"],
+      empty: ["cn", "empty"],
       field: ["cn", "field"],
       "file-field": ["button", "cn", "file-field"],
       input: ["cn", "input"],
@@ -442,6 +444,7 @@ describe("add", () => {
       meter: ["cn", "meter"],
       "number-field": ["cn", "number-field"],
       "otp-field": ["cn", "otp-field"],
+      page: ["cn", "page"],
       popover: ["button", "cn", "popover", "popup", "scroll-area"],
       popup: ["popup"],
       progress: ["cn", "progress"],
@@ -451,6 +454,7 @@ describe("add", () => {
       sheet: ["button", "cn", "scroll-area", "sheet"],
       slider: ["cn", "slider"],
       switch: ["cn", "switch"],
+      table: ["cn", "scroll-area", "table"],
       tabs: ["cn", "tabs"],
       textarea: ["cn", "input", "textarea"],
       toast: ["button", "cn", "popup", "toast"],
@@ -662,6 +666,33 @@ describe("add", () => {
     assert.match(meter, /exportAs: "zzMeter"/);
     assert.match(ring, /selector: "\[zzMeterRing\]"/);
     assert.match(ring, /exportAs: "zzMeterRing"/);
+  });
+
+  test("renames Table's, Badge's, Page's and Empty's parts with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["table", "badge", "page", "empty"] },
+      await setUp(runner),
+    );
+    const frame = readText(tree, "src/ui/table/table-frame.ts");
+
+    assert.match(readText(tree, "src/ui/table/table.ts"), /selector: "table\[zzTable\]"/);
+    assert.match(
+      readText(tree, "src/ui/table/table-column-header.ts"),
+      /selector: "th\[zzTableColumnHeader\]"/,
+    );
+    assert.match(readText(tree, "src/ui/table/table-cell.ts"), /selector: "td\[zzTableCell\]"/);
+    assert.match(
+      readText(tree, "src/ui/table/table-sort-button.ts"),
+      /selector: "button\[zzTableSortButton\]"/,
+    );
+    assert.match(readText(tree, "src/ui/table/table-pager.ts"), /selector: "nav\[zzTablePager\]"/);
+    assert.match(frame, /select="\[zzTablePager\]"/);
+    assert.match(frame, /zzScrollArea/);
+    assert.match(readText(tree, "src/ui/badge/badge.ts"), /selector: "\[zzBadge\]"/);
+    assert.match(readText(tree, "src/ui/page/page-title.ts"), /selector: "\[zzPageTitle\]"/);
+    assert.match(readText(tree, "src/ui/empty/empty.ts"), /selector: "\[zzEmpty\]"/);
   });
 
   test("renames Calendar's roots, exportAs and internal parts with the prefix", async () => {

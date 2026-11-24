@@ -19,6 +19,7 @@
   --destructive-text: #e0906f;
   --success: #7fd49a;
   --warning: #e9b86a;
+  --info: #82b4ec;
   --ring: #4cc46f;
   --radius: 10px;
   --edge: inset 0 -1px 0 rgb(0 0 0 / 0.16), 0 1px 2px rgb(0 0 0 / 0.4);
@@ -40,6 +41,7 @@
   --destructive-text: #b8421a;
   --success: #1d6b37;
   --warning: #80560a;
+  --info: #1f5f9e;
   --ring: #26803f;
   --edge: inset 0 -1px 0 rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.1);
   --scrim: rgb(20 20 20 / 0.4);
@@ -61,6 +63,7 @@
   --color-destructive-text: var(--destructive-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-info: var(--info);
   --color-ring: var(--ring);
   --color-scrim: var(--scrim);
 

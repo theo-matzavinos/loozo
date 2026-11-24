@@ -1,7 +1,7 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
-import { DatePipe } from "@angular/common";
-import { Component, LOCALE_ID, computed, inject, signal } from "@angular/core";
+import { CurrencyPipe, DatePipe } from "@angular/common";
+import { Component, LOCALE_ID, computed, inject, input, signal } from "@angular/core";
 import {
   FormField,
   disabled,
@@ -20,6 +20,7 @@ import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dial
 import { OrigamiMeter, OrigamiMeterOptions } from "@loozo/origami-ui/meter";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
+import { Badge } from "#ui/badge";
 import { Button, ButtonLink } from "#ui/button";
 import {
   Calendar,
@@ -52,6 +53,7 @@ import {
   DialogParts,
   DialogTitle,
 } from "#ui/dialog";
+import { EmptyParts } from "#ui/empty";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { FileFieldParts } from "#ui/file-field";
 import { Input } from "#ui/input";
@@ -59,6 +61,7 @@ import { MenuParts } from "#ui/menu";
 import { Meter, MeterRing } from "#ui/meter";
 import { NumberFieldParts } from "#ui/number-field";
 import { OtpField, OtpFieldInput } from "#ui/otp-field";
+import { PageParts } from "#ui/page";
 import { PopoverParts } from "#ui/popover";
 import { Progress } from "#ui/progress";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
@@ -67,6 +70,7 @@ import { SelectParts } from "#ui/select";
 import { SheetParts } from "#ui/sheet";
 import { Slider, SliderThumb } from "#ui/slider";
 import { Switch } from "#ui/switch";
+import { TableParts, type TableSort } from "#ui/table";
 import { TabsParts } from "#ui/tabs";
 import { Textarea } from "#ui/textarea";
 import { ToastRegion, Toasts } from "#ui/toast";
@@ -2269,9 +2273,612 @@ export class Meters {
   }
 }
 
+/**
+ * The fixture's stand-in for budget.bs's generated row (`budget.generated.server.ts:46-100`):
+ * `name` is nullable, `status` is tagged by `_tag`, and users are usernames.
+ */
+type BudgetStatus =
+  | { readonly _tag: "Draft" }
+  | { readonly _tag: "Submitted"; readonly submittedOn: string; readonly submittedBy: string }
+  | {
+      readonly _tag: "Approved";
+      readonly submittedOn: string;
+      readonly submittedBy: string;
+      readonly approvalReference: string;
+      readonly approvedOn: string;
+      readonly approvedBy: string;
+    };
+
+interface BudgetRow {
+  readonly id: string;
+  readonly name: string | null;
+  readonly status: BudgetStatus;
+  /** Fixture-only: budget.bs has no amount. It exercises the end-aligned money column. */
+  readonly amount: number;
+}
+
+type BudgetSortKey = "name" | "status" | "submittedOn" | "amount";
+
+interface BudgetSort {
+  readonly key: BudgetSortKey;
+  readonly direction: TableSort;
+}
+
+const BUDGET_PAGE_SIZE = 4;
+
+/** Fixture-only projection: the generated row carries usernames, not display names. */
+const USER_NAMES = new Map([
+  ["ada", "Ada Lovelace"],
+  ["grace", "Grace Hopper"],
+]);
+
+function displayName(username: string): string {
+  const name = USER_NAMES.get(username);
+
+  if (name === undefined) {
+    throw new Error(`No fixture user ${username}`);
+  }
+
+  return name;
+}
+
+/** Ten rows over three statuses, one of them unnamed: three pages of four, the last one partial. */
+const BUDGETS: readonly BudgetRow[] = [
+  { id: "b01", name: "Capital expenditure", status: { _tag: "Draft" }, amount: 48250 },
+  {
+    id: "b02",
+    name: "Facilities",
+    status: { _tag: "Submitted", submittedOn: "2026-03-12", submittedBy: "ada" },
+    amount: 9800,
+  },
+  {
+    id: "b03",
+    name: "Marketing",
+    status: {
+      _tag: "Approved",
+      submittedOn: "2026-02-02",
+      submittedBy: "ada",
+      approvalReference: "BUD-2026-0042",
+      approvedOn: "2026-02-10",
+      approvedBy: "grace",
+    },
+    amount: 126400,
+  },
+  {
+    id: "b04",
+    name: "Research",
+    status: { _tag: "Submitted", submittedOn: "2026-03-20", submittedBy: "grace" },
+    amount: 72000,
+  },
+  { id: "b05", name: "Training", status: { _tag: "Draft" }, amount: 15600 },
+  {
+    id: "b06",
+    name: "Travel",
+    status: {
+      _tag: "Approved",
+      submittedOn: "2026-01-15",
+      submittedBy: "grace",
+      approvalReference: "BUD-2026-0017",
+      approvedOn: "2026-01-22",
+      approvedBy: "ada",
+    },
+    amount: 31200,
+  },
+  { id: "b07", name: null, status: { _tag: "Draft" }, amount: 5000 },
+  {
+    id: "b08",
+    name: "Hiring",
+    status: { _tag: "Submitted", submittedOn: "2026-02-27", submittedBy: "ada" },
+    amount: 88900,
+  },
+  {
+    id: "b09",
+    name: "Legal",
+    status: {
+      _tag: "Approved",
+      submittedOn: "2026-01-08",
+      submittedBy: "ada",
+      approvalReference: "BUD-2026-0009",
+      approvedOn: "2026-01-12",
+      approvedBy: "grace",
+    },
+    amount: 22750,
+  },
+  { id: "b10", name: "Software licences", status: { _tag: "Draft" }, amount: 40100 },
+];
+
+function submittedOn(status: BudgetStatus): string | null {
+  if (status._tag === "Draft") {
+    return null;
+  }
+
+  return status.submittedOn;
+}
+
+function sortValue(row: BudgetRow, key: BudgetSortKey): string | number | null {
+  if (key === "name") {
+    return row.name;
+  }
+
+  if (key === "status") {
+    return row.status._tag;
+  }
+
+  if (key === "submittedOn") {
+    return submittedOn(row.status);
+  }
+
+  return row.amount;
+}
+
+/** The fixture view's order: missing values last in both directions, ties by id. */
+function compareBudgets(a: BudgetRow, b: BudgetRow, sort: BudgetSort): number {
+  const left = sortValue(a, sort.key);
+  const right = sortValue(b, sort.key);
+
+  if (left === null || right === null) {
+    if (left === right) {
+      return a.id.localeCompare(b.id);
+    }
+
+    if (left === null) {
+      return 1;
+    }
+
+    return -1;
+  }
+
+  let order: number;
+
+  if (typeof left === "number" && typeof right === "number") {
+    order = left - right;
+  } else {
+    order = String(left).localeCompare(String(right), "en");
+  }
+
+  if (order === 0) {
+    return a.id.localeCompare(b.id);
+  }
+
+  if (sort.direction === "descending") {
+    return -order;
+  }
+
+  return order;
+}
+
+@Component({
+  selector: "app-budget-list",
+  imports: [Badge, Button, CurrencyPipe, DatePipe, EmptyParts, PageParts, TableParts],
+  template: `
+    <section zzPage>
+      <header zzPageHeader>
+        <div>
+          <h2 zzPageTitle [id]="titleId()">{{ heading() }}</h2>
+          <p zzPageDescription>
+            Acme Ltd · fiscal year 2026. Submit a draft, or approve a submitted one.
+          </p>
+        </div>
+        <div zzPageActions>
+          <button zzButton>Export</button>
+          <button zzButton variant="primary">New budget</button>
+        </div>
+      </header>
+
+      <div zzTableFrame [aria-labelledby]="titleId()">
+        <table zzTable [attr.aria-labelledby]="titleId()">
+          <thead>
+            <tr zzTableRow>
+              <th zzTableColumnHeader [sort]="sortOf('name')">
+                <button zzTableSortButton (click)="toggleSort('name')">Name</button>
+              </th>
+              <th zzTableColumnHeader [sort]="sortOf('status')">
+                <button zzTableSortButton (click)="toggleSort('status')">Status</button>
+              </th>
+              <th zzTableColumnHeader [sort]="sortOf('submittedOn')">
+                <button zzTableSortButton (click)="toggleSort('submittedOn')">Submitted</button>
+              </th>
+              <th zzTableColumnHeader align="end" [sort]="sortOf('amount')">
+                <button zzTableSortButton (click)="toggleSort('amount')">Amount</button>
+              </th>
+              <th zzTableColumnHeader align="end"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (budget of visible(); track budget.id) {
+              <tr zzTableRow>
+                <td zzTableCell>{{ budget.name ?? "Untitled draft" }}</td>
+                <td zzTableCell>
+                  @switch (budget.status._tag) {
+                    @case ("Draft") {
+                      <span zzBadge tone="neutral">Draft</span>
+                    }
+                    @case ("Submitted") {
+                      @let by = budget.status.submittedBy;
+                      <span zzBadge tone="info">Submitted by {{ displayName(by) }}</span>
+                    }
+                    @case ("Approved") {
+                      @let reference = budget.status.approvalReference;
+                      <span zzBadge tone="success">Approved · {{ reference }}</span>
+                    }
+                    @default never(budget.status);
+                  }
+                </td>
+                <td zzTableCell>{{ (submittedOn(budget.status) | date: "d MMM y") ?? "—" }}</td>
+                <td zzTableCell align="end">{{ budget.amount | currency: "EUR" }}</td>
+                <td zzTableCell align="end" class="whitespace-nowrap">
+                  @if (budget.status._tag === "Draft") {
+                    <button zzButton size="sm">Submit</button>
+                  }
+                  @if (budget.status._tag === "Submitted") {
+                    <button zzButton size="sm">Back to draft</button>
+                    <button zzButton size="sm" variant="primary">Approve</button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr zzTableRow>
+                <td zzTableCell colspan="5"><div zzEmpty>No budgets match</div></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <nav zzTablePager [attr.aria-label]="heading() + ' pages'">
+          <output>{{ rangeText() }}</output>
+          <button
+            zzButton
+            size="sm"
+            [disabled]="!hasPrevious()"
+            focusableWhenDisabled
+            (click)="previous()"
+          >
+            Previous
+          </button>
+          <button zzButton size="sm" [disabled]="!hasNext()" focusableWhenDisabled (click)="next()">
+            Next
+          </button>
+        </nav>
+      </div>
+    </section>
+  `,
+})
+export class BudgetList {
+  readonly rows = input.required<readonly BudgetRow[]>();
+  // Not `title`: a static `title` attribute would also stay on the host as a native tooltip.
+  readonly heading = input.required<string>();
+  readonly titleId = input.required<string>();
+
+  protected readonly submittedOn = submittedOn;
+  protected readonly displayName = displayName;
+  protected readonly sort = signal<BudgetSort>({ key: "name", direction: "ascending" });
+  protected readonly page = signal(1);
+
+  protected readonly sorted = computed(() => {
+    const sort = this.sort();
+    const rows = [...this.rows()];
+
+    rows.sort((a, b) => compareBudgets(a, b, sort));
+
+    return rows;
+  });
+
+  protected readonly pageCount = computed(() =>
+    Math.max(1, Math.ceil(this.rows().length / BUDGET_PAGE_SIZE)),
+  );
+  protected readonly hasPrevious = computed(() => this.page() > 1);
+  protected readonly hasNext = computed(() => this.page() < this.pageCount());
+
+  protected readonly visible = computed(() => {
+    const start = (this.page() - 1) * BUDGET_PAGE_SIZE;
+
+    return this.sorted().slice(start, start + BUDGET_PAGE_SIZE);
+  });
+
+  protected readonly rangeText = computed(() => {
+    const total = this.rows().length;
+
+    if (total === 0) {
+      return "No budgets";
+    }
+
+    const first = (this.page() - 1) * BUDGET_PAGE_SIZE + 1;
+    const last = Math.min(first + BUDGET_PAGE_SIZE - 1, total);
+
+    return `${first}–${last} of ${total}`;
+  });
+
+  protected sortOf(key: BudgetSortKey): TableSort | null {
+    const current = this.sort();
+
+    if (current.key !== key) {
+      return null;
+    }
+
+    return current.direction;
+  }
+
+  /** The view's paging rule: a new sort returns to page 1. */
+  protected toggleSort(key: BudgetSortKey): void {
+    const current = this.sort();
+
+    this.page.set(1);
+
+    if (current.key === key && current.direction === "ascending") {
+      this.sort.set({ key, direction: "descending" });
+
+      return;
+    }
+
+    this.sort.set({ key, direction: "ascending" });
+  }
+
+  // A focusable disabled button still fires (click), so each handler checks its boundary.
+  protected previous(): void {
+    if (!this.hasPrevious()) {
+      return;
+    }
+
+    this.page.update((page) => page - 1);
+  }
+
+  protected next(): void {
+    if (!this.hasNext()) {
+      return;
+    }
+
+    this.page.update((page) => page + 1);
+  }
+}
+
+interface CostCentre {
+  readonly id: string;
+  readonly name: string;
+  readonly owner: string;
+  readonly region: string;
+  readonly department: string;
+  readonly holder: string;
+  readonly fiscalYear: string;
+  readonly approved: number;
+  readonly spent: number;
+}
+
+/** View 1a without buttons: eight text columns, wider than a phone and narrower than a desktop. */
+const COST_CENTRES: readonly CostCentre[] = [
+  {
+    id: "c1",
+    name: "Head office",
+    owner: "Ada Lovelace",
+    region: "Attica",
+    department: "Finance",
+    holder: "Grace Hopper",
+    fiscalYear: "2026",
+    approved: 480000,
+    spent: 212400,
+  },
+  {
+    id: "c2",
+    name: "Thessaloniki branch",
+    owner: "Grace Hopper",
+    region: "Central Macedonia",
+    department: "Sales",
+    holder: "Ada Lovelace",
+    fiscalYear: "2026",
+    approved: 156000,
+    spent: 98750,
+  },
+  {
+    id: "c3",
+    name: "Patras warehouse",
+    owner: "Ada Lovelace",
+    region: "Western Greece",
+    department: "Logistics",
+    holder: "Grace Hopper",
+    fiscalYear: "2026",
+    approved: 92500,
+    spent: 40100,
+  },
+];
+
+@Component({
+  selector: "app-cost-centres",
+  imports: [Button, CurrencyPipe, EmptyParts, TableParts],
+  template: `
+    <h3 class="sr-only" [id]="titleId()">{{ heading() }}</h3>
+    <button zzButton size="sm" [id]="titleId() + '-filter'">Filter</button>
+    <div zzTableFrame [aria-labelledby]="titleId()" class="mt-2">
+      <table zzTable [attr.aria-labelledby]="titleId()">
+        <thead>
+          <tr zzTableRow>
+            <th zzTableColumnHeader>Cost centre</th>
+            <th zzTableColumnHeader>Owner</th>
+            <th zzTableColumnHeader>Region</th>
+            <th zzTableColumnHeader>Department</th>
+            <th zzTableColumnHeader>Budget holder</th>
+            <th zzTableColumnHeader>Fiscal year</th>
+            <th zzTableColumnHeader align="end">Approved total</th>
+            <th zzTableColumnHeader align="end">Spent to date</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (centre of rows(); track centre.id) {
+            <tr zzTableRow>
+              <td zzTableCell>{{ centre.name }}</td>
+              <td zzTableCell>{{ centre.owner }}</td>
+              <td zzTableCell>{{ centre.region }}</td>
+              <td zzTableCell>{{ centre.department }}</td>
+              <td zzTableCell>{{ centre.holder }}</td>
+              <td zzTableCell>{{ centre.fiscalYear }}</td>
+              <td zzTableCell align="end">{{ centre.approved | currency: "EUR" }}</td>
+              <td zzTableCell align="end">{{ centre.spent | currency: "EUR" }}</td>
+            </tr>
+          } @empty {
+            <tr zzTableRow>
+              <!-- A long unbroken search term wraps inside the visible width. -->
+              <td zzTableCell colspan="8">
+                <div zzEmpty>
+                  No cost centres match “WGR2026PATRASWAREHOUSELOGISTICSOUTBOUNDFREIGHT0017”
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  `,
+})
+export class CostCentres {
+  readonly rows = input.required<readonly CostCentre[]>();
+  readonly heading = input.required<string>();
+  readonly titleId = input.required<string>();
+}
+
+@Component({
+  selector: "app-list-parts",
+  imports: [Badge, Button, EmptyParts, PageParts, TableParts],
+  template: `
+    <div class="flex flex-wrap gap-2" id="badges-background">
+      <span zzBadge>Draft</span>
+      <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+      <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+      <span zzBadge tone="warning">Over limit</span>
+      <span zzBadge tone="danger">Rejected</span>
+    </div>
+
+    <div
+      class="flex flex-wrap gap-2 rounded-surface border border-border bg-surface p-3"
+      id="badges-surface"
+    >
+      <span zzBadge>Draft</span>
+      <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+      <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+      <span zzBadge tone="warning">Over limit</span>
+      <span zzBadge tone="danger">Rejected</span>
+    </div>
+
+    <div class="flex gap-2 [--info:initial]" id="badges-no-info">
+      <span zzBadge>Draft</span>
+      <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+    </div>
+
+    <div class="light grid gap-4 bg-background p-5 text-foreground" id="badges-light">
+      <div class="flex flex-wrap gap-2" id="badges-light-background">
+        <span zzBadge>Draft</span>
+        <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+        <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+        <span zzBadge tone="warning">Over limit</span>
+        <span zzBadge tone="danger">Rejected</span>
+      </div>
+      <div zzTableFrame aria-label="Light budgets">
+        <!-- An inherited text-end, which align="start" cells and headers override. -->
+        <table zzTable aria-label="Light budgets" class="text-end">
+          <thead>
+            <tr zzTableRow>
+              <th zzTableColumnHeader sort="ascending"><button zzTableSortButton>Name</button></th>
+              <th zzTableColumnHeader><button zzTableSortButton>Status</button></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr zzTableRow>
+              <td zzTableCell>Facilities</td>
+              <td zzTableCell>
+                <span class="flex flex-wrap gap-2" id="badges-light-surface">
+                  <span zzBadge>Draft</span>
+                  <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+                  <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+                  <span zzBadge tone="warning">Over limit</span>
+                  <span zzBadge tone="danger">Rejected</span>
+                </span>
+              </td>
+            </tr>
+            <!-- A table nested in a cell: TableFrame's Empty and last-row rules stay on its own table. -->
+            <tr zzTableRow>
+              <td zzTableCell>Allocations</td>
+              <td zzTableCell>
+                <table zzTable aria-label="Facilities allocations" id="nested-table">
+                  <tbody>
+                    <tr zzTableRow>
+                      <td zzTableCell colspan="2">
+                        <div zzEmpty class="py-0" id="empty-nested">No allocations</div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            <!-- An Empty in a row with other cells: TableFrame's full-span rule leaves it alone. -->
+            <tr zzTableRow>
+              <td zzTableCell>Training</td>
+              <td zzTableCell>
+                <div zzEmpty class="items-start py-0" id="empty-beside-cells">No status yet</div>
+              </td>
+            </tr>
+            <!-- A row's only cell beside a rowspan, without a colspan: the full-span rule leaves
+            its Empty alone. -->
+            <tr zzTableRow>
+              <td zzTableCell rowspan="2">Travel</td>
+              <td zzTableCell>Draft</td>
+            </tr>
+            <tr zzTableRow>
+              <td zzTableCell>
+                <div zzEmpty class="items-start py-0" id="empty-beside-rowspan">
+                  No approver yet
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- The caller's alignment utility wins over align="end" on a header and a cell. -->
+    <table zzTable aria-label="Alignment overrides" id="table-align-override">
+      <thead>
+        <tr zzTableRow>
+          <th zzTableColumnHeader align="end" class="text-center">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr zzTableRow>
+          <td zzTableCell align="end" class="text-center">€1,200.00</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <section zzPage class="p-0" id="page-long">
+      <header zzPageHeader>
+        <div>
+          <h3 zzPageTitle>Organisation budgets for fiscal year 2026</h3>
+          <p zzPageDescription>
+            Acme Ltd · drafts, submissions and approvals across every department.
+          </p>
+        </div>
+        <div zzPageActions lang="de">
+          <button
+            zzButton
+            variant="primary"
+            class="h-auto min-h-8 max-w-full py-1 text-start whitespace-normal [overflow-wrap:anywhere]"
+          >
+            Alle verbleibenden Budgetentwürfe zur Genehmigung einreichen
+          </button>
+        </div>
+      </header>
+    </section>
+
+    <div zzEmpty id="empty-rich">
+      <h3 zzEmptyTitle>No budgets yet</h3>
+      <p zzEmptyDescription>Create the first budget for fiscal year 2026; it starts as a draft.</p>
+      <div zzEmptyActions><button zzButton variant="primary">New budget</button></div>
+    </div>
+  `,
+})
+export class ListParts {}
+
 @Component({
   selector: "app-root",
   imports: [
+    BudgetList,
+    CostCentres,
+    ListParts,
     Button,
     ButtonLink,
     AlertDialogParts,
@@ -2519,6 +3126,36 @@ export class Meters {
           <h2 zzSheetTitle>Details</h2>
         </div>
       </dialog>
+
+      <!-- A BizneScript list view: Page, Table, Badge and Empty. -->
+      <div class="grid basis-full gap-8" id="list-views">
+        <app-budget-list
+          id="budget-list"
+          heading="Budgets"
+          titleId="budget-list-title"
+          [rows]="budgets"
+        />
+        <app-budget-list
+          id="budget-list-empty"
+          heading="Archived budgets"
+          titleId="budget-list-empty-title"
+          [rows]="[]"
+        />
+        <app-cost-centres
+          id="wide-report"
+          heading="Cost centres"
+          titleId="wide-report-title"
+          [rows]="costCentres"
+        />
+        <app-cost-centres
+          id="wide-report-empty"
+          heading="Closed cost centres"
+          titleId="wide-report-empty-title"
+          [rows]="[]"
+        />
+        <!-- min-w-0, so a no-wrap Button can't widen the grid item past a phone-width header. -->
+        <app-list-parts class="min-w-0" />
+      </div>
     </main>
 
     <section class="grid w-80 gap-4 p-5">
@@ -3936,6 +4573,8 @@ export class Meters {
   `,
 })
 export class App {
+  protected readonly budgets = BUDGETS;
+  protected readonly costCentres = COST_CENTRES;
   protected readonly open = signal(false);
   protected readonly pending = signal(false);
   protected readonly terminations = signal(0);
