@@ -20,6 +20,53 @@ function propertyName(property) {
   return undefined;
 }
 
+// `hostDirectives: [...]` or the shorthand `{ hostDirectives }`, which names a variable.
+function metadataProperty(object, name) {
+  for (const property of object.properties) {
+    const named = ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property);
+    if (named && propertyName(property) === name) {
+      return property;
+    }
+  }
+
+  return undefined;
+}
+
+// `{ directive: ClassName, inputs: [...] }`, with no spread that could hide or replace `directive`.
+function readableEntry(entry) {
+  if (ts.isIdentifier(entry)) {
+    return true;
+  }
+
+  if (!ts.isObjectLiteralExpression(entry)) {
+    return false;
+  }
+
+  for (const property of entry.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      return false;
+    }
+  }
+
+  const directive = literalProperty(entry, "directive");
+  return directive !== undefined && ts.isIdentifier(directive);
+}
+
+// Only an array literal of readable entries can be walked; anything else hides its composition.
+function literalList(property) {
+  if (!ts.isPropertyAssignment(property) || !ts.isArrayLiteralExpression(property.initializer)) {
+    return undefined;
+  }
+
+  for (const element of property.initializer.elements) {
+    if (!readableEntry(element)) {
+      return undefined;
+    }
+  }
+
+  return property.initializer;
+}
+
 function literalProperty(object, name) {
   for (const property of object.properties) {
     if (ts.isPropertyAssignment(property) && propertyName(property) === name) {
@@ -30,9 +77,11 @@ function literalProperty(object, name) {
   return undefined;
 }
 
-// Each directive class → the exported names of the directives its hostDirectives list.
+// Each directive class → the exported names of the directives its hostDirectives list, plus the
+// classes whose hostDirectives aren't a literal list the walk can read.
 function readCompositions() {
   const compositions = new Map();
+  const unreadable = [];
   const paths = globSync("packages/origami-ui/*/src/**/*.ts", {
     cwd: root,
     exclude: ["packages/origami-ui/snippets/**", "**/*.spec.ts", "**/*.test.ts"],
@@ -75,8 +124,14 @@ function readCompositions() {
           continue;
         }
 
-        const hostDirectives = literalProperty(metadata, "hostDirectives");
-        if (hostDirectives === undefined || !ts.isArrayLiteralExpression(hostDirectives)) {
+        const property = metadataProperty(metadata, "hostDirectives");
+        if (property === undefined) {
+          continue;
+        }
+
+        const hostDirectives = literalList(property);
+        if (hostDirectives === undefined) {
+          unreadable.push(statement.name.text);
           continue;
         }
 
@@ -98,7 +153,7 @@ function readCompositions() {
     }
   }
 
-  return compositions;
+  return { compositions, unreadable };
 }
 
 function reachesButton(compositions, name, seen = new Set()) {
@@ -121,7 +176,7 @@ function reachesButton(compositions, name, seen = new Set()) {
 }
 
 await test("host-attribute-owner lists every Button part, direct and indirect", () => {
-  const compositions = readCompositions();
+  const { compositions, unreadable } = readCompositions();
   const derivedDirect = new Set();
   const derivedIndirect = new Map();
 
@@ -144,6 +199,12 @@ await test("host-attribute-owner lists every Button part, direct and indirect", 
   }
 
   const problems = [];
+
+  for (const name of unreadable) {
+    problems.push(
+      `${name} writes hostDirectives in a form the Button-part walk can't read; write an array literal of class names or { directive: ClassName } entries, without spreads.`,
+    );
+  }
 
   for (const name of derivedDirect) {
     if (!directButtonParts.has(name)) {

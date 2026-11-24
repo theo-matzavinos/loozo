@@ -9,6 +9,15 @@ RuleTester.it = it;
 const describedByMessage =
   "Register description IDs with ɵOrigamiDescribedBy instead of binding aria-describedby.";
 
+const metadataNotLiteralMessage =
+  "Write the decorator's metadata as an object literal without spreads, so host-attribute-owner can read its host and hostDirectives.";
+const hostDirectiveEntryNotLiteralMessage =
+  "Write each hostDirectives entry as a class name or { directive: ClassName, … } without spreads, so host-attribute-owner's Button-part check can read it.";
+const hostNotLiteralMessage =
+  "Write host as an object literal with literal keys and no spreads, so host-attribute-owner can check every binding.";
+const hostDirectivesNotLiteralMessage =
+  "Write hostDirectives as an array literal without spreads, so host-attribute-owner's Button-part check can read the composition.";
+
 function directMessage(part, attribute) {
   return `Add this condition to ${part}'s disabled policy, the one its activation and its OrigamiButtonOptions both read, instead of binding ${attribute}.`;
 }
@@ -73,11 +82,11 @@ const directFixes = [
   ],
   [
     "OrigamiNumberFieldDecrement",
-    "Add this condition both to the OrigamiButtonOptions OrigamiNumberFieldDecrement provides and to NumberFieldContext.step, which guards its click with the root's editability and the value's bounds, instead of binding data-disabled.",
+    "Don't bind data-disabled. For OrigamiNumberFieldDecrement alone, add this condition both to its click handler and to the OrigamiButtonOptions it provides. To stop stepping from both buttons and the Input's ArrowUp and ArrowDown while typing stays on, make OrigamiNumberFieldOptions.step non-positive under it: NumberFieldContext.canStep and .step both read it. To stop typing too, use OrigamiNumberFieldOptions.disabled or .readonly.",
   ],
   [
     "OrigamiNumberFieldIncrement",
-    "Add this condition both to the OrigamiButtonOptions OrigamiNumberFieldIncrement provides and to NumberFieldContext.step, which guards its click with the root's editability and the value's bounds, instead of binding data-disabled.",
+    "Don't bind data-disabled. For OrigamiNumberFieldIncrement alone, add this condition both to its click handler and to the OrigamiButtonOptions it provides. To stop stepping from both buttons and the Input's ArrowUp and ArrowDown while typing stays on, make OrigamiNumberFieldOptions.step non-positive under it: NumberFieldContext.canStep and .step both read it. To stop typing too, use OrigamiNumberFieldOptions.disabled or .readonly.",
   ],
   [
     "OrigamiToolbarItem",
@@ -200,6 +209,94 @@ class OrigamiAccordionTrigger {}`,
       ...directFixCases,
       ...indirectCases,
       {
+        name: "decorator metadata naming a variable or holding a spread is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          const sharedMetadata = { host: { "[attr.aria-describedby]": "hint" } };
+          @Directive(sharedMetadata)
+          class NamedMetadataWriter {}
+          @Directive({ ...sharedMetadata, selector: "[spreadWriter]" })
+          class SpreadMetadataWriter {}
+          @Directive()
+          class AbstractBase {}
+        `,
+        errors: [metadataNotLiteralMessage, metadataNotLiteralMessage],
+      },
+      {
+        name: "shorthand hostDirectives naming a variable is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          import { OrigamiButton } from "@loozo/origami-ui/button";
+          const hostDirectives = [OrigamiButton];
+          @Directive({ hostDirectives, host: { "[attr.aria-disabled]": "disabledAria()" } })
+          class OrigamiNewPart {}
+        `,
+        errors: [hostDirectivesNotLiteralMessage],
+      },
+      {
+        name: "a spread inside hostDirectives is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          import { OrigamiButton } from "@loozo/origami-ui/button";
+          const shared = [OrigamiButton];
+          @Directive({ hostDirectives: [...shared] })
+          class OrigamiNewPart {}
+        `,
+        errors: [hostDirectivesNotLiteralMessage],
+      },
+      {
+        name: "a hostDirectives entry without a readable directive is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          import { OrigamiButton } from "@loozo/origami-ui/button";
+          const entry = { directive: OrigamiButton };
+          const directive = OrigamiButton;
+          @Directive({ hostDirectives: [{ ...entry }], host: { "[attr.aria-disabled]": "disabledAria()" } })
+          class OrigamiSpreadEntryPart {}
+          @Directive({ hostDirectives: [{ directive }, { inputs: ["disabled"] }] })
+          class OrigamiUnreadableEntryPart {}
+          @Directive({ hostDirectives: [OrigamiButton, { directive: OrigamiButton, inputs: ["disabled"] }] })
+          class ReadableEntries {}
+        `,
+        errors: [
+          hostDirectiveEntryNotLiteralMessage,
+          hostDirectiveEntryNotLiteralMessage,
+          hostDirectiveEntryNotLiteralMessage,
+        ],
+      },
+      {
+        name: "a spread inside host is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          const sharedHost = { "[attr.aria-describedby]": "hint" };
+          @Directive({ host: { ...sharedHost, role: "button" } })
+          class SpreadHostWriter {}
+        `,
+        errors: [hostNotLiteralMessage],
+      },
+      {
+        name: "host naming a variable, directly or as shorthand, is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          const host = { "[attr.aria-describedby]": "hint" };
+          @Directive({ host: host })
+          class NamedHostWriter {}
+          @Directive({ host })
+          class ShorthandHostWriter {}
+        `,
+        errors: [hostNotLiteralMessage, hostNotLiteralMessage],
+      },
+      {
+        name: "a computed host key that isn't a static string is reported",
+        code: `
+          import { Directive } from "@angular/core";
+          const key = "[attr.aria-describedby]";
+          @Directive({ host: { [key]: "hint" } })
+          class ComputedKeyWriter {}
+        `,
+        errors: [hostNotLiteralMessage],
+      },
+      {
         name: "a named Angular import quoted as a string still counts",
         code: `
           import { "Directive" as AngularDirective } from "@angular/core";
@@ -237,6 +334,25 @@ class OrigamiAccordionTrigger {}`,
           class OrigamiSwitch {}
         `,
         errors: [directMessage("OrigamiSwitch", "aria-disabled"), describedByMessage],
+      },
+      {
+        name: "a no-argument HostBinding binds its member's name, reflected names included",
+        code: `
+          import { Directive, HostBinding } from "@angular/core";
+          @Directive({})
+          class OrigamiSwitch {
+            @HostBinding() ariaDisabled = "true";
+            @HostBinding() ariaDescribedByElements = [];
+            @HostBinding() disabled = true;
+            @HostBinding() title = "unrelated";
+          }
+        `,
+        // Reported at the member key, column 27, not at the decorator, column 12.
+        errors: [
+          { message: directMessage("OrigamiSwitch", "aria-disabled"), line: 5, column: 27 },
+          { message: describedByMessage, line: 6, column: 27 },
+          { message: directMessage("OrigamiSwitch", "disabled"), line: 7, column: 27 },
+        ],
       },
       {
         name: "attribute names match in any letter case, as the DOM lowercases them",

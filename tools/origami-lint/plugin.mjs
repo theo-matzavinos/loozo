@@ -127,11 +127,11 @@ const directPartFixes = new Map([
   ],
   [
     "OrigamiNumberFieldDecrement",
-    "Add this condition both to the OrigamiButtonOptions OrigamiNumberFieldDecrement provides and to NumberFieldContext.step, which guards its click with the root's editability and the value's bounds, instead of binding {{attribute}}.",
+    "Don't bind {{attribute}}. For OrigamiNumberFieldDecrement alone, add this condition both to its click handler and to the OrigamiButtonOptions it provides. To stop stepping from both buttons and the Input's ArrowUp and ArrowDown while typing stays on, make OrigamiNumberFieldOptions.step non-positive under it: NumberFieldContext.canStep and .step both read it. To stop typing too, use OrigamiNumberFieldOptions.disabled or .readonly.",
   ],
   [
     "OrigamiNumberFieldIncrement",
-    "Add this condition both to the OrigamiButtonOptions OrigamiNumberFieldIncrement provides and to NumberFieldContext.step, which guards its click with the root's editability and the value's bounds, instead of binding {{attribute}}.",
+    "Don't bind {{attribute}}. For OrigamiNumberFieldIncrement alone, add this condition both to its click handler and to the OrigamiButtonOptions it provides. To stop stepping from both buttons and the Input's ArrowUp and ArrowDown while typing stays on, make OrigamiNumberFieldOptions.step non-positive under it: NumberFieldContext.canStep and .step both read it. To stop typing too, use OrigamiNumberFieldOptions.disabled or .readonly.",
   ],
   [
     "OrigamiToolbarItem",
@@ -168,6 +168,26 @@ function staticString(node) {
   }
 
   return undefined;
+}
+
+// `{ directive: ClassName, inputs: [...] }`, with no spread that could hide or replace `directive`.
+function readableDirectiveEntry(entry) {
+  if (entry.type !== "ObjectExpression") {
+    return false;
+  }
+
+  let directive;
+  for (const property of entry.properties) {
+    if (property.type !== "Property") {
+      return false;
+    }
+
+    if (propertyName(property) === "directive") {
+      directive = property;
+    }
+  }
+
+  return directive !== undefined && !directive.shorthand && directive.value.type === "Identifier";
 }
 
 function propertyName(property) {
@@ -209,6 +229,14 @@ const hostAttributeOwner = defineRule({
         "Register description IDs with ɵOrigamiDescribedBy instead of binding aria-describedby.",
       directDisabled:
         "Add this condition to {{part}}'s disabled policy, the one its activation and its OrigamiButtonOptions both read, instead of binding {{attribute}}.",
+      metadataNotLiteral:
+        "Write the decorator's metadata as an object literal without spreads, so host-attribute-owner can read its host and hostDirectives.",
+      hostNotLiteral:
+        "Write host as an object literal with literal keys and no spreads, so host-attribute-owner can check every binding.",
+      hostDirectivesNotLiteral:
+        "Write hostDirectives as an array literal without spreads, so host-attribute-owner's Button-part check can read the composition.",
+      hostDirectiveEntryNotLiteral:
+        "Write each hostDirectives entry as a class name or { directive: ClassName, … } without spreads, so host-attribute-owner's Button-part check can read it.",
     },
   },
 
@@ -270,6 +298,51 @@ const hostAttributeOwner = defineRule({
           }
         }
 
+        // Only literal metadata can be checked, so any other form is reported instead of skipped.
+        function checkHost(host) {
+          if (host.type !== "ObjectExpression") {
+            context.report({ node: host, messageId: "hostNotLiteral" });
+            return;
+          }
+
+          for (const binding of host.properties) {
+            if (binding.type !== "Property") {
+              context.report({ node: binding, messageId: "hostNotLiteral" });
+              continue;
+            }
+
+            const key = propertyName(binding);
+            if (key === undefined) {
+              context.report({ node: binding.key, messageId: "hostNotLiteral" });
+              continue;
+            }
+
+            check(hostKeyAttribute(key), binding.key);
+          }
+        }
+
+        function checkHostDirectives(hostDirectives) {
+          if (hostDirectives.type !== "ArrayExpression") {
+            context.report({ node: hostDirectives, messageId: "hostDirectivesNotLiteral" });
+            return;
+          }
+
+          for (const element of hostDirectives.elements) {
+            if (element === null || element.type === "Identifier") {
+              continue;
+            }
+
+            if (element.type === "SpreadElement") {
+              context.report({ node: element, messageId: "hostDirectivesNotLiteral" });
+              continue;
+            }
+
+            if (!readableDirectiveEntry(element)) {
+              context.report({ node: element, messageId: "hostDirectiveEntryNotLiteral" });
+            }
+          }
+        }
+
         let isAngularClass = false;
         for (const decorator of node.decorators) {
           const kind = angularDecorator(decorator);
@@ -279,28 +352,30 @@ const hostAttributeOwner = defineRule({
 
           isAngularClass = true;
           const [metadata] = decorator.expression.arguments;
-          if (metadata?.type !== "ObjectExpression") {
+          // `@Directive()` without metadata declares no host bindings.
+          if (metadata === undefined) {
+            continue;
+          }
+
+          if (metadata.type !== "ObjectExpression") {
+            context.report({ node: metadata, messageId: "metadataNotLiteral" });
             continue;
           }
 
           for (const property of metadata.properties) {
-            if (
-              property.type !== "Property" ||
-              propertyName(property) !== "host" ||
-              property.value.type !== "ObjectExpression"
-            ) {
+            if (property.type !== "Property") {
+              context.report({ node: property, messageId: "metadataNotLiteral" });
               continue;
             }
 
-            for (const binding of property.value.properties) {
-              if (binding.type !== "Property") {
-                continue;
-              }
+            // A shorthand `{ host }` or `{ hostDirectives }` has an identifier value, so it's reported.
+            const name = propertyName(property);
+            if (name === "host") {
+              checkHost(property.value);
+            }
 
-              const key = propertyName(binding);
-              if (key !== undefined) {
-                check(hostKeyAttribute(key), binding.key);
-              }
+            if (name === "hostDirectives") {
+              checkHostDirectives(property.value);
             }
           }
         }
@@ -315,8 +390,14 @@ const hostAttributeOwner = defineRule({
               continue;
             }
 
+            // Without an argument, Angular binds the member's own name, e.g. `ariaDisabled`.
             const [target] = decorator.expression.arguments;
             if (target === undefined) {
+              const memberName = propertyName(member);
+              if (memberName !== undefined) {
+                check(boundAttribute(memberName), member.key);
+              }
+
               continue;
             }
 
