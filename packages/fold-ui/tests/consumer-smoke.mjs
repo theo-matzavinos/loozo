@@ -12399,6 +12399,8 @@ try {
     await page.keyboard.press("End");
     await page.keyboard.press("Escape");
     await untilOpen("search-bar", false);
+    // End moved the caret: Alt+ArrowDown opens only once the analysis for it has rendered rows.
+    await untilRows("search-bar", ["status Κατάσταση"]);
     await page.keyboard.press("Alt+ArrowDown");
     await untilOpen("search-bar", true);
     assert.equal(await attribute("search-bar-input", "aria-activedescendant"), null);
