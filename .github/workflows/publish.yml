@@ -13,7 +13,7 @@ on:
       package:
         description: Package to release
         type: choice
-        options: [angular-router, angular-launch, origami-ui, fold-ui, ui-sdk-angular]
+        options: [angular-router, angular-launch, origami-ui, fold-ui]
       bump:
         description: Version to bump (patch, minor or major)
         type: choice

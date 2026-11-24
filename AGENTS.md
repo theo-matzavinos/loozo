@@ -2,7 +2,7 @@
 
 ## breaking changes
 
-origami-ui, fold-ui and ui-sdk-angular publish `0.0.x` versions and Launch `0.x` versions since 0.1.0; none of them owes compatibility before 1.0. the router follows semantic versioning from 1.0.0: its `SPEC.md` "Stability" section is the public contract.
+origami-ui and fold-ui publish `0.0.x` versions and Launch `0.x` versions since 0.1.0; none of them owes compatibility before 1.0. the router follows semantic versioning from 1.0.0: its `SPEC.md` "Stability" section is the public contract.
 
 - change any public API, contract or behavior when it improves the design, the router's after 1.0 included. don't seek approval or flag a change as risky merely because it breaks. the design itself still needs loozo's approval before implementation, like any interface change.
 - don't add deprecations, compatibility shims, aliases, fallbacks for old shapes or migration notes, in the router after 1.0 too. update every in-repo caller, example, doc and spec in the same change.

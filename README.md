@@ -10,7 +10,6 @@ A monorepo for Angular-related packages. Each package owns its API, contract, do
 | [@loozo/angular-launch](packages/angular-launch/README.md) | Typed server functions for Angular SSR applications built with `@loozo/angular-router`    | Pre-1.0           |
 | [@loozo/origami-ui](packages/origami-ui/README.md)         | Headless, accessible Angular primitives                                                   | Experimental      |
 | [@loozo/fold-ui](packages/fold-ui/README.md)               | Styled components over Origami, copied into Angular apps by schematics                    | Experimental      |
-| [@loozo/ui-sdk-angular](packages/ui-sdk-angular/README.md) | Angular directives for ui-sdk.dev's headless core, with SSR and hydration                 | Experimental      |
 
 ## Repository layout
 
@@ -50,7 +49,7 @@ If only step 4 or 5 fails, use **Re-run failed jobs**.
 
 Check **Dry run** to preview a release from any branch: the workflow bumps, runs step 2 and writes the version and release notes to the job summary, and pushes, publishes and releases nothing. From the command line: `gh workflow run publish.yml --ref <branch> -f package=<package> -f bump=minor -f dry_run=true`.
 
-Pull requests into `main` run the **CI** workflow: every package's build, check, typecheck and test, the router's and Launch's `tests/packed.mjs`, Origami's commit gate, the router's browser tests, its Node and filesystem tests on Windows and macOS, Launch's Node tests on Windows and macOS, fold's consumer check and ui-sdk-angular's browser suite in Chromium, Firefox and WebKit. Every push to `main` runs the **Release gate** workflow, Origami's `test:full`. Publish refuses an Origami release unless the Release gate passed on the commit it releases. Release commits only move versions, so a pass on any commit from `main`'s head back to its nearest non-release commit counts; a release commit's push skips the gate and never replaces a waiting run.
+Pull requests into `main` run the **CI** workflow: every package's build, check, typecheck and test, the router's and Launch's `tests/packed.mjs`, Origami's commit gate, the router's browser tests, its Node and filesystem tests on Windows and macOS, Launch's Node tests on Windows and macOS and fold's consumer check. Every push to `main` runs the **Release gate** workflow, Origami's `test:full`. Publish refuses an Origami release unless the Release gate passed on the commit it releases. Release commits only move versions, so a pass on any commit from `main`'s head back to its nearest non-release commit counts; a release commit's push skips the gate and never replaces a waiting run.
 
 Every Friday the **Angular canary** workflow pins the workspace to Angular's `latest` release in one job and its `next` release in another, rebuilds the router's builder schemas and runs the router's and Launch's tests. It isn't a required check; its `latest` run stays red from the day Angular ships a minor the router doesn't cover until the router is released against it.
 

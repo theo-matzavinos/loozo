@@ -21,13 +21,15 @@
 // while typing, gaps, looks, popup placement, choosing, Escape in a Dialog, readonly and disabled
 // policies and forced colors, Toggle's, ToggleGroup's and Toolbar's server state and tab
 // stops, looks, sizes, Field wiring, segmented geometry and dot, keys, roving, bindings, wrapping,
-// popups, reduced motion and forced colors, and Meter's and MeterRing's server state and paint,
+// popups, reduced motion and forced colors, Meter's and MeterRing's server state and paint,
 // hydration on the same nodes, regions, bounds, geometry, sweep, themes, right to left, live
-// bounds, live value and no data, the emitted mask prefix and forced colors. Scrolling in Select,
-// Combobox, Menu and Popover content and Dialog
-// and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial focus, revealing the
-// active option or the focused control, and height caps) is consumer-scrolling.mjs's, in every
-// engine.
+// bounds, live value and no data, the emitted mask prefix and forced colors, and the multiple,
+// range, month and date-time pickers' server state, geometry, footer, choices and close rules,
+// months away, the month picker's years, an incomplete time, looks, right to left, narrow rows and
+// triggers, short popups and forced colors. Scrolling in Select, Combobox, Menu and Popover
+// content and Dialog and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial
+// focus, revealing the active option or the focused control, and height caps) is
+// consumer-scrolling.mjs's, in every engine.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
@@ -8945,9 +8947,9 @@ try {
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 
-  // Date entry, in its own block: DateField, TimeField, DateTimeField and the single DatePicker in
-  // both shapes. Exact geometry and pixels are DPR-1 values; every Calendar pins today to 27
-  // October 2026.
+  // Date entry, in its own block: DateField, TimeField, DateTimeField, the single DatePicker in
+  // both shapes, and the multiple, range, month and date-time pickers. Exact geometry and pixels
+  // are DPR-1 values; every Calendar pins today to 27 October 2026.
   {
     const box = (id) => `#${id} [data-slot=date-field-input]`;
     const row = (id) => `${box(id)} > [data-slot=date-field-segments]`;
@@ -9128,7 +9130,9 @@ try {
 
       const triggers = {};
 
-      for (const element of document.querySelectorAll("[data-slot=date-picker-trigger]")) {
+      for (const element of document.querySelectorAll(
+        "#date-entries [data-slot=date-picker-trigger]",
+      )) {
         triggers[element.closest("[data-slot=date-picker]").id] = {
           placeholder: element.getAttribute("data-placeholder"),
           readonly: element.getAttribute("data-readonly"),
@@ -10400,6 +10404,1209 @@ try {
     }
 
     assert.equal(await iconStroke("dp-field"), systemColors.canvasText);
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+
+    // DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker (#more-date-pickers),
+    // over the same trigger, popup and box as the single DatePicker above.
+    const moreRoots = [
+      "dpm",
+      "dpm-empty",
+      "dpm-list",
+      "dpm-cross",
+      "dpm-readonly",
+      "dpm-disabled",
+      "dpr",
+      "dpr-required",
+      "dpr-empty",
+      "dpr-cross",
+      "dpr-readonly-schema",
+      "dpr-disabled-focusable",
+      "dpr-dialog",
+      "dmp",
+      "dmp-empty",
+      "dmp-readonly-disabled",
+      "dtp",
+      "dtp-empty",
+      "dtp-12",
+      "dtp-readonly",
+      "dtp-disabled",
+      "dpr-rtl",
+      "dpm-rtl",
+    ];
+    const moreButtons = moreRoots.filter((id) => !id.startsWith("dtp") && id !== "dpr-dialog");
+    const moreDay = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+    const day = (id, date) => dayCell(id, moreDay.format(new Date(`${date}T00:00:00Z`)));
+    const calendarPart = (id, name) => `${content(id)} [data-slot=calendar-${name}]`;
+    const focusedLabel = () =>
+      page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? null);
+    const focusIs = (selector) =>
+      page.evaluate(
+        (selector) => document.activeElement === document.querySelector(selector),
+        selector,
+      );
+    const textIn = async (selector) =>
+      (await page.textContent(selector)).replace(/\s+/g, " ").trim();
+    const jsonOf = async (id) => JSON.parse(await textOf(id));
+    const animationsDone = (id) =>
+      page.waitForFunction(
+        (selector) =>
+          document.querySelector(selector).getAnimations({ subtree: true }).length === 0,
+        content(id),
+      );
+    // Each opens from the viewport's middle, so the popup has room below its trigger.
+    const centre = (id) =>
+      page.evaluate(
+        (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
+        trigger(id),
+      );
+    const openWithKeyboard = async (id) => {
+      await centre(id);
+      await keyboardFocus(trigger(id));
+      await page.keyboard.press("Enter");
+      await opened(id);
+      await animationsDone(id);
+      await rendered();
+    };
+    const openWithPointer = async (id) => {
+      await centre(id);
+      await page.click(trigger(id));
+      await opened(id);
+      await animationsDone(id);
+      await rendered();
+    };
+    // Tab until focus leaves a root, at most 4 presses.
+    const tabOut = async (id) => {
+      const focusInside = () =>
+        page.evaluate((id) => document.getElementById(id).contains(document.activeElement), id);
+
+      for (let presses = 0; presses < 4 && (await focusInside()); presses += 1) {
+        await page.keyboard.press("Tab");
+        await rendered();
+      }
+
+      assert.equal(await focusInside(), false, `Tab leaves ${id}`);
+    };
+    const untilFocused = (label) =>
+      page.waitForFunction(
+        (label) => document.activeElement?.getAttribute("aria-label") === label,
+        label,
+      );
+
+    // Server HTML, parsed by a page without scripts: every trigger closed and announcing a dialog,
+    // every Content an inert dialog with nothing inside it (the Calendars and the footer are
+    // gated), fold's two markers, "" or absent, and the date-time picker's segments.
+    const morePrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await morePrerendered.goto(base);
+
+    const moreServer = await morePrerendered.evaluate(() => {
+      const section = document.getElementById("more-date-pickers");
+      const roots = {};
+
+      for (const root of section.querySelectorAll("[data-slot=date-picker]")) {
+        const trigger = root.querySelector("[data-slot=date-picker-trigger]");
+        const content = root.querySelector("[data-slot=date-picker-content]");
+
+        roots[root.id] = {
+          haspopup: trigger.getAttribute("aria-haspopup"),
+          expanded: trigger.getAttribute("aria-expanded"),
+          placeholder: trigger.getAttribute("data-placeholder"),
+          readonly: trigger.getAttribute("data-readonly"),
+          role: content.getAttribute("role"),
+          inert: content.hasAttribute("inert"),
+          children: content.children.length,
+        };
+      }
+
+      const dateTime = document.getElementById("dtp");
+
+      return {
+        roots,
+        calendars: section.querySelectorAll("[data-slot=calendar]").length,
+        footers: section.querySelectorAll("[data-slot=date-picker-footer]").length,
+        done: document.querySelectorAll("#dpm-done").length,
+        markersFalse: section.querySelectorAll(
+          '[data-placeholder="false"], [data-readonly="false"]',
+        ).length,
+        spinbuttons: dateTime.querySelectorAll("[role=spinbutton]").length,
+        layout: dateTime.hasAttribute("data-layout"),
+        triggerInBox:
+          dateTime.querySelector(
+            "[data-slot=date-field-input] > [data-slot=date-picker-trigger]",
+          ) !== null,
+      };
+    });
+
+    await morePrerendered.close();
+
+    const moreEmpty = ["dpm-empty", "dpr-empty", "dpr-required", "dmp-empty", "dpr-dialog"];
+    const moreReadonly = ["dpm-readonly", "dpr-readonly-schema", "dmp-readonly-disabled"];
+
+    const byText = (a, b) => a.localeCompare(b);
+
+    assert.deepEqual(Object.keys(moreServer.roots).sort(byText), [...moreRoots].sort(byText));
+
+    for (const id of moreRoots) {
+      const server = moreServer.roots[id];
+      let placeholder = null;
+      let readonly = null;
+
+      if (moreEmpty.includes(id)) {
+        placeholder = "";
+      }
+
+      if (moreReadonly.includes(id)) {
+        readonly = "";
+      }
+
+      assert.deepEqual(
+        server,
+        {
+          haspopup: "dialog",
+          expanded: "false",
+          placeholder,
+          readonly,
+          role: "dialog",
+          inert: true,
+          children: 0,
+        },
+        `${id} on the server`,
+      );
+    }
+
+    assert.equal(moreServer.calendars, 0, "no Calendar renders inside a closed, gated Content");
+    assert.equal(moreServer.footers, 0, "no footer renders inside a closed, gated Content");
+    assert.equal(moreServer.done, 0);
+    assert.equal(moreServer.markersFalse, 0);
+    assert.equal(moreServer.spinbuttons, 5);
+    assert.equal(moreServer.layout, true);
+    assert.equal(moreServer.triggerInBox, true);
+
+    // Geometry at 1280×800, without motion: every button-shape trigger is 32px tall and fills
+    // its grid cell; each popup is 250px wide, 4px below its trigger; the date-time trigger is
+    // the field shape's 28px square, its popup ending with it; the footer sits 12px under the
+    // Calendar with Done at its inline end.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const fills = await page.evaluate((ids) => {
+      const result = {};
+
+      for (const id of ids) {
+        const trigger = document.querySelector(`#${id} [data-slot=date-picker-trigger]`);
+        let item = trigger.closest("[data-slot=date-picker]");
+
+        while (getComputedStyle(item.parentElement).display !== "grid") {
+          item = item.parentElement;
+        }
+
+        const own = trigger.getBoundingClientRect();
+        const cell = item.getBoundingClientRect();
+
+        result[id] = {
+          height: own.height,
+          left: own.left - cell.left,
+          right: cell.right - own.right,
+        };
+      }
+
+      return result;
+    }, moreButtons);
+
+    for (const id of moreButtons) {
+      assert.deepEqual(
+        fills[id],
+        { height: 32, left: 0, right: 0 },
+        `${id}'s trigger fills its cell`,
+      );
+    }
+
+    // Closed, every popup stays hidden by the browser's own `display: none`; open, it stacks.
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const displays = new Set();
+
+        for (const element of document.querySelectorAll(
+          "#more-date-pickers [data-slot=date-picker-content], #dp-field [data-slot=date-picker-content], #dp-button [data-slot=date-picker-content]",
+        )) {
+          displays.add(getComputedStyle(element).display);
+        }
+
+        return [...displays];
+      }),
+      ["none"],
+    );
+
+    for (const id of ["dpm", "dpr", "dmp"]) {
+      await openWithKeyboard(id);
+      assert.equal((await styleOf(content(id), ["display"])).display, "flex", `${id} stacks`);
+
+      const popup = await rect(content(id));
+      const opener = await rect(trigger(id));
+
+      assert.equal(popup.width, 250, `${id}'s popup width`);
+      assert.ok(Math.abs(popup.top - opener.bottom - 4) <= 0.5, `${id}'s popup 4px below`);
+      assert.ok(Math.abs(popup.left - opener.left) <= 1, `${id}'s popup starts with its trigger`);
+
+      if (id === "dpm") {
+        const calendar = await rect(`${content(id)} [data-slot=calendar]`);
+        const footer = await rect(`${content(id)} [data-slot=date-picker-footer]`);
+        const done = await rect("#dpm-done");
+
+        assert.ok(Math.abs(footer.top - calendar.bottom - 12) <= 0.5, "the footer 12px under");
+        assert.equal(done.height, 28);
+        assert.ok(Math.abs(done.right - calendar.right) <= 1, "Done at the Calendar's end");
+        assert.ok(Math.abs(footer.width - calendar.width) <= 0.5, "the footer spans the Calendar");
+      }
+
+      await page.keyboard.press("Escape");
+      await closed(id);
+    }
+
+    const startsBox = await rect(box("dtp"));
+    const startsTrigger = await rect(trigger("dtp"));
+
+    assert.equal(startsTrigger.width, 28);
+    assert.equal(startsTrigger.height, 28);
+    assert.equal(startsBox.height, 32);
+    assert.equal(startsBox.right - startsTrigger.right, 2);
+    await openWithPointer("dtp");
+
+    const startsPopup = await rect(content("dtp"));
+    const startsOpener = await rect(trigger("dtp"));
+
+    assert.equal(startsPopup.width, 250);
+    assert.ok(
+      Math.abs(startsPopup.right - startsTrigger.right) <= 1,
+      "the popup ends with the box",
+    );
+    assert.ok(
+      Math.abs(startsPopup.top - startsOpener.bottom - 4) <= 0.5,
+      `the popup 4px below: ${JSON.stringify([startsPopup, startsOpener])}`,
+    );
+    await page.keyboard.press("Escape");
+    await closed("dtp");
+
+    // The scoped names: one "Starts at" group in this section (slice 2's DateTimeField has the
+    // same label), one trigger named for the field, which names the popup too.
+    const moreSection = page.locator("#more-date-pickers");
+
+    assert.equal(
+      await moreSection.getByRole("group", { name: "Starts at", exact: true }).count(),
+      1,
+    );
+    assert.equal(
+      await page.locator("#dtp").getByRole("group", { name: "Starts at", exact: true }).count(),
+      1,
+    );
+    assert.equal(await moreSection.getByRole("button", { name: "Choose start date" }).count(), 1);
+    assert.equal(
+      await page.locator("#dtp").getByRole("button", { name: "Choose start date" }).count(),
+      1,
+    );
+
+    // Multiple: opens on the first chosen day; a choice toggles a day and keeps it open; Done
+    // closes it, back on the trigger, without touching the field; Escape closes it too.
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    assert.equal(await textOf("more-holidays-touched"), "false");
+    await openWithKeyboard("dpm");
+    await untilFocused("Tuesday, November 3, 2026");
+    assert.equal(
+      await page.evaluate(() => {
+        const done = document.getElementById("dpm-done");
+
+        return `${done.getAttribute("data-slot")} ${done.getAttribute("type")}`;
+      }),
+      "button button",
+    );
+    await page.keyboard.press("ArrowRight");
+    await untilFocused("Wednesday, November 4, 2026");
+    await page.keyboard.press("Enter");
+    await page.click(day("dpm", "2026-11-10"));
+    await rendered();
+    assert.deepEqual([...(await jsonOf("more-holidays"))].sort(byText), [
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-17",
+    ]);
+    assert.equal(await isOpen("dpm"), true, "a choice keeps the multiple picker open");
+    assert.equal(await textIn(trigger("dpm")), "3 days");
+    await page.click("#dpm-done");
+    await closed("dpm");
+    assert.equal(await focusIs(trigger("dpm")), true, "Done returns focus to the trigger");
+    assert.equal(await textOf("more-holidays-touched"), "false", "Done doesn't touch the field");
+    await openWithKeyboard("dpm");
+    await page.keyboard.press("Escape");
+    await closed("dpm");
+    assert.equal(await focusIs(trigger("dpm")), true);
+
+    // Cross-month: the popup opens on the first chosen day's month and shows only its chips;
+    // the others are a Next away.
+    const selectedDays = (id) =>
+      page.evaluate(
+        (selector) =>
+          [...document.querySelectorAll(`${selector} td[data-selected]:not([data-outside])`)].map(
+            (cell) => cell.getAttribute("aria-label"),
+          ),
+        content(id),
+      );
+
+    await openWithKeyboard("dpm-cross");
+    assert.equal(await textIn(calendarPart("dpm-cross", "heading")), "November 2026");
+    assert.deepEqual(await selectedDays("dpm-cross"), ["Tuesday, November 3, 2026"]);
+    await page.click(calendarPart("dpm-cross", "next"));
+    await rendered();
+    assert.equal(await textIn(calendarPart("dpm-cross", "heading")), "December 2026");
+    assert.deepEqual(await selectedDays("dpm-cross"), ["Thursday, December 10, 2026"]);
+    await page.click(calendarPart("dpm-cross", "next"));
+    await rendered();
+    assert.equal(await textIn(calendarPart("dpm-cross", "heading")), "January 2027");
+    assert.deepEqual(await selectedDays("dpm-cross"), ["Sunday, January 17, 2027"]);
+    await page.keyboard.press("Escape");
+    await closed("dpm-cross");
+
+    // Range: the first choice anchors and asks for the last day, the hover previews the band, the
+    // second choice writes the range and closes back on the trigger.
+    await openWithKeyboard("dpr");
+    await untilFocused("Tuesday, November 3, 2026");
+    await page.click(day("dpr", "2026-11-12"));
+    await rendered();
+    assert.equal(await page.getAttribute(day("dpr", "2026-11-12"), "data-anchor"), "");
+    assert.notEqual(await page.getAttribute(calendarPart("dpr", "grid"), "data-pending"), null);
+    assert.equal(await textIn(calendarPart("dpr", "prompt")), "Choose the last day");
+    assert.equal(await isOpen("dpr"), true);
+    await page.hover(day("dpr", "2026-11-15"));
+    await rendered();
+    assert.ok(
+      (await page.locator(`${content("dpr")} td[data-preview]`).count()) > 0,
+      "the hover previews the band",
+    );
+    await page.click(day("dpr", "2026-11-15"));
+    await closed("dpr");
+    assert.equal(await focusIs(trigger("dpr")), true);
+    assert.deepEqual(await jsonOf("more-stay"), { start: "2026-11-12", end: "2026-11-15" });
+    assert.equal(await textIn(trigger("dpr")), "12 Nov 2026 – 15 Nov 2026");
+
+    // In a Dialog: Escape drops the pending first day, then closes the picker, then the Dialog.
+    await page.click("#dpr-dialog-trigger");
+    await page.waitForFunction(() => document.getElementById("dpr-dialog-content").open);
+    await openWithPointer("dpr-dialog");
+    await page.click(day("dpr-dialog", "2026-10-12"));
+    await rendered();
+    assert.equal(await page.locator(`${content("dpr-dialog")} [data-anchor]`).count(), 1);
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal(await page.locator(`${content("dpr-dialog")} [data-anchor]`).count(), 0);
+    assert.equal(await isOpen("dpr-dialog"), true, "the first Escape drops only the anchor");
+    await page.keyboard.press("Escape");
+    await closed("dpr-dialog");
+    assert.equal(await focusIs(trigger("dpr-dialog")), true);
+    assert.equal(
+      await page.evaluate(() => document.getElementById("dpr-dialog-content").open),
+      true,
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.getElementById("dpr-dialog-content").open);
+
+    // A range across months: its text truncates in 160px with the whole range in the name; the
+    // popup opens on the start's month, banded to its end, and the end is two Nexts away.
+    const truncated = (id) =>
+      page.evaluate((selector) => {
+        const value = document.querySelector(`${selector} [data-slot=date-picker-value]`);
+
+        return value.scrollWidth > value.clientWidth;
+      }, trigger(id));
+
+    assert.equal(await truncated("dpr-cross"), true);
+    assert.equal(
+      await page
+        .locator("#dpr-cross")
+        .getByRole("button", { name: "20 Nov 2026 – 12 Jan 2027", exact: true })
+        .count(),
+      1,
+    );
+    await openWithKeyboard("dpr-cross");
+    assert.equal(await textIn(calendarPart("dpr-cross", "heading")), "November 2026");
+    assert.equal(await page.getAttribute(day("dpr-cross", "2026-11-20"), "data-range-start"), "");
+    assert.equal(await page.locator(`${content("dpr-cross")} td[data-range-end]`).count(), 0);
+    await page.click(calendarPart("dpr-cross", "next"));
+    await page.click(calendarPart("dpr-cross", "next"));
+    await rendered();
+    assert.equal(await textIn(calendarPart("dpr-cross", "heading")), "January 2027");
+    assert.equal(await page.getAttribute(day("dpr-cross", "2027-01-12"), "data-range-end"), "");
+    await page.keyboard.press("Escape");
+    await closed("dpr-cross");
+
+    // Month: the months of the value's year; the switch shows the years and keeps focus; Escape
+    // returns to the months; a month closes it; maxMonth stops Next; a year leads back to its
+    // months, where a month closes it.
+    const month = (id, label) => `${content(id)} td[aria-label="${label}"]`;
+
+    await openWithKeyboard("dmp");
+    await untilFocused("October 2026");
+    assert.equal(await page.getAttribute(month("dmp", "October 2026"), "data-selected"), "");
+    await page.click(calendarPart("dmp", "view-switch"));
+    await rendered();
+    assert.equal(await focusIs(calendarPart("dmp", "view-switch")), true);
+    assert.equal(
+      await page
+        .locator(content("dmp"))
+        .getByRole("button", { name: "2016 – 2027, show the months" })
+        .count(),
+      1,
+    );
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal(await page.locator(month("dmp", "October 2026")).count(), 1);
+    assert.equal(await isOpen("dmp"), true, "Escape in the years returns to the months");
+    await page.click(month("dmp", "December 2026"));
+    await closed("dmp");
+    assert.equal(await textIn(trigger("dmp")), "December 2026");
+    assert.equal(await focusIs(trigger("dmp")), true);
+    await openWithKeyboard("dmp");
+    assert.equal(await page.getAttribute(calendarPart("dmp", "next"), "aria-disabled"), "true");
+
+    await page.click(calendarPart("dmp", "view-switch"));
+    await rendered();
+    await page.keyboard.press("Tab");
+    assert.equal(await focusedLabel(), "Next 12 years");
+    await page.keyboard.press("Tab");
+    assert.equal(await focusedLabel(), "2026");
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await focusedLabel(), "2025");
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.equal(await isOpen("dmp"), true);
+    assert.match(await focusedLabel(), /^[A-Z][a-z]+ 2025$/, "a month of 2025 is focused");
+
+    for (let presses = 0; presses < 12 && (await focusedLabel()) !== "March 2025"; presses += 1) {
+      await page.keyboard.press("ArrowLeft");
+    }
+
+    assert.equal(await focusedLabel(), "March 2025");
+    await page.keyboard.press("Enter");
+    await closed("dmp");
+    assert.equal(await textOf("more-billing"), '"2025-03"');
+    assert.equal(await textIn(trigger("dmp")), "March 2025");
+    assert.equal(await focusIs(trigger("dmp")), true);
+
+    // Date-time: a choice keeps the typed time and closes on the trigger; over an empty time it
+    // keeps the value, focuses the hour and shows the error only once focus leaves; typing the
+    // time completes it.
+    await openWithPointer("dtp");
+    await untilFocused("Tuesday, October 27, 2026");
+    await page.click(day("dtp", "2026-10-28"));
+    await closed("dtp");
+    assert.equal(await textOf("more-starts"), '"2026-10-28T09:30"');
+    assert.equal(await focusIs(trigger("dtp")), true);
+
+    await openWithPointer("dtp-12");
+    await page.click(day("dtp-12", "2026-10-15"));
+    await closed("dtp-12");
+    assert.deepEqual(await segmentTexts("dtp-12"), ["10", "15", "2026", "hh", "mm", "AM/PM"]);
+    assert.equal(await focusIs(segment("dtp-12", 3)), true, "the empty hour is focused");
+    assert.equal(await textOf("dtp-12-value"), "null");
+
+    // From a fresh page, so the field isn't touched yet.
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    // Backspace empties the hour, Tab moves to the minute and Backspace empties it too.
+    // (Playwright's programmatic focus from one segment to the next surfaces the error at once;
+    // a real Tab doesn't.)
+    const empty = async (index) => {
+      for (
+        let presses = 0;
+        presses < 3 &&
+        (await page.getAttribute(segment("dtp", index), "data-placeholder")) === null;
+        presses += 1
+      ) {
+        await page.keyboard.press("Backspace");
+        await rendered();
+      }
+    };
+
+    await keyboardFocus(segment("dtp", 3));
+    await empty(3);
+    await page.keyboard.press("Tab");
+    await rendered();
+    assert.equal(await focusIs(segment("dtp", 4)), true);
+    await empty(4);
+
+    assert.deepEqual(await segmentTexts("dtp"), ["27", "10", "2026", "hh", "mm"]);
+
+    const startsBefore = await textOf("more-starts");
+
+    await openWithPointer("dtp");
+    await page.click(day("dtp", "2026-10-29"));
+    await closed("dtp");
+    assert.equal(await focusIs(segment("dtp", 3)), true);
+    assert.equal(await textOf("more-starts"), startsBefore);
+    assert.equal(await page.locator("#dtp-field [data-slot=field-error]").count(), 0);
+
+    await tabOut("dtp");
+    assert.equal(
+      await textIn("#dtp-field [data-slot=field-error]"),
+      "Enter a complete date and time",
+    );
+    await keyboardFocus(segment("dtp", 3));
+    await page.keyboard.type("1015");
+    await rendered();
+    assert.equal(await textOf("more-starts"), '"2026-10-29T10:15"');
+    assert.equal(await page.locator("#dtp-field [data-slot=field-error]").count(), 0);
+    await blur();
+
+    // Looks, dark then light: empty is muted; readonly dashed, unfilled and shadowless;
+    // disabled dims once; an invalid range is orange; the ring is 2px, 2px out; inside the
+    // popups, slice 1's chosen chips, range ends and band, and month chip.
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const moreLooks = async (tokens) => {
+      assert.equal((await styleOf(trigger("dpm-empty"), ["color"])).color, tokens.muted);
+      assert.equal((await styleOf(trigger("dmp-empty"), ["color"])).color, tokens.muted);
+
+      for (const id of moreReadonly) {
+        const look = await styleOf(trigger(id), [
+          "borderTopStyle",
+          "borderTopColor",
+          "backgroundColor",
+          "boxShadow",
+        ]);
+
+        assert.equal(look.borderTopStyle, "dashed", id);
+        assert.ok(transparent(look.backgroundColor), `${id} background ${look.backgroundColor}`);
+        assert.ok(shadowless(look.boxShadow), `${id} shadow ${look.boxShadow}`);
+      }
+
+      assert.equal((await styleOf(trigger("dpm-disabled"), ["opacity"])).opacity, "0.5");
+      assert.equal((await styleOf(trigger("dpr-disabled-focusable"), ["opacity"])).opacity, "0.5");
+      assert.equal((await styleOf("#dpm-disabled", ["opacity"])).opacity, "1");
+
+      await keyboardFocus(trigger("dpr-required"));
+      await page.keyboard.press("Tab");
+      await rendered();
+      assert.equal(await textOf("dpr-required-error"), "Choose your dates");
+      assert.equal(
+        (await styleOf(trigger("dpr-required"), ["borderTopColor"])).borderTopColor,
+        tokens.orange,
+      );
+      await keyboardFocus(trigger("dpr"));
+      assert.deepEqual(await outline(trigger("dpr")), ring(tokens.ring));
+      await blur();
+
+      await openWithKeyboard("dpm");
+      assert.deepEqual(
+        await styleOf(`${day("dpm", "2026-11-10")} > [data-slot=calendar-cell-label]`, [
+          "backgroundColor",
+          "color",
+        ]),
+        {
+          backgroundColor: tokens.foreground,
+          color: tokens.background,
+        },
+      );
+      await page.keyboard.press("Escape");
+      await closed("dpm");
+      await openWithKeyboard("dpr");
+      assert.equal(
+        (
+          await styleOf(`${day("dpr", "2026-11-03")} > [data-slot=calendar-cell-label]`, [
+            "backgroundColor",
+          ])
+        ).backgroundColor,
+        tokens.foreground,
+      );
+      assert.equal(
+        (
+          await styleOf(`${day("dpr", "2026-11-10")} > [data-slot=calendar-cell-label]`, [
+            "backgroundColor",
+          ])
+        ).backgroundColor,
+        tokens.foreground,
+      );
+      assert.equal(
+        (await styleOf(day("dpr", "2026-11-05"), ["backgroundColor"])).backgroundColor,
+        tokens.band,
+      );
+      await page.keyboard.press("Escape");
+      await closed("dpr");
+      await openWithKeyboard("dmp");
+      assert.equal(
+        (await styleOf(`${month("dmp", "October 2026")} > span`, ["backgroundColor"]))
+          .backgroundColor,
+        tokens.foreground,
+      );
+      await page.keyboard.press("Escape");
+      await closed("dmp");
+    };
+    const bandOf = (selector) =>
+      page.evaluate((selector) => {
+        const probe = document.createElement("span");
+
+        probe.style.backgroundColor = "color-mix(in oklab, var(--foreground) 8%, transparent)";
+        document.querySelector(selector).append(probe);
+
+        const color = getComputedStyle(probe).backgroundColor;
+
+        probe.remove();
+
+        return color;
+      }, selector);
+
+    await moreLooks({ ...dark, band: await bandOf("#more-date-pickers") });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => document.getElementById("more-date-pickers").classList.add("light"));
+
+    const moreLight = {
+      foreground: await tokenIn("#more-date-pickers", "foreground"),
+      background: await tokenIn("#more-date-pickers", "background"),
+      muted: await tokenIn("#more-date-pickers", "muted-foreground"),
+      ring: await tokenIn("#more-date-pickers", "ring"),
+      orange: await tokenIn("#more-date-pickers", "destructive-text"),
+      band: await bandOf("#more-date-pickers"),
+    };
+
+    assert.notEqual(moreLight.orange, dark.orange, "the light tokens apply");
+    await moreLooks(moreLight);
+    await page.evaluate(() =>
+      document.getElementById("more-date-pickers").classList.remove("light"),
+    );
+
+    // Reduced motion: a popup appears and leaves without animating.
+    await keyboardFocus(trigger("dpm"));
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector).matches(":popover-open"),
+      content("dpm"),
+    );
+    assert.equal(
+      await page.evaluate(
+        (selector) => document.querySelector(selector).getAnimations({ subtree: true }).length,
+        content("dpm"),
+      ),
+      0,
+    );
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal(await isOpen("dpm"), false, "the popup leaves at once");
+
+    // Right to left: Previous on the right with its chevron turned, the band's start rounded on
+    // the right, Done at the inline end on the left.
+    await openWithKeyboard("dpr-rtl");
+
+    const rtlPrevious = await rect(calendarPart("dpr-rtl", "previous"));
+    const rtlNext = await rect(calendarPart("dpr-rtl", "next"));
+
+    assert.ok(rtlPrevious.left > rtlNext.left, "Previous sits on the right");
+    assert.equal(
+      (await styleOf(`${calendarPart("dpr-rtl", "previous")} > svg`, ["rotate"])).rotate,
+      "180deg",
+    );
+    assert.equal(
+      (await styleOf(day("dpr-rtl", "2026-11-03"), ["borderTopRightRadius"])).borderTopRightRadius,
+      "8px",
+    );
+    assert.equal(
+      (await styleOf(day("dpr-rtl", "2026-11-03"), ["borderTopLeftRadius"])).borderTopLeftRadius,
+      "0px",
+    );
+    await page.keyboard.press("Escape");
+    await closed("dpr-rtl");
+    await openWithKeyboard("dpm-rtl");
+
+    const rtlCalendar = await rect(`${content("dpm-rtl")} [data-slot=calendar]`);
+    const rtlDone = await rect(`${content("dpm-rtl")} [data-slot=date-picker-footer] > button`);
+
+    assert.ok(Math.abs(rtlDone.left - rtlCalendar.left) <= 1, "Done at the Calendar's left end");
+    await page.keyboard.press("Escape");
+    await closed("dpm-rtl");
+
+    // Narrow, 320px: every trigger stays in its grid cell, an open popup in the viewport less
+    // 16px, and the list and the range truncate with their whole text in the name.
+    await page.setViewportSize({ width: 320, height: 720 });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const narrowFits = await page.evaluate(() => {
+      const result = [];
+
+      for (const trigger of document.querySelectorAll(
+        "#more-date-pickers [data-slot=date-picker-trigger]",
+      )) {
+        const own = trigger.getBoundingClientRect();
+
+        if (own.width === 0) {
+          continue;
+        }
+
+        let item = trigger.closest("[data-slot=date-picker]");
+
+        while (getComputedStyle(item.parentElement).display !== "grid") {
+          item = item.parentElement;
+        }
+
+        const cell = item.getBoundingClientRect();
+
+        result.push({
+          id: trigger.closest("[data-slot=date-picker]").id,
+          inside:
+            own.left >= cell.left - 0.5 && own.right <= cell.right + 0.5 && own.right <= innerWidth,
+        });
+      }
+
+      return result;
+    });
+
+    assert.ok(narrowFits.length >= moreButtons.length, "the narrow triggers were measured");
+
+    for (const fit of narrowFits) {
+      assert.equal(fit.inside, true, `${fit.id}'s trigger in its cell at 320px`);
+    }
+
+    assert.equal(await truncated("dpm-list"), true);
+    assert.equal(await truncated("dpr-cross"), true);
+    assert.equal(
+      await page
+        .locator("#dpm-list")
+        .getByRole("button", { name: "3 Nov, 10 Nov, 17 Nov, 24 Nov, 1 Dec, 8 Dec", exact: true })
+        .count(),
+      1,
+    );
+
+    for (const id of ["dpr", "dpm-cross"]) {
+      await openWithKeyboard(id);
+
+      const popup = await rect(content(id));
+
+      assert.ok(popup.left >= 0 && popup.right <= 320, `${id}'s popup in the viewport`);
+      assert.ok(popup.width <= 304, `${id}'s popup within 100vw − 16px`);
+      await page.keyboard.press("Escape");
+      await closed(id);
+    }
+
+    // Narrow date-time rows: a pointer choice over an empty time focuses the hour, which the
+    // row reveals wholly, from a fresh row and from one a wheel step has rested. The value stays
+    // null and the page doesn't scroll sideways; the error shows once focus leaves.
+    const rowState = () =>
+      page.evaluate((id) => {
+        const row = document.querySelector(`#${id} [data-slot=date-field-segments]`);
+        const segments = row.querySelectorAll("[data-slot=date-field-segment]");
+        const outer = row.getBoundingClientRect();
+        const left = outer.left + row.clientLeft;
+        const visible = { left, right: left + row.clientWidth };
+        const pick = (element) => {
+          const { left, right } = element.getBoundingClientRect();
+
+          return { left, right };
+        };
+
+        return {
+          width: row.clientWidth,
+          overflow: row.scrollWidth - row.clientWidth,
+          scrollLeft: row.scrollLeft,
+          visible,
+          first: pick(segments[0]),
+          hour: pick(segments[3]),
+          last: pick(row.lastElementChild),
+          hourFocused: document.activeElement === segments[3],
+          page: [scrollX, scrollY],
+        };
+      }, "dtp-empty");
+    const wholly = (part, visible) =>
+      part.left >= visible.left - 0.5 && part.right <= visible.right + 0.5;
+    const chooseOverEmptyTime = async () => {
+      await pointAt(trigger("dtp-empty"));
+      await page.mouse.down();
+      await page.mouse.up();
+      await opened("dtp-empty");
+      await animationsDone("dtp-empty");
+      await pointAt(day("dtp-empty", "2026-10-15"));
+      await page.mouse.down();
+      await page.mouse.up();
+      await closed("dtp-empty");
+      await scrollSettled(row("dtp-empty"));
+    };
+    const narrowStart = async (width, expectedRow) => {
+      await page.setViewportSize({ width, height: 720 });
+      await fresh();
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() =>
+        document.getElementById("dtp-empty").scrollIntoView({ block: "center" }),
+      );
+
+      const start = await rowState();
+
+      assert.ok(Math.abs(start.width - expectedRow) <= 1, `the ${width}px row is ${start.width}`);
+      assert.ok(start.overflow > 0, `the ${width}px row overflows`);
+      assert.ok(
+        Math.abs(start.scrollLeft) <= 0.5,
+        `the ${width}px row starts at ${start.scrollLeft}`,
+      );
+      assert.ok(
+        start.first.left > start.visible.left && start.first.right < start.visible.right,
+        `the first segment inside the ${width}px row`,
+      );
+      assert.equal(wholly(start.hour, start.visible), false, `the hour hidden at ${width}px`);
+
+      return start;
+    };
+
+    for (const [width, expectedRow] of [
+      [320, 89],
+      [280, 69],
+    ]) {
+      const start = await narrowStart(width, expectedRow);
+
+      await chooseOverEmptyTime();
+
+      const after = await rowState();
+
+      assert.equal(after.hourFocused, true, `the hour focused at ${width}px`);
+      assert.ok(wholly(after.hour, after.visible), `the hour wholly shown at ${width}px`);
+      assert.ok(after.scrollLeft > 0, `the ${width}px row scrolled to the hour`);
+      assert.equal(await textOf("more-meeting"), "null");
+      assert.deepEqual(after.page, [0, start.page[1]], `the page held at ${width}px`);
+      assert.equal(await page.locator("#dtp-empty-field [data-slot=field-error]").count(), 0);
+      await tabOut("dtp-empty");
+      assert.equal(
+        await textIn("#dtp-empty-field [data-slot=field-error]"),
+        "Enter a complete date and time",
+      );
+    }
+
+    // From a row a wheel step has rested: the reveal still focuses the hour wholly. If the step
+    // already showed it, the row needn't move.
+    await narrowStart(320, 89);
+    await pointAt(row("dtp-empty"));
+    await page.mouse.wheel(40, 0);
+    await scrollSettled(row("dtp-empty"));
+
+    const wheeled = await rowState();
+
+    assert.ok(wheeled.scrollLeft > 0, "the wheel step rested the row");
+    await chooseOverEmptyTime();
+
+    const afterWheel = await rowState();
+
+    assert.equal(afterWheel.hourFocused, true);
+    assert.ok(wholly(afterWheel.hour, afterWheel.visible), "the hour wholly shown after a wheel");
+
+    if (!wholly(wheeled.hour, wheeled.visible)) {
+      assert.notEqual(afterWheel.scrollLeft, wheeled.scrollLeft, "the reveal moved the row");
+    }
+
+    // 280px: bounded 40px wheels reach the 69px row's true end, its last cell wholly shown, and
+    // come back to 0.
+    await narrowStart(280, 69);
+    await pointAt(row("dtp-empty"));
+
+    const rowEnd = await rowState();
+    const rowSteps = Math.ceil(rowEnd.overflow / 40) + 5;
+    let rowAt = rowEnd;
+
+    for (let step = 0; step < rowSteps && rowAt.scrollLeft !== rowAt.overflow; step += 1) {
+      await page.mouse.wheel(40, 0);
+      await scrollSettled(row("dtp-empty"));
+      rowAt = await rowState();
+    }
+
+    assert.equal(rowAt.scrollLeft, rowAt.overflow, "the 69px row reaches its end");
+    assert.ok(wholly(rowAt.last, rowAt.visible), "the last cell wholly shown at the row's end");
+
+    for (let step = 0; step < rowSteps && rowAt.scrollLeft !== 0; step += 1) {
+      await page.mouse.wheel(-40, 0);
+      await scrollSettled(row("dtp-empty"));
+      rowAt = await rowState();
+    }
+
+    assert.equal(rowAt.scrollLeft, 0, "the 69px row returns to its start");
+
+    // Short popups, with motion: the focused cell is revealed at open; bounded wheel steps reach
+    // the end, where the range's prompt, the footer or the last row rests in view, and the top;
+    // a key after either reveals the new cell with its whole focus outline.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+
+    const shortView = (id, end) =>
+      page.evaluate(
+        ([selector, end]) => {
+          const popup = document.querySelector(selector);
+          const outer = popup.getBoundingClientRect();
+          const top = outer.top + popup.clientTop;
+          const left = outer.left + popup.clientLeft;
+          const pick = (element) => {
+            const { left, top, right, bottom } = element.getBoundingClientRect();
+
+            return { left, top, right, bottom };
+          };
+          const focused = document.activeElement;
+          const style = getComputedStyle(focused);
+          let grow = 0;
+
+          if (style.outlineStyle !== "none") {
+            grow = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
+          }
+
+          const cell = pick(focused);
+          const ends = popup.querySelectorAll(end);
+
+          return {
+            label: focused.getAttribute("aria-label"),
+            isCell: focused.dataset.slot === "calendar-cell" && popup.contains(focused),
+            outlined: {
+              left: cell.left - grow,
+              top: cell.top - grow,
+              right: cell.right + grow,
+              bottom: cell.bottom + grow,
+            },
+            grow,
+            cell,
+            previous: pick(popup.querySelector("[data-slot=calendar-previous]")),
+            end: pick(ends[ends.length - 1]),
+            visible: {
+              left,
+              top,
+              right: left + popup.clientWidth,
+              bottom: top + popup.clientHeight,
+            },
+            scrollTop: popup.scrollTop,
+            max: popup.scrollHeight - popup.clientHeight,
+            page: [scrollX, scrollY],
+          };
+        },
+        [content(id), end],
+      );
+    const shortCases = [
+      {
+        name: "dpr",
+        id: "dpr",
+        end: "[data-slot=calendar-prompt]",
+        label: "Tuesday, November 3, 2026",
+        grow: 2,
+      },
+      {
+        name: "dpr-anchor",
+        id: "dpr",
+        end: "[data-slot=calendar-prompt]",
+        label: "Thursday, November 12, 2026",
+        grow: 2,
+        extra: async () => {
+          await page.keyboard.press("ArrowDown");
+          await page.keyboard.press("ArrowRight");
+          await page.keyboard.press("ArrowRight");
+          await page.keyboard.press("Enter");
+        },
+      },
+      {
+        name: "dpm",
+        id: "dpm",
+        end: "[data-slot=date-picker-footer]",
+        label: "Tuesday, November 3, 2026",
+        grow: 2,
+      },
+      { name: "dmp-months", id: "dmp", end: "tr", label: "October 2026", grow: 0 },
+      {
+        name: "dmp-years",
+        id: "dmp",
+        end: "tr",
+        label: "2026",
+        grow: 0,
+        // 2027 is past maxMonth, so the key after the end moves back a year.
+        key: "ArrowLeft",
+        extra: async () => {
+          await page.click(calendarPart("dmp", "view-switch"));
+          await rendered();
+          await page.keyboard.press("Tab");
+          await page.keyboard.press("Tab");
+        },
+      },
+    ];
+
+    for (const height of [390, 460]) {
+      for (const shortCase of shortCases) {
+        const label = `${shortCase.name} at ${height}px`;
+
+        await page.setViewportSize({ width: 844, height });
+        await fresh();
+        await page.evaluate(() => document.fonts.ready);
+        await page.evaluate(
+          (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
+          trigger(shortCase.id),
+        );
+        await keyboardFocus(trigger(shortCase.id));
+
+        const pageBefore = await page.evaluate(() => [scrollX, scrollY]);
+
+        await page.keyboard.press("Enter");
+        await opened(shortCase.id);
+        await animationsDone(shortCase.id);
+
+        if (shortCase.extra) {
+          await shortCase.extra();
+          await animationsDone(shortCase.id);
+        }
+
+        await scrollSettled(content(shortCase.id));
+
+        const atOpen = await shortView(shortCase.id, shortCase.end);
+
+        assert.ok(atOpen.max > 0, `${label}: the popup scrolls (${atOpen.max})`);
+        assert.equal(atOpen.label, shortCase.label, `${label}: the focused cell`);
+        inside(atOpen.cell, 0, atOpen.visible, `${label}: the focused cell at open`);
+        assert.deepEqual(atOpen.page, pageBefore, `${label}: the page didn't scroll`);
+        assert.equal(atOpen.grow, shortCase.grow, `${label}: the focused cell's outline`);
+
+        const steps = Math.ceil(atOpen.max / 40) + 5;
+        let view = atOpen;
+
+        await pointAt(content(shortCase.id));
+
+        for (let step = 0; step < steps && view.scrollTop !== view.max; step += 1) {
+          await page.mouse.wheel(0, 40);
+          await scrollSettled(content(shortCase.id));
+          view = await shortView(shortCase.id, shortCase.end);
+        }
+
+        assert.equal(view.scrollTop, view.max, `${label}: the end is reachable`);
+        inside(view.end, 0, view.visible, `${label}: the end target at the end`);
+        assert.equal(view.label, atOpen.label, `${label}: the wheel moved focus`);
+        await scrollSettled(content(shortCase.id));
+
+        const held = await shortView(shortCase.id, shortCase.end);
+
+        assert.equal(held.scrollTop, view.scrollTop, `${label}: the end holds`);
+        inside(held.end, 0, held.visible, `${label}: the end target stays`);
+
+        await page.keyboard.press(shortCase.key ?? "ArrowRight");
+        await scrollSettled(content(shortCase.id));
+
+        const afterEnd = await shortView(shortCase.id, shortCase.end);
+
+        assert.notEqual(afterEnd.label, atOpen.label, `${label}: the key moved focus`);
+        assert.equal(afterEnd.isCell, true, `${label}: a cell is focused`);
+        inside(
+          afterEnd.outlined,
+          0,
+          afterEnd.visible,
+          `${label}: the cell and outline after the end`,
+        );
+
+        await pointAt(content(shortCase.id));
+        view = afterEnd;
+
+        for (let step = 0; step < steps && view.scrollTop !== 0; step += 1) {
+          await page.mouse.wheel(0, -40);
+          await scrollSettled(content(shortCase.id));
+          view = await shortView(shortCase.id, shortCase.end);
+        }
+
+        assert.equal(view.scrollTop, 0, `${label}: the top is reachable`);
+        inside(view.previous, 0, view.visible, `${label}: Previous at the top`);
+
+        for (let press = 0; press < 3; press += 1) {
+          await page.keyboard.press("ArrowDown");
+          await scrollSettled(content(shortCase.id));
+
+          const afterTop = await shortView(shortCase.id, shortCase.end);
+
+          assert.equal(afterTop.isCell, true, `${label}: a cell is focused after ArrowDown`);
+          inside(
+            afterTop.outlined,
+            0,
+            afterTop.visible,
+            `${label}: the cell and outline after ArrowDown ${press + 1}`,
+          );
+        }
+
+        // With a pending first day, the first Escape drops it and the second closes.
+        for (let presses = 0; presses < 2 && (await isOpen(shortCase.id)); presses += 1) {
+          await page.keyboard.press("Escape");
+          await rendered();
+        }
+
+        await closed(shortCase.id);
+      }
+    }
+
+    // Forced colors: the triggers keep the button shape, a focusable disabled one GrayText; the
+    // chosen chips, range ends and rails, and month are Highlight; Done is a Button; the focused
+    // date-time segment is Highlight with HighlightText.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    assert.equal(
+      (await styleOf(trigger("dpr-disabled-focusable"), ["color"])).color,
+      systemColors.grayText,
+    );
+    assert.equal((await styleOf(trigger("dpr"), ["borderTopStyle"])).borderTopStyle, "solid");
+    await openWithKeyboard("dpm");
+    assert.equal(
+      (
+        await styleOf(`${day("dpm", "2026-11-10")} > [data-slot=calendar-cell-label]`, [
+          "backgroundColor",
+        ])
+      ).backgroundColor,
+      systemColors.highlight,
+    );
+
+    const doneLook = await styleOf("#dpm-done", ["color", "backgroundColor", "borderTopColor"]);
+    const buttonLook = await styleOf("#df-clear-button", [
+      "color",
+      "backgroundColor",
+      "borderTopColor",
+    ]);
+
+    assert.deepEqual(doneLook, buttonLook, "Done follows Button's forced colors");
+    await page.keyboard.press("Escape");
+    await closed("dpm");
+    await openWithKeyboard("dpr");
+
+    for (const date of ["2026-11-03", "2026-11-10"]) {
+      assert.equal(
+        (
+          await styleOf(`${day("dpr", date)} > [data-slot=calendar-cell-label]`, [
+            "backgroundColor",
+          ])
+        ).backgroundColor,
+        systemColors.highlight,
+        `forced range end ${date}`,
+      );
+    }
+
+    assert.equal(
+      await page.evaluate(
+        (selector) => getComputedStyle(document.querySelector(selector), "::before").borderTopColor,
+        `${day("dpr", "2026-11-05")} > [data-slot=calendar-cell-label]`,
+      ),
+      systemColors.highlight,
+    );
+    await page.keyboard.press("Escape");
+    await closed("dpr");
+    await openWithKeyboard("dmp");
+    assert.equal(
+      (await styleOf(`${month("dmp", "October 2026")} > span`, ["backgroundColor"]))
+        .backgroundColor,
+      systemColors.highlight,
+    );
+    await page.keyboard.press("Escape");
+    await closed("dmp");
+    await keyboardFocus(segment("dtp", 3));
+    assert.deepEqual(await styleOf(segment("dtp", 3), ["color", "backgroundColor"]), {
+      color: systemColors.highlightText,
+      backgroundColor: systemColors.highlight,
+    });
+    await blur();
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 

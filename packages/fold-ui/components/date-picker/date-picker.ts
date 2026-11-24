@@ -1,6 +1,7 @@
-import { Directive, computed, inject, input } from "@angular/core";
+import { Directive, computed, forwardRef, inject, input } from "@angular/core";
 import { OrigamiDatePicker } from "@loozo/origami-ui/date-picker";
 import { cn } from "../cn";
+import { DatePickerRoot } from "./date-picker-root";
 
 /**
  * A single date picker over Origami's Date picker: a `YYYY-MM-DD` string or null, typed into a
@@ -39,9 +40,10 @@ import { cn } from "../cn";
       outputs: ["valueChange", "openChange", "touch"],
     },
   ],
+  providers: [{ provide: DatePickerRoot, useExisting: forwardRef(() => DatePicker) }],
   host: { "data-slot": "date-picker", "[class]": "classes()" },
 })
-export class DatePicker {
+export class DatePicker extends DatePickerRoot {
   readonly class = input("");
 
   readonly #picker = inject(OrigamiDatePicker);
