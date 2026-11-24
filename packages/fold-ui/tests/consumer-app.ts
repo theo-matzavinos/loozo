@@ -3,12 +3,14 @@
 import { CurrencyPipe, DatePipe } from "@angular/common";
 import {
   Component,
+  Directive,
   Injector,
   LOCALE_ID,
   afterNextRender,
   computed,
   inject,
   input,
+  linkedSignal,
   signal,
 } from "@angular/core";
 import {
@@ -25,10 +27,11 @@ import {
   submit,
   validate,
 } from "@angular/forms/signals";
+import { OrigamiAccordionSingleOptions } from "@loozo/origami-ui/accordion";
 import type { OrigamiDateRange } from "@loozo/origami-ui/calendar";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
 import { OrigamiMeter, OrigamiMeterOptions } from "@loozo/origami-ui/meter";
-import { AccordionParts } from "#ui/accordion";
+import { AccordionParts, AccordionSingle } from "#ui/accordion";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
 import { Badge } from "#ui/badge";
@@ -1644,9 +1647,30 @@ export class FileFields {
   }
 }
 
+// A consumer's Single over fold's, composed through hostDirectives, whose selection refuses the
+// "archived" item: Origami's effective value keeps the current item, a native reveal's request too.
+@Directive({
+  selector: "[appGuardedAccordion]",
+  exportAs: "appGuardedAccordion",
+  hostDirectives: [AccordionSingle],
+  providers: [OrigamiAccordionSingleOptions.provideExisting(() => GuardedAccordion)],
+})
+export class GuardedAccordion implements OrigamiAccordionSingleOptions {
+  readonly #selected = signal<string | null>("plan");
+  readonly value = linkedSignal(() => this.#selected(), {
+    set: (next) => {
+      if (next !== "archived") {
+        this.#selected.set(next);
+      }
+    },
+  });
+  readonly disabled = signal(false);
+  readonly collapsible = signal(true);
+}
+
 // Accordion and Collapsible: an FAQ, locked settings, form sections with app-owned validation,
-// a sidebar group, "Show more", notes open from the server, a table row, a late-inserted accordion
-// and a light copy, read by consumer-smoke.mjs and consumer-disclosure.mjs. The page's last
+// a sidebar group, "Show more", notes open from the server, a table row, a late-inserted accordion,
+// a light copy, a Multiple nested in a Single's item and a Single that refuses an item, read by consumer-smoke.mjs and consumer-disclosure.mjs. The page's last
 // section, so nothing below it moves when a panel grows.
 @Component({
   selector: "app-disclosures",
@@ -1658,6 +1682,7 @@ export class FileFields {
     FieldError,
     FieldLabel,
     FormField,
+    GuardedAccordion,
     Input,
     LucideArchive,
     LucideChevronDown,
@@ -2070,6 +2095,90 @@ export class FileFields {
               >Settlement ledger</a
             >
           </p>
+          <!-- App writes to the revealed panels, for the motion checks after a native reveal. -->
+          <p class="flex flex-wrap gap-4">
+            <button
+              zzButton
+              variant="ghost"
+              size="sm"
+              (click)="writeExports()"
+              id="faq-exports-write"
+            >
+              Write exports open
+            </button>
+            <button
+              zzButton
+              variant="ghost"
+              size="sm"
+              (click)="reportsOpen.set(!reportsOpen())"
+              id="reports-write"
+            >
+              Write reports open
+            </button>
+          </p>
+
+          <!-- Native reveals that close only what their request closes: into a Multiple nested in
+               a Single's item, and into a Single whose selection refuses the item. -->
+          <p class="flex flex-wrap gap-4">
+            <a href="#domain-records" id="domain-fragment-link">Domain records</a>
+            <a href="#archived-plans" id="archived-fragment-link">Archived plans</a>
+          </p>
+          <div zzAccordionSingle [(value)]="guide" collapsible id="guide">
+            <div zzAccordionItem value="setup" id="guide-setup">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="setup-trigger">Workspace setup</button>
+              </h3>
+              <div zzAccordionPanel id="setup-panel">
+                <div
+                  zzAccordionMultiple
+                  [(value)]="setupSteps"
+                  class="rounded-control-sm border border-border px-1"
+                  id="setup-steps"
+                >
+                  <div zzAccordionItem value="invite" id="setup-invite">
+                    <h4 zzAccordionHeader>
+                      <button zzAccordionTrigger id="invite-trigger">Invite your team</button>
+                    </h4>
+                    <div zzAccordionPanel id="invite-panel">Send invitations from Members.</div>
+                  </div>
+                  <div zzAccordionItem value="domain" id="setup-domain">
+                    <h4 zzAccordionHeader>
+                      <button zzAccordionTrigger id="domain-trigger">Verify your domain</button>
+                    </h4>
+                    <div zzAccordionPanel id="domain-panel">
+                      <p id="domain-records">Add the TXT record to your DNS, then choose Verify.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div zzAccordionItem value="seats" id="guide-seats">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="seats-trigger">Plans and seats</button>
+              </h3>
+              <div zzAccordionPanel id="seats-panel">Seats are billed monthly, per member.</div>
+            </div>
+          </div>
+          <output id="guide-value">{{ guide() ?? "null" }}</output>
+          <output id="setup-steps-value">{{ setupSteps().join(",") }}</output>
+
+          <div appGuardedAccordion #guarded="appGuardedAccordion" id="guarded">
+            <div zzAccordionItem value="plan" id="guarded-plan">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="plan-trigger">Current plan</button>
+              </h3>
+              <div zzAccordionPanel id="plan-panel">Team plan, 12 seats, renews on 1 March.</div>
+            </div>
+            <div zzAccordionItem value="archived" id="guarded-archived">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="archived-trigger">Archived plans</button>
+              </h3>
+              <div zzAccordionPanel id="archived-panel">
+                <p id="archived-plans">Starter plan, ended on 1 January.</p>
+              </div>
+            </div>
+          </div>
+          <output id="guarded-value">{{ guarded.value() ?? "null" }}</output>
         </div>
       </div>
     </section>
@@ -2090,6 +2199,8 @@ export class Disclosures {
   protected readonly lateShown = signal(false);
   protected readonly lateValues = ["findable", "hidden"];
   protected readonly paymentSaves = signal(0);
+  protected readonly guide = signal<string | null>("setup");
+  protected readonly setupSteps = signal<readonly string[]>(["invite"]);
 
   // Form sections: the app owns validation and knows which section holds which field.
   protected readonly payment = form(
@@ -2119,6 +2230,14 @@ export class Disclosures {
       this.filtersPad.set("pt-6");
     } else {
       this.filtersPad.set("pt-2");
+    }
+  }
+
+  protected writeExports(): void {
+    if (this.faq() === "exports") {
+      this.faq.set(null);
+    } else {
+      this.faq.set("exports");
     }
   }
 

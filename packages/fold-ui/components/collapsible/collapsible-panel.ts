@@ -1,7 +1,7 @@
 import { Component, computed, inject, input } from "@angular/core";
 import { OrigamiCollapsiblePanel } from "@loozo/origami-ui/collapsible";
 import { cn } from "../cn";
-import { disclosureClipClasses, disclosurePanelClasses } from "../disclosure";
+import { disclosureClipClasses, disclosurePanelClasses, snapDisclosureReveal } from "../disclosure";
 
 /**
  * The content the Collapsible shows while expanded. Your `class` (static, or a whole string bound with
@@ -15,6 +15,8 @@ import { disclosureClipClasses, disclosurePanelClasses } from "../disclosure";
     "data-slot": "collapsible-panel",
     // Fixed: the consumer's `class` styles the content box; a static class attribute would otherwise also land here.
     "[attr.class]": "panelClasses",
+    // A browser reveal opens it at once, so the browser scrolls to where the match ends up.
+    "(beforematch)": "snapReveal($event)",
   },
   template: `
     <div data-slot="collapsible-panel-clip" class="${disclosureClipClasses}">
@@ -27,6 +29,7 @@ export class CollapsiblePanel {
   /** `open()`: true from the start of the entrance until the exit finishes; gate deferred content on it. */
   readonly state = inject(OrigamiCollapsiblePanel).state;
 
+  protected readonly snapReveal = snapDisclosureReveal;
   protected readonly panelClasses = disclosurePanelClasses;
   protected readonly contentClasses = computed(() => cn(this.class()));
 }

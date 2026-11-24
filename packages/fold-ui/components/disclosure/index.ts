@@ -1,1 +1,6 @@
-export { disclosureClipClasses, disclosurePanelClasses } from "./disclosure";
+export {
+  disclosureClipClasses,
+  disclosurePanelClasses,
+  snapDisclosureConceal,
+  snapDisclosureReveal,
+} from "./disclosure";

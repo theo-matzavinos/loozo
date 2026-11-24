@@ -1,6 +1,7 @@
 import { Directive, computed, inject, input } from "@angular/core";
 import { OrigamiAccordionSingle } from "@loozo/origami-ui/accordion";
 import { cn } from "../cn";
+import { AccordionSinglePanels } from "./accordion-single-panels";
 
 /** An accordion with at most one item open: `[(value)]` is a `string | null`; `collapsible` lets the open one close. */
 @Directive({
@@ -13,6 +14,7 @@ import { cn } from "../cn";
       outputs: ["valueChange"],
     },
   ],
+  providers: [AccordionSinglePanels],
   host: { "data-slot": "accordion", "[class]": "classes()" },
 })
 export class AccordionSingle {

@@ -1,8 +1,9 @@
 // Accordion's and Collapsible's motion in one engine, against the consumer check's production build
 // (consumer.mjs): panels grow and fade in, shrink and fade out, reverse from where they are, settle
 // to the right `hidden` with no phase left behind, snap under reduced motion; native find-in-page
-// reveals (ID and text fragments) open the right item; the form recipe opens the section with
-// errors and focuses its first control; Tab during motion is logged. Each scenario starts from a
+// reveals (ID and text fragments, from a link and on a fresh page) open the right item at once and
+// close only what their request closes, with the match on the screen; the
+// form recipe opens the section with errors and focuses its first control; Tab during motion is logged. Each scenario starts from a
 // fresh hydrated page, and any page or hydration error fails the run. Expectations derive from the
 // engine's capabilities and the approved entrance option (D3).
 //
@@ -21,6 +22,8 @@ const VIEWPORT = { width: 1184, height: 768 };
 const TRACE = 700;
 const SETTLE_DEADLINE = 400;
 const REVERSE_AFTER = 60;
+// A reveal's trace: WebKit's text-fragment search fires beforematch about 900 ms after the click.
+const REVEAL_TRACE = 2500;
 // How far a panel's share of its open height may sit outside its opacity around one frame.
 const LOCKSTEP = 0.05;
 
@@ -140,6 +143,9 @@ function armTrace({ ids, duration, reverse, reverseAfter }) {
         phase: phaseOf(panel),
         animations: panel.getAnimations().length,
         fades: fadesOf(panel),
+        revealing: panel.hasAttribute("data-revealing"),
+        concealing: panel.hasAttribute("data-concealing"),
+        clip: getComputedStyle(panel.firstElementChild).overflowY,
       };
     }
 
@@ -301,6 +307,55 @@ function assertSnapOpen(samples, label) {
     if (sample.hidden === null) {
       assert.equal(sample.opacity, 1, `${evidence} (faded)`);
     }
+  }
+}
+
+/**
+ * A native reveal's snap: opened without motion, at its settled height on every frame it's shown
+ * (±1 px), with the reveal marker on at least one frame and the clip letting overflow show
+ * whenever it's on.
+ */
+function assertRevealSnap(samples, label) {
+  assertSnapOpen(samples, label);
+
+  const settled = samples[samples.length - 1].height;
+  const evidence = `${label}: ${describe(samples)}`;
+
+  for (const sample of samples) {
+    if (sample.hidden === null) {
+      assert.ok(
+        Math.abs(sample.height - settled) <= 1,
+        `${evidence} (${sample.height.toFixed(1)} px at ${sample.at.toFixed(0)} ms, settles at ${settled.toFixed(1)})`,
+      );
+    }
+
+    if (sample.revealing) {
+      assert.equal(sample.clip, "visible", `${evidence} (clipped during the snap)`);
+    }
+  }
+
+  assert.ok(
+    samples.some((sample) => sample.revealing),
+    `${evidence} (no frame with the reveal marker)`,
+  );
+}
+
+/**
+ * A panel the reveal leaves open: on every frame fully opaque, never shorter than it started, not
+ * animated, and never marked to conceal.
+ */
+function assertSteady(samples, label) {
+  const first = samples[0].height;
+  const evidence = `${label}: ${describe(samples)}`;
+
+  assert.ok(first > 1, `${evidence} (wasn't open)`);
+
+  for (const sample of samples) {
+    assert.equal(sample.hidden, null, `${evidence} (hidden)`);
+    assert.equal(sample.opacity, 1, `${evidence} (faded)`);
+    assert.equal(sample.animations, 0, `${evidence} (animated)`);
+    assert.equal(sample.concealing, false, `${evidence} (concealed)`);
+    assert.ok(sample.height >= first - 0.5, `${evidence} (shrank)`);
   }
 }
 
@@ -899,77 +954,408 @@ async function run(browser, base, engine) {
     }
   });
 
-  // Native find-in-page reveals: a trusted beforematch opens the item and its model follows;
-  // where the match lands is logged, not asserted (the panel grows after the browser scrolls).
-  const reveal = async (page, { link, panel, value, target }) => {
-    await page.evaluate(() => {
+  // Native find-in-page reveals: a trusted beforematch opens the item at once, without motion, so
+  // the browser scrolls to where the match ends up, and its model follows. In a Single, the item
+  // its request closes closes at once in the same reveal; nothing else is concealed. Checked at
+  // 320 px, where a panel growing after the scroll leaves the match off the screen, and at the
+  // usual height. Afterwards the revealed panel animates again for clicks, writes and reversals.
+  const revealHeights = [320, VIEWPORT.height];
+  // Records every beforematch and every element given the conceal marker, from before the click.
+  const watchReveal = (page) =>
+    page.evaluate(() => {
       window.__matches = [];
+      window.__concealed = [];
       document.addEventListener(
         "beforematch",
         (event) => window.__matches.push({ id: event.target.id, trusted: event.isTrusted }),
         { capture: true },
       );
+      new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.oldValue === null) {
+            window.__concealed.push(record.target.id);
+          }
+        }
+      }).observe(document.body, {
+        subtree: true,
+        attributeFilter: ["data-concealing"],
+        attributeOldValue: true,
+      });
     });
-    await page.click(`#${link}`);
-    await settledOpen(page, panel);
-    await page.waitForFunction(
-      ([id, text]) => document.getElementById(id).textContent.trim() === text,
-      value,
-    );
+  const revealRecord = async (page) => {
+    const { matches, concealed } = await page.evaluate(() => ({
+      matches: window.__matches,
+      concealed: window.__concealed,
+    }));
 
-    const matches = await page.evaluate(() => window.__matches);
+    return {
+      matches: matches.toSorted((a, b) => a.id.localeCompare(b.id)),
+      concealed: [...new Set(concealed)].sort((a, b) => a.localeCompare(b)),
+    };
+  };
+  const placement = async (page, target) => {
     const place = await page.evaluate((target) => {
       const rect = document.getElementById(target).getBoundingClientRect();
 
-      return { top: Math.round(rect.top), bottom: Math.round(rect.bottom), viewport: innerHeight };
+      return { top: rect.top, bottom: rect.bottom, height: rect.height, viewport: innerHeight };
     }, target);
 
-    assert.deepEqual(matches, [{ id: panel, trusted: true }], `${link} beforematch`);
-    console.log(`${engine}: ${link} revealed ${panel}, match ${JSON.stringify(place)}`);
+    assert.ok(
+      place.height > 0 && place.top >= -1 && place.bottom <= place.viewport + 1,
+      `${target} is outside the viewport: ${JSON.stringify(place)}`,
+    );
+
+    return place;
+  };
+  // `panel` holds `target`; `revealed` are every panel the browser reveals (the closed ancestors
+  // too), `closing` the one the request closes and `steady` the open ones it must leave alone.
+  const reveal = async (page, options) => {
+    const { link, panel, values, target, closing = null, steady = [] } = options;
+    const revealed = options.revealed ?? [panel];
+
+    await watchReveal(page);
+
+    const ids = [...revealed, ...steady];
+
+    if (closing) {
+      ids.push(closing);
+    }
+
+    const revealing = await traced(page, { ids, duration: REVEAL_TRACE }, () =>
+      page.click(`#${link}`),
+    );
+
+    for (const id of revealed) {
+      await settledOpen(page, id);
+    }
+
+    if (closing) {
+      await page.waitForFunction(
+        ([id, hidden]) => document.getElementById(id).getAttribute("hidden") === hidden,
+        [closing, closedHidden],
+      );
+    }
+
+    for (const value of values) {
+      await page.waitForFunction(
+        ([id, text]) => document.getElementById(id).textContent.trim() === text,
+        value,
+      );
+    }
+
+    const record = await revealRecord(page);
+
+    assert.deepEqual(
+      record.matches,
+      revealed.toSorted((a, b) => a.localeCompare(b)).map((id) => ({ id, trusted: true })),
+      `${link} beforematch`,
+    );
+    assert.deepEqual(record.concealed, closing ? [closing] : [], `${link} concealed`);
+
+    // Where the match ends up, once every panel has settled.
+    const place = await placement(page, target);
+
+    console.log(`${engine}: ${link} revealed ${revealed}, match ${JSON.stringify(place)}`);
+
+    // No motion on any panel, the revealed ones at their settled height throughout, and nothing
+    // of the snap left behind.
+    for (const id of revealed) {
+      assertRevealSnap(series(revealing, id), `${link} reveal of ${id}`);
+    }
+
+    for (const id of steady) {
+      assertSteady(series(revealing, id), `${id} kept open by ${link}`);
+    }
+
+    if (closing) {
+      const closed = series(revealing, closing);
+
+      assert.ok(
+        closed.every((sample) => sample.animations === 0),
+        `${closing} animated: ${describe(closed)}`,
+      );
+      assertSettledClosed(closed, closedHidden, `${closing} closed by ${link}`);
+    }
+
+    const settled = await page.evaluate((id) => {
+      const host = document.getElementById(id);
+
+      return {
+        markers: document.querySelectorAll("[data-revealing], [data-concealing]").length,
+        clip: getComputedStyle(host.firstElementChild).overflow,
+        opacity: getComputedStyle(host).opacity,
+      };
+    }, panel);
+
+    assert.deepEqual(settled, { markers: 0, clip: "visible", opacity: "1" }, `${link} settled`);
+  };
+  // After a reveal, the panel's trigger and the app's writes animate it again, and a reversal
+  // turns it from where it is.
+  const motionAfterReveal = async (page, { panel, trigger, write }) => {
+    const full = await page.evaluate(
+      (id) => document.getElementById(id).getBoundingClientRect().height,
+      panel,
+    );
+    const clickClose = await traced(page, { ids: [panel] }, () => page.click(`#${trigger}`));
+
+    assertAnimatedClose(series(clickClose, panel), closedHidden, `${panel} trigger close`);
+
+    const writeOpen = await traced(page, { ids: [panel] }, () => page.click(`#${write}`));
+
+    assertAnimatedOpen(series(writeOpen, panel), `${panel} write open`);
+
+    const exitEnter = await traced(page, { ids: [panel], reverse: `#${trigger}` }, () =>
+      page.click(`#${trigger}`),
+    );
+
+    assert.ok(exitEnter.reversedAt !== null, `${panel} reversed`);
+    console.log(
+      `${engine}: revealed ${panel} exit → enter ` +
+        assertReversal(exitEnter, series(exitEnter, panel), full, true, `${panel} exit → enter`),
+    );
+
+    const writeClose = await traced(page, { ids: [panel] }, () => page.click(`#${write}`));
+
+    assertAnimatedClose(series(writeClose, panel), closedHidden, `${panel} write close`);
+    assert.equal(
+      await page.evaluate(() => document.querySelectorAll("[data-revealing]").length),
+      0,
+      `${panel} marker left`,
+    );
+  };
+  const exportsReveal = {
+    panel: "exports-panel",
+    values: [["faq-value", "exports"]],
+    motion: { panel: "exports-panel", trigger: "exports-trigger", write: "faq-exports-write" },
   };
   const reveals = [
-    {
-      link: "faq-fragment-link",
-      panel: "exports-panel",
-      value: ["faq-value", "exports"],
-      target: "faq-export-format",
-    },
+    { ...exportsReveal, link: "faq-fragment-link", target: "faq-export-format" },
     {
       link: "tax-fragment-link",
       panel: "reports-panel",
-      value: ["reports-value", "true"],
+      values: [["reports-value", "true"]],
       target: "tax-summaries",
+      motion: { panel: "reports-panel", trigger: "reports-trigger", write: "reports-write" },
     },
   ];
 
   if (caps.textFragment) {
     reveals.push({
+      ...exportsReveal,
       link: "faq-text-link",
-      panel: "exports-panel",
-      value: ["faq-value", "exports"],
       target: "faq-export-phrase",
+      motion: null,
     });
   }
 
-  for (const options of reveals) {
-    await scenario(`reveal from ${options.link}`, {}, async (page) => {
-      if (caps.reveal) {
-        await reveal(page, options);
+  for (const height of revealHeights) {
+    for (const options of reveals) {
+      await scenario(`reveal from ${options.link} at ${height} px`, { height }, async (page) => {
+        if (caps.reveal) {
+          await reveal(page, options);
 
-        return;
-      }
+          if (options.motion) {
+            await motionAfterReveal(page, options.motion);
+          }
 
-      // Without beforematch, ordinary hiding stays authoritative: nothing opens, the value stays.
-      const [valueId] = options.value;
-      const value = await text(page, valueId);
+          return;
+        }
 
-      assert.equal(await attribute(page, options.panel, "hidden"), "");
-      await page.click(`#${options.link}`);
-      await page.waitForTimeout(300);
-      assert.equal(await text(page, valueId), value, `${options.link} kept the value`);
-      assert.equal(await attribute(page, options.panel, "hidden"), "");
-      console.log(`${engine}: beforematch unsupported; ordinary hiding stays authoritative`);
+        // Without beforematch, ordinary hiding stays authoritative: nothing opens, the value stays.
+        const [[valueId]] = options.values;
+        const value = await text(page, valueId);
+
+        assert.equal(await attribute(page, options.panel, "hidden"), "");
+        await page.click(`#${options.link}`);
+        await page.waitForTimeout(300);
+        assert.equal(await text(page, valueId), value, `${options.link} kept the value`);
+        assert.equal(await attribute(page, options.panel, "hidden"), "");
+        console.log(`${engine}: beforematch unsupported; ordinary hiding stays authoritative`);
+      });
+    }
+
+    if (!caps.reveal) {
+      continue;
+    }
+
+    // The Single's open item above the match closes in the same reveal, at once, so it doesn't
+    // move the match after the browser scrolled to it. Opened again, it animates as usual.
+    await scenario(`reveal below an open Single item at ${height} px`, { height }, async (page) => {
+      await page.click("#cancel-trigger");
+      await settledOpen(page, "cancel-panel");
+      await reveal(page, {
+        ...exportsReveal,
+        link: "faq-fragment-link",
+        target: "faq-export-format",
+        closing: "cancel-panel",
+      });
+
+      const reopening = await traced(page, { ids: ["cancel-panel", "exports-panel"] }, () =>
+        page.click("#cancel-trigger"),
+      );
+
+      assertAnimatedOpen(
+        series(reopening, "cancel-panel"),
+        "cancel-panel reopened after the reveal",
+      );
+      assertAnimatedClose(
+        series(reopening, "exports-panel"),
+        closedHidden,
+        "exports-panel closed by reopening cancel-panel",
+      );
     });
+
+    // Into a Multiple nested in the Single's open item: the Multiple keeps both items and the
+    // Single's panel, which holds the match, stays as it is.
+    await scenario(
+      `reveal into a Multiple in an open Single item at ${height} px`,
+      { height },
+      async (page) => {
+        await reveal(page, {
+          link: "domain-fragment-link",
+          panel: "domain-panel",
+          target: "domain-records",
+          values: [
+            ["guide-value", "setup"],
+            ["setup-steps-value", "invite,domain"],
+          ],
+          steady: ["setup-panel", "invite-panel"],
+        });
+      },
+    );
+
+    // The same with the Single's item closed and another open: the browser reveals both panels,
+    // and only the Single's other item closes.
+    await scenario(
+      `reveal into a Multiple in a closed Single item at ${height} px`,
+      { height },
+      async (page) => {
+        await page.click("#seats-trigger");
+        await settledOpen(page, "seats-panel");
+        await page.waitForFunction(
+          (hidden) => document.getElementById("setup-panel").getAttribute("hidden") === hidden,
+          closedHidden,
+        );
+        await reveal(page, {
+          link: "domain-fragment-link",
+          panel: "domain-panel",
+          revealed: ["domain-panel", "setup-panel"],
+          target: "domain-records",
+          values: [
+            ["guide-value", "setup"],
+            ["setup-steps-value", "invite,domain"],
+          ],
+          closing: "seats-panel",
+        });
+      },
+    );
+
+    // A Single whose selection refuses the revealed item keeps its open item, so that panel keeps
+    // its layout and is never marked. The browser still removes the refused panel's `hidden`
+    // (beforematch can't be cancelled); what it shows then is Origami's, logged.
+    await scenario(`reveal of a refused item at ${height} px`, { height }, async (page) => {
+      await watchReveal(page);
+
+      const revealing = await traced(
+        page,
+        { ids: ["plan-panel", "archived-panel"], duration: REVEAL_TRACE },
+        () => page.click("#archived-fragment-link"),
+      );
+      const record = await revealRecord(page);
+
+      assert.deepEqual(record.matches, [{ id: "archived-panel", trusted: true }], "beforematch");
+      assert.deepEqual(record.concealed, [], "concealed");
+      assert.equal(await text(page, "guarded-value"), "plan");
+      assert.equal(await attribute(page, "plan-trigger", "aria-expanded"), "true");
+      assert.equal(await attribute(page, "archived-trigger", "aria-expanded"), "false");
+      assertSteady(series(revealing, "plan-panel"), "plan-panel through a refused reveal");
+      console.log(
+        `${engine}: refused archived-panel ends ${describe(series(revealing, "archived-panel").slice(-1))}`,
+      );
+    });
+
+    // A fresh document opened at a fragment, recorded from before it loads. Chromium and WebKit
+    // reveal once the page has hydrated; Firefox looks while the server HTML's plain `hidden` is
+    // still there and misses the match, as the README documents.
+    await scenario(
+      `fresh page at a fragment at ${height} px`,
+      {
+        height,
+        init: () => {
+          const record = { matches: [], runs: [] };
+
+          window.__fresh = record;
+          addEventListener(
+            "beforematch",
+            (event) =>
+              record.matches.push({
+                id: event.target.id,
+                trusted: event.isTrusted,
+                hydrated: !document.querySelector("[ngh]"),
+              }),
+            { capture: true },
+          );
+
+          for (const type of ["transitionrun", "animationstart"]) {
+            addEventListener(
+              type,
+              (event) => {
+                if (event.target.id === "exports-panel") {
+                  record.runs.push(event.propertyName ?? event.animationName);
+                }
+              },
+              { capture: true },
+            );
+          }
+        },
+      },
+      async (page) => {
+        await page.goto(`${base}?fresh#faq-export-format`, { waitUntil: "networkidle" });
+        await page.waitForFunction(
+          () => document.querySelector("app-root") && !document.querySelector("[ngh]"),
+        );
+
+        const fired = await page
+          .waitForFunction(() => window.__fresh.matches.length > 0, null, { timeout: 3000 })
+          .then(
+            () => true,
+            () => false,
+          );
+
+        if (!fired) {
+          assert.equal(engine, "firefox", "no beforematch on a fresh page");
+          assert.equal(await text(page, "faq-value"), "null");
+          assert.equal(await attribute(page, "exports-panel", "hidden"), closedHidden);
+          console.log(`${engine}: fresh page at a fragment: no beforematch, the documented miss`);
+
+          return;
+        }
+
+        await settledOpen(page, "exports-panel");
+        await page.waitForFunction(
+          () => document.getElementById("faq-value").textContent.trim() === "exports",
+        );
+
+        const fresh = await page.evaluate(() => window.__fresh);
+
+        assert.deepEqual(
+          fresh.matches,
+          [{ id: "exports-panel", trusted: true, hydrated: true }],
+          "fresh beforematch",
+        );
+        assert.deepEqual(fresh.runs, [], "exports-panel moved on a fresh reveal");
+        assert.equal(
+          await page.evaluate(
+            () => document.querySelectorAll("[data-revealing], [data-concealing]").length,
+          ),
+          0,
+          "markers left",
+        );
+        console.log(
+          `${engine}: fresh page at a fragment, match ${JSON.stringify(await placement(page, "faq-export-format"))}`,
+        );
+      },
+    );
   }
 
   // The form recipe, mounted and deferred: Save opens Billing contact, which holds the first
