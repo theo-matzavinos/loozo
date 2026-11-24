@@ -1,7 +1,8 @@
-// The Origami build bench: node bench/build.mjs plus the shared flags ([--scenarios a,b,…]
-// [--out <dir>] [--samples build=1,ngc=3,tsc=1] [--timeout <seconds>] [--check [file]]
-// [--deterministic]). The package's bench:build script runs it under the machine-wide gate lock.
-// See bench/README.md for what each number means and tools/bench/README.md for the shared contract.
+// The Origami build bench, from the repo root: pnpm --dir packages/origami-ui run bench:build --
+// plus the shared flags ([--scenarios a,b,…] [--out <dir>] [--samples build=1,ngc=3,tsc=1]
+// [--timeout <seconds>] [--check [file]] [--deterministic]). The bench:build script runs it under
+// the machine-wide gate lock; a raw node bench/build.mjs refuses to start. See bench/README.md for
+// what each number means and tools/bench/README.md for the shared contract.
 import { readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
@@ -303,6 +304,7 @@ async function measure(scenario, run) {
 
 await bench(
   {
+    lockedCommand: "pnpm --dir packages/origami-ui run bench:build --",
     name: "origami-ui-build",
     metrics,
     scenarios: {

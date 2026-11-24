@@ -1,10 +1,11 @@
-// The scale benchmark: node bench/run.mjs [--workload router|remembered|launch] plus the shared flags
-// ([--scenarios 100,300,1000] [--out <dir>] [--samples <name>=<count>,…] [--timeout <seconds>]
-// [--check [file]] [--deterministic]). The router workload's samples are
+// The scale benchmark, from the repo root: pnpm --dir packages/angular-router run bench --
+// [--workload router|remembered|launch] plus the shared flags ([--scenarios 100,300,1000]
+// [--out <dir>] [--samples <name>=<count>,…] [--timeout <seconds>] [--check [file]]
+// [--deterministic]). The router workload's samples are
 // generate=3,edits=3,build=1,ngc=3,tsc=1,boot=10,cold=10,warm=30, the Launch workload's
-// generate=3,build=1,ngc=3,tsc=1,ssr=1000,rpc=1000. The package's bench script runs it under the
-// machine-wide gate lock. See bench/README.md for what each number means and
-// tools/bench/README.md for the shared contract.
+// generate=3,build=1,ngc=3,tsc=1,ssr=1000,rpc=1000. The bench script runs it under the machine-wide
+// gate lock; a raw node bench/run.mjs refuses to start. See bench/README.md for what each number
+// means and tools/bench/README.md for the shared contract.
 import { createHash } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -148,7 +149,7 @@ function takeWorkload(argv) {
       console.error(
         `--workload takes ${Object.keys(workloads).join(" or ")}, got "${value}"
 
-Usage: node bench/run.mjs [--workload router|remembered|launch] [shared flags; see tools/bench/README.md]`,
+Usage (from the repo root): pnpm --dir packages/angular-router run bench -- [--workload router|remembered|launch] [shared flags; see tools/bench/README.md]`,
       );
       process.exit(2);
     }
@@ -591,6 +592,7 @@ const { workload, argv } = takeWorkload(process.argv.slice(2));
 
 await bench(
   {
+    lockedCommand: "pnpm --dir packages/angular-router run bench --",
     name: `angular-router-${workload.name}`,
     metrics,
     scenarios: {

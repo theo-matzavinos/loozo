@@ -3,6 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { checkBudgets, readBudgets, report, validateRules } from "./budgets.mjs";
+import { assertGateLock } from "./gate-lock.mjs";
 import { load, machine } from "./machine.mjs";
 import { outputDirectory } from "./process.mjs";
 import { median, percentile } from "./statistics.mjs";
@@ -326,6 +327,10 @@ async function run(config, argv) {
 
 // Runs one bench: config is the runner's (see README.md), argv its remaining flags.
 export async function bench(config, argv) {
+  if (config.lockedCommand) {
+    assertGateLock(config.lockedCommand, argv);
+  }
+
   try {
     await run(config, argv);
   } catch (error) {

@@ -1,8 +1,10 @@
-// The Origami runtime bench: node bench/runtime.mjs plus the shared flags ([--scenarios a,b,…]
-// [--out <dir>] [--samples mount=10,hydrate=10,open=20] [--timeout <seconds>] [--check [file]]
-// [--deterministic]). The package's bench:runtime script runs it under the machine-wide gate lock.
-// It builds the perf app in bench/runtime-app/ once, serves it, and measures it in Chromium. See
-// bench/README.md for what each number means and tools/bench/README.md for the shared contract.
+// The Origami runtime bench, from the repo root: pnpm --dir packages/origami-ui run
+// bench:runtime -- plus the shared flags ([--scenarios a,b,…] [--out <dir>]
+// [--samples mount=10,hydrate=10,open=20] [--timeout <seconds>] [--check [file]]
+// [--deterministic]). The bench:runtime script runs it under the machine-wide gate lock; a raw
+// node bench/runtime.mjs refuses to start. It builds the perf app in bench/runtime-app/ once,
+// serves it, and measures it in Chromium. See bench/README.md for what each number means and
+// tools/bench/README.md for the shared contract.
 import { spawn } from "node:child_process";
 import { cp, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -778,6 +780,7 @@ async function measure(scenario, run) {
 try {
   await bench(
     {
+      lockedCommand: "pnpm --dir packages/origami-ui run bench:runtime --",
       name: "origami-ui-runtime",
       metrics,
       scenarios: { default: scenarios, validate, label: (key) => key, layout: "metric-rows" },
