@@ -2077,6 +2077,15 @@ async function run(browser, base, engine) {
         ([input, at]) => document.querySelector(input).setSelectionRange(at, at),
         [input, query.indexOf("city:") + 5],
       );
+      // ArrowDown opens only on current rows: wait for the analysis at the new caret to render
+      // them (inside the closed list) before pressing it.
+      await page.waitForFunction(
+        (surface) =>
+          document.querySelectorAll(`${surface} [data-slot=search-bar-suggestion]:not([hidden])`)
+            .length === 19,
+        surface,
+        { timeout: 2000 },
+      );
       await reveal(0, "ArrowDown", { opens: true });
       assert.equal(await page.locator(`${surface} [data-slot=search-bar-suggestion]`).count(), 19);
       assert.equal(await scrolls(page, listViewport), true);
