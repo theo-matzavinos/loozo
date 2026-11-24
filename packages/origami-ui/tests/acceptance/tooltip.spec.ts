@@ -3,6 +3,7 @@ import type { Locator, Page, TestInfo } from "playwright/test";
 import { fixture } from "./observation.js";
 import { expectPreferred, settled } from "./geometry.js";
 import { pauseExitOnStart, resumeAnimations } from "./animations.js";
+import { timingTest, type TimerWindow } from "./timing.js";
 import {
   sharedOwnerCase,
   tooltipOutsideFieldCase,
@@ -2356,9 +2357,138 @@ async function groupHoverOpen(page: Page, name: GroupName): Promise<void> {
     .toBe("1");
 }
 
-test("N13: a hover or focus open closes the other intent-opened Tooltip; the group is warm while one is open and for 300 ms after it closes, also by Escape; application writes neither join nor are affected", async ({
-  page,
-}, info) => {
+/**
+ * One N13 pair inside a timer window: `from` closes by a trusted leave or Escape, then B is entered
+ * 299 ms (warm) or 300 ms (`cold`) after the observed close. Warm, B opens on its enter; cold, it
+ * opens on the timer, and the journal entry's timestamp proves that tick is exactly 200 ms after the
+ * enter. The window holds the browser's clock, so a runner stall anywhere in the pair moves no
+ * application time.
+ */
+async function groupPair(
+  page: Page,
+  timerWindow: TimerWindow,
+  point: Point,
+  { from, escape = false, cold = false }: { from: GroupName; escape?: boolean; cold?: boolean },
+): Promise<void> {
+  const inputs = await page.evaluateHandle(() => {
+    const records: { kind: string; target: string | null; trusted: boolean }[] = [];
+    const controller = new AbortController();
+
+    for (const type of ["pointerleave", "pointerenter", "keydown"]) {
+      document.addEventListener(
+        type,
+        (event) => {
+          if (!(event.target instanceof Element)) {
+            return;
+          }
+
+          let kind = event.type;
+          if (event instanceof KeyboardEvent) {
+            kind = event.key;
+          }
+
+          records.push({
+            kind,
+            target: event.target.getAttribute("data-testid"),
+            trusted: event.isTrusted,
+          });
+        },
+        { capture: true, signal: controller.signal },
+      );
+    }
+
+    return { records, stop: () => controller.abort() };
+  });
+
+  let closeToEnter = 299;
+  let enterToOpen = 0;
+  let openEvent = "pointerenter";
+  if (cold) {
+    closeToEnter = 300;
+    enterToOpen = 200;
+    openEvent = "none";
+  }
+
+  let closeKind = "pointerleave";
+  let closeTarget = `group-${from}-trigger`;
+  let closeEvents = ["pointerleave", "pointermove"];
+  if (escape) {
+    closeKind = "Escape";
+    closeTarget = "group-a-redecide";
+    closeEvents = ["keydown"];
+  }
+
+  try {
+    const { entries, dispatched } = await timerWindow(async (advance) => {
+      const mark = await groupMark(page);
+      if (escape) {
+        await page.keyboard.press("Escape");
+      } else {
+        await away(page);
+      }
+
+      // Give Angular time to publish the close, then use the observed timestamp as the origin.
+      await advance(32);
+      const closed = groupEntry(await groupJournal(page, mark), `${from}:false`);
+      const now = await page.evaluate(() => performance.now());
+      await advance(closed.at + closeToEnter - now);
+      await page.mouse.move(point.x, point.y);
+
+      if (cold) {
+        await advance(199);
+        const pending = await groupJournal(page, mark);
+        expect(groupKinds(pending)).toContain("b:enter");
+        // A smoke check only: an open on the 199 ms tick may not be in the rendered journal yet.
+        // The timestamp assertion below is what pins the delay to 200 ms.
+        expect(
+          groupKinds(pending),
+          "B already opened in the rendered journal at 199 ms",
+        ).not.toContain("b:true");
+        await advance(1);
+      }
+
+      // Allow the view to publish the journal. The entry timestamp identifies the open's tick.
+      await advance(32);
+      const [entries, dispatched] = await Promise.all([
+        groupJournal(page, mark),
+        inputs.evaluate((state) => state.records),
+      ]);
+
+      return { entries, dispatched };
+    });
+
+    const close = dispatched.findIndex(
+      (item) => item.kind === closeKind && item.target === closeTarget,
+    );
+    const enter = dispatched.findIndex(
+      (item) => item.kind === "pointerenter" && item.target === "group-b-trigger",
+    );
+    expect(close, JSON.stringify(dispatched)).toBeGreaterThanOrEqual(0);
+    expect(enter, JSON.stringify(dispatched)).toBeGreaterThan(close);
+    expect(dispatched[close].trusted).toBe(true);
+    expect(dispatched[enter].trusted).toBe(true);
+
+    const entered = groupEntry(entries, "b:enter");
+    const opened = groupEntry(entries, "b:true");
+    expectClosedBefore(entries, from, closeEvents, "b");
+    expect(entered.at - groupEntry(entries, `${from}:false`).at).toBe(closeToEnter);
+    expect(opened.at - entered.at, "B's open must be on the expected tick").toBe(enterToOpen);
+    expect(opened.event).toBe(openEvent);
+
+    await expect(groupIntent(page, "b")).toHaveText("true");
+    if (from !== "b") {
+      await expect(groupIntent(page, from)).toHaveText("false");
+    }
+  } finally {
+    await inputs.evaluate((state) => state.stop());
+    await inputs.dispose();
+  }
+}
+
+const n13WarmWindow =
+  "N13: a hover or focus open closes the other intent-opened Tooltip; the group is warm while one is open and for 300 ms after it closes, also by Escape; application writes neither join nor are affected";
+
+timingTest(n13WarmWindow, async ({ page, timerWindow }, info) => {
   await fixture(page, "tooltip", info);
   await stage(page.locator('[data-tooltip-case="group"]'));
   await away(page);
@@ -2375,34 +2505,19 @@ test("N13: a hover or focus open closes the other intent-opened Tooltip; the gro
   await expect(groupIntent(page, "c")).toHaveText("true");
   await expect(groupIntent(page, "b")).toHaveText("false");
 
-  let entries = await groupJournal(page, mark);
+  const entries = await groupJournal(page, mark);
 
   expectOpenedAfterDelay(entries, "b");
   expectOpenedAtOnce(entries, "c");
   expect(groupKinds(entries).filter((kind) => kind === "b:false")).toHaveLength(1);
   expect(groupKinds(entries).filter((kind) => kind === "c:true")).toHaveLength(1);
 
-  // C closes by leaving; B, entered within 300 ms, opens at once. Nothing waits between the
-  // leave and the enter, so load adds no round trips to the gap.
-  mark = await groupMark(page);
+  // C closes by leaving, or by moving out of the grace area on the way to the corner.
   point = center(await box(groupTrigger(page, "b")));
-  await away(page);
-  await page.mouse.move(point.x, point.y);
-  await expect(groupIntent(page, "b")).toHaveText("true");
-  await expect(groupIntent(page, "c")).toHaveText("false");
-  entries = await groupJournal(page, mark);
-  // The leave closes C itself, or its move out of the grace area toward C's Content does.
-  expectClosedBefore(entries, "c", ["pointerleave", "pointermove"], "b");
-  expectOpenedAtOnce(entries, "b");
+  await groupPair(page, timerWindow, point, { from: "c" });
 
-  // After 300 ms, B opens after its delay again.
-  await away(page);
-  await expect(groupIntent(page, "b")).toHaveText("false");
-  await cool(page);
-  mark = await groupMark(page);
-  await page.mouse.move(point.x, point.y);
-  await expect(groupIntent(page, "b")).toHaveText("true");
-  expectOpenedAfterDelay(await groupJournal(page, mark), "b");
+  // After 300 ms from B's own close, B opens after its delay again.
+  await groupPair(page, timerWindow, point, { from: "b", cold: true });
   await away(page);
   await expect(groupIntent(page, "b")).toHaveText("false");
 
@@ -2434,15 +2549,16 @@ test("N13: a hover or focus open closes the other intent-opened Tooltip; the gro
   await expect(groupIntent(page, "c")).toHaveText("true");
 
   // Escape closes A, the most recently shown, and warms the group: B opens at once.
-  mark = await groupMark(page);
   point = center(await box(groupTrigger(page, "b")));
-  await page.keyboard.press("Escape");
-  await page.mouse.move(point.x, point.y);
-  await expect(groupIntent(page, "b")).toHaveText("true");
-  await expect(groupIntent(page, "a")).toHaveText("false");
-  entries = await groupJournal(page, mark);
-  expectClosedBefore(entries, "a", ["keydown"], "b");
-  expectOpenedAtOnce(entries, "b");
+  await groupPair(page, timerWindow, point, { from: "a", escape: true });
+  await expect(groupIntent(page, "c")).toHaveText("true");
+  await away(page);
+  await expect(groupIntent(page, "b")).toHaveText("false");
+
+  // With the same Escape close after its warm window, B waits for its delay.
+  await groupHoverOpen(page, "a");
+  point = center(await box(groupTrigger(page, "b")));
+  await groupPair(page, timerWindow, point, { from: "a", escape: true, cold: true });
   await expect(groupIntent(page, "c")).toHaveText("true");
   await away(page);
   await expect(groupIntent(page, "b")).toHaveText("false");
