@@ -28,10 +28,18 @@ export class TableColumnHeader {
   readonly sort = input<TableSort | null>(null);
   readonly class = input("");
 
-  protected readonly classes = computed(() =>
-    cn(
-      "h-9 px-3 text-start align-middle text-label whitespace-nowrap text-muted-foreground data-[align=end]:text-end",
+  protected readonly classes = computed(() => {
+    // Resolved here rather than as a data-align variant, so the caller's alignment utility wins.
+    let alignment = "text-start";
+
+    if (this.align() === "end") {
+      alignment = "text-end";
+    }
+
+    return cn(
+      "h-9 px-3 align-middle text-label whitespace-nowrap text-muted-foreground",
+      alignment,
       this.class(),
-    ),
-  );
+    );
+  });
 }

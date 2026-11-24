@@ -4,7 +4,7 @@ import { cn } from "../cn";
 /**
  * An empty state: centered, muted text that works as plain projected text alone, with an optional
  * EmptyTitle, EmptyDescription and EmptyActions. It isn't a live region, and loading or failure
- * isn't the empty state. In a table, put it inside a full-span cell, never on the cell itself.
+ * isn't the empty state. In a table, put it inside a full-span cell with a `colspan`, never on the cell itself.
  *
  * @example
  * ```html
@@ -20,7 +20,7 @@ export class Empty {
 
   protected readonly classes = computed(() =>
     cn(
-      "flex flex-col items-center justify-center gap-1 px-6 py-10 text-center text-body text-muted-foreground",
+      "flex flex-col items-center justify-center gap-1 px-6 py-10 text-center text-body text-muted-foreground [overflow-wrap:anywhere]",
       this.class(),
     ),
   );

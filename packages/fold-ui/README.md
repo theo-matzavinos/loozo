@@ -1995,7 +1995,7 @@ The example below also uses [Button](#button) for the row action and the pager, 
 - **Action columns.** A header without text, such as over row buttons, has no name; write visually hidden text in it, as above.
 - **Naming.** Name the frame with `[aria-labelledby]` (an element's id, usually the page title's) or `[aria-label]`, as inputs: the name moves to the scrolling viewport, which becomes a named region, and never stays on the frame. Static names work as plain attributes too: `aria-labelledby="budgets-title"`. `[attr.aria-labelledby]` on the frame writes to the frame itself and leaves the focusable viewport unnamed.
 - **A Tab stop.** The viewport is always a Tab stop, so the keyboard reaches and scrolls a wide table before and after hydration. When the table fits, such as on a desktop, the stop remains: Tab goes from the control before the frame to the scroller, then to the first sort button.
-- **Empty rows.** An Empty that is the direct child of a body row's only cell, as in the `@empty` row above, stays inside the visible width while a wide table scrolls: it's as wide as the viewport less the cell's 12px padding on each side, and sticky 12px from its start. The cell must span every column and keep TableCell's padding, and the table must be the frame's direct child, as above. An Empty in a row with other cells, or in a table nested in a cell, keeps its own layout.
+- **Empty rows.** An Empty that is the direct child of a body row's only cell with a `colspan`, as in the `@empty` row above, stays inside the visible width while a wide table scrolls: it's as wide as the viewport less the cell's 12px padding on each side, and sticky 12px from its start. Write the recipe as shown: the cell's `colspan` is the column count, so it spans every column, it keeps TableCell's padding, and the table is the frame's direct child. An Empty in a row with other cells, in a cell without a `colspan`, such as one beside a `rowspan`, or in a table nested in a cell, keeps its own layout.
 - **Width.** The frame's scroller is a size container, so a frame that sizes to its content, such as in a flex row without a basis, `w-fit` or `inline-block`, takes its pager's width instead of its table's. Give such a frame a width: `w-full` or `basis-full`.
 - **Content doesn't wrap.** A sideways-scrolling table sizes to its content, so cell text never wraps; a long name widens the table, which scrolls.
 - **Overflow.** The frame clips what overflows it. Row-action popups such as Menu and Popover are in the top layer, which escapes it.
@@ -2013,7 +2013,7 @@ import { Badge } from "#ui/badge";
 ```html
 <span foldBadge>Draft</span>
 <span foldBadge tone="info">Submitted by Ada Lovelace</span>
-<span foldBadge tone="success">BUD-2026-0042</span>
+<span foldBadge tone="success">Approved · BUD-2026-0042</span>
 <span foldBadge tone="warning">Over limit</span>
 <span foldBadge tone="danger">Rejected</span>
 ```
@@ -2052,7 +2052,8 @@ The second example's action is a [Button](#button), so it also needs `button` ad
 
 - **Not a live region.** An Empty that replaces rows isn't announced; the change that emptied the list, such as a search, says so.
 - **Not loading.** Loading or a failed request isn't the empty state; see [Table](#table)'s "While loading".
-- **In a table**, put the Empty inside a cell that spans every column, as [Table](#table)'s Empty rows describe, never on the cell itself: both bind the element's classes.
+- **Long words.** A word too long for the line, such as a pasted reference in a search, wraps anywhere instead of overflowing.
+- **In a table**, put the Empty inside a cell that spans every column with a `colspan`, as [Table](#table)'s Empty rows describe, never on the cell itself: both bind the element's classes.
 
 ## Calendar
 

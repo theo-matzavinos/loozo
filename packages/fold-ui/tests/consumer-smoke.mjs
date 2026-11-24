@@ -12827,6 +12827,24 @@ try {
       "Empty beside other cells",
     );
 
+    // A row's only cell beside a rowspan, without a colspan, isn't full-span: its Empty keeps its
+    // own layout and doesn't widen the table.
+    assert.deepEqual(
+      await page.locator("#empty-beside-rowspan").evaluate((empty) => {
+        const cell = empty.parentElement.getBoundingClientRect();
+        const own = empty.getBoundingClientRect();
+        const scroller = empty.closest("[data-slot=scroll-area-viewport]");
+
+        return {
+          position: getComputedStyle(empty).position,
+          fillsCell: Math.abs(own.width - (cell.width - 24)) <= 1,
+          fits: scroller.scrollWidth === scroller.clientWidth,
+        };
+      }),
+      { position: "static", fillsCell: true, fits: true },
+      "Empty alone in a row beside a rowspan",
+    );
+
     // A table nested in the light frame's cell keeps its own layout: its full-span Empty isn't
     // sticky and fills its own cell, and its last row keeps its border, while the frame's own
     // table's last row drops it.
@@ -13258,6 +13276,30 @@ try {
       "a start cell under an inherited text-end",
     );
     assert.equal(alignment.inheritedHeader.textAlign, "start", "a header under text-end");
+
+    // The caller's alignment utility wins over align="end", which stays in data-align.
+    assert.deepEqual(
+      await page.locator("#table-align-override").evaluate((table) => {
+        const read = (cell) => [cell.getAttribute("data-align"), getComputedStyle(cell).textAlign];
+
+        return {
+          header: read(table.tHead.rows[0].cells[0]),
+          cell: read(table.tBodies[0].rows[0].cells[0]),
+        };
+      }),
+      { header: ["end", "center"], cell: ["end", "center"] },
+      'a caller\'s text-center over align="end"',
+    );
+
+    // The approved badge names its status, not just its reference.
+    const approvedBadge = await page
+      .locator("#budget-list")
+      .getByRole("row")
+      .filter({ hasText: "Legal" })
+      .locator("[data-slot=badge]")
+      .textContent();
+
+    assert.equal(approvedBadge.trim(), "Approved · BUD-2026-0009", "the approved badge's text");
 
     // Sorting by keyboard and pointer: each step shows its rows, the view returns to page 1 on a
     // new sort, and missing names and dates sort last in both directions. Each step waits for the

@@ -1527,10 +1527,11 @@ async function run(browser, base, engine) {
       );
     });
 
-    // The wide empty table's Empty: its text inside the viewport's client box at scroll start and
-    // end, as wide as the viewport less the cell's padding; centered once the table fits. Each
-    // phase writes its offset once, then polls from Node until the measured offset is the phase's
-    // target before using the bounds, so the page without scripts settles too.
+    // The wide empty table's Empty: its text, with a long unbroken search term, inside the
+    // viewport's client box at scroll start and end, as wide as the viewport less the cell's
+    // padding; centered once the table fits. Each phase writes its offset once, then polls from
+    // Node until the measured offset is the phase's target before using the bounds, so the page
+    // without scripts settles too.
     const wideEmpty = async (page) => {
       const scroller = page.locator(`#wide-report-empty ${frameViewport}`);
       const at = async (end) => {

@@ -2498,7 +2498,8 @@ function compareBudgets(a: BudgetRow, b: BudgetRow, sort: BudgetSort): number {
                       <span zzBadge tone="info">Submitted by {{ displayName(by) }}</span>
                     }
                     @case ("Approved") {
-                      <span zzBadge tone="success">{{ budget.status.approvalReference }}</span>
+                      @let reference = budget.status.approvalReference;
+                      <span zzBadge tone="success">Approved · {{ reference }}</span>
                     }
                     @default never(budget.status);
                   }
@@ -2712,7 +2713,12 @@ const COST_CENTRES: readonly CostCentre[] = [
             </tr>
           } @empty {
             <tr zzTableRow>
-              <td zzTableCell colspan="8"><div zzEmpty>No cost centres match</div></td>
+              <!-- A long unbroken search term wraps inside the visible width. -->
+              <td zzTableCell colspan="8">
+                <div zzEmpty>
+                  No cost centres match “WGR2026PATRASWAREHOUSELOGISTICSOUTBOUNDFREIGHT0017”
+                </div>
+              </td>
             </tr>
           }
         </tbody>
@@ -2733,7 +2739,7 @@ export class CostCentres {
     <div class="flex flex-wrap gap-2" id="badges-background">
       <span zzBadge>Draft</span>
       <span zzBadge tone="info">Submitted by Ada Lovelace</span>
-      <span zzBadge tone="success">BUD-2026-0042</span>
+      <span zzBadge tone="success">Approved · BUD-2026-0042</span>
       <span zzBadge tone="warning">Over limit</span>
       <span zzBadge tone="danger">Rejected</span>
     </div>
@@ -2744,7 +2750,7 @@ export class CostCentres {
     >
       <span zzBadge>Draft</span>
       <span zzBadge tone="info">Submitted by Ada Lovelace</span>
-      <span zzBadge tone="success">BUD-2026-0042</span>
+      <span zzBadge tone="success">Approved · BUD-2026-0042</span>
       <span zzBadge tone="warning">Over limit</span>
       <span zzBadge tone="danger">Rejected</span>
     </div>
@@ -2758,7 +2764,7 @@ export class CostCentres {
       <div class="flex flex-wrap gap-2" id="badges-light-background">
         <span zzBadge>Draft</span>
         <span zzBadge tone="info">Submitted by Ada Lovelace</span>
-        <span zzBadge tone="success">BUD-2026-0042</span>
+        <span zzBadge tone="success">Approved · BUD-2026-0042</span>
         <span zzBadge tone="warning">Over limit</span>
         <span zzBadge tone="danger">Rejected</span>
       </div>
@@ -2778,7 +2784,7 @@ export class CostCentres {
                 <span class="flex flex-wrap gap-2" id="badges-light-surface">
                   <span zzBadge>Draft</span>
                   <span zzBadge tone="info">Submitted by Ada Lovelace</span>
-                  <span zzBadge tone="success">BUD-2026-0042</span>
+                  <span zzBadge tone="success">Approved · BUD-2026-0042</span>
                   <span zzBadge tone="warning">Over limit</span>
                   <span zzBadge tone="danger">Rejected</span>
                 </span>
@@ -2806,10 +2812,37 @@ export class CostCentres {
                 <div zzEmpty class="items-start py-0" id="empty-beside-cells">No status yet</div>
               </td>
             </tr>
+            <!-- A row's only cell beside a rowspan, without a colspan: the full-span rule leaves
+            its Empty alone. -->
+            <tr zzTableRow>
+              <td zzTableCell rowspan="2">Travel</td>
+              <td zzTableCell>Draft</td>
+            </tr>
+            <tr zzTableRow>
+              <td zzTableCell>
+                <div zzEmpty class="items-start py-0" id="empty-beside-rowspan">
+                  No approver yet
+                </div>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <!-- The caller's alignment utility wins over align="end" on a header and a cell. -->
+    <table zzTable aria-label="Alignment overrides" id="table-align-override">
+      <thead>
+        <tr zzTableRow>
+          <th zzTableColumnHeader align="end" class="text-center">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr zzTableRow>
+          <td zzTableCell align="end" class="text-center">€1,200.00</td>
+        </tr>
+      </tbody>
+    </table>
 
     <section zzPage class="p-0" id="page-long">
       <header zzPageHeader>

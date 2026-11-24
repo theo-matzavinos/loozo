@@ -8,8 +8,9 @@ import { ScrollArea } from "../scroll-area";
  * hydration; the pager stays put below it. Name it with `[aria-labelledby]` or `[aria-label]`, as
  * inputs, never `[attr.…]`: the name goes to the scrolling viewport, which becomes a region.
  *
- * An Empty that is the only cell's direct child in a body row of the frame's own table stays inside
- * the visible width while the table scrolls; a table nested in a cell keeps its own layout.
+ * An Empty that is the direct child of a body row's only cell, with a `colspan`, in the frame's own
+ * table stays inside the visible width while the table scrolls; a table nested in a cell keeps its
+ * own layout.
  *
  * @example
  * ```html
@@ -58,10 +59,11 @@ export class TableFrame {
       "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody:has(>tr):not(:has(~tbody>tr))>tr:last-child]:border-b-0",
       // A full-span empty row's Empty: the visible width less the cell's 12px padding on each side,
       // sticky 12px from the scroller's start, so it's on screen at any scroll position. Only a
-      // body row's only cell, so an Empty beside other cells keeps its own layout.
-      "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody>tr>td[data-slot=table-cell]:only-child>[data-slot=empty]]:sticky",
-      "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody>tr>td[data-slot=table-cell]:only-child>[data-slot=empty]]:start-3",
-      "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody>tr>td[data-slot=table-cell]:only-child>[data-slot=empty]]:w-[calc(100cqi-1.5rem)]",
+      // body row's only cell with a colspan, so an Empty beside other cells, or alone in a row
+      // beside a rowspan, keeps its own layout.
+      "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody>tr>td[data-slot=table-cell][colspan]:only-child>[data-slot=empty]]:sticky",
+      "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody>tr>td[data-slot=table-cell][colspan]:only-child>[data-slot=empty]]:start-3",
+      "[&>[data-slot=scroll-area]>[data-slot=scroll-area-viewport]>[data-slot=scroll-area-content]>table>tbody>tr>td[data-slot=table-cell][colspan]:only-child>[data-slot=empty]]:w-[calc(100cqi-1.5rem)]",
       this.class(),
     ),
   );
