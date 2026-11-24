@@ -437,10 +437,14 @@ class TypedToasts extends OrigamiToaster<TypedToast> {}
 declare const typedToasts: TypedToasts;
 const toastId: string = typedToasts.add({title: 'Saved', kind: 'success'}, {duration: Infinity});
 typedToasts.close(toastId);
+const replacedId: string = typedToasts.add({title: 'Saved', kind: 'success'}, {id: 'app-update', duration: Infinity});
+typedToasts.close(replacedId);
 // @ts-expect-error a toast's data is the toaster's T: 'sucess' isn't a kind
 typedToasts.add({title: 'Saved', kind: 'sucess'});
-// @ts-expect-error add's options are timing only
+// @ts-expect-error add's options are an id and timing only
 typedToasts.add({title: 'Saved', kind: 'success'}, {title: 'Saved'});
+// @ts-expect-error a toast id is a string
+typedToasts.add({title: 'Saved', kind: 'success'}, {id: 1});
 // @ts-expect-error the abstract toaster isn't a service on its own: it can't be constructed
 new OrigamiToaster<TypedToast>();
 // @ts-expect-error OrigamiToaster has no default T: a subclass must name it

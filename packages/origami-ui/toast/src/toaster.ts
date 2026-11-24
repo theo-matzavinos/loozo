@@ -2,13 +2,21 @@ import { PLATFORM_ID, inject, signal, untracked } from "@angular/core";
 import type { DestroyRef, Signal } from "@angular/core";
 import { isPlatformServer } from "@angular/common";
 
-/** Origami's own per-toast options: timing only. Everything a toast shows is its `data`. */
+/** Origami's own per-toast options: the toast's id and its timing. Everything a toast shows is its `data`. */
 export interface OrigamiToastAddOptions {
+  /**
+   * The toast's id. Adding with the id of a toast that's waiting or shown replaces it in place,
+   * in the same position, and a shown one's time restarts; one running its exit counts as closed,
+   * so a new toast with that id is added as the newest. Scoped to this toaster. A non-empty
+   * string; `undefined` is the same as omitting it, and anything else throws a `TypeError`.
+   */
+  id?: string;
   /**
    * How long the toast stays open once its region shows it, in milliseconds: a positive number
    * up to 2147483647 (about 24.8 days, the longest `setTimeout` delay), or `Infinity` to stay
    * until it's closed. Another value throws a `RangeError`. Default: the region's `duration`, read
-   * when the region shows the toast. The time runs only while the region isn't paused.
+   * when the region shows the toast, or when a replacement restarts a shown one. The time runs
+   * only while the region isn't paused.
    */
   duration?: number;
 }
@@ -16,8 +24,9 @@ export interface OrigamiToastAddOptions {
 /** One toast as its region renders it: immutable, created by `add`. */
 export interface OrigamiToastRecord<T> {
   /**
-   * The id `add` returned, `og-toast-<n>`, unique in the application. Pass it to `close`; it is
-   * never rendered as a DOM `id`.
+   * The id you gave `add`, else a generated `og-toast-<n>`. Generated ids are unique in the
+   * application and skip an id this toaster holds; an id you give is scoped to its toaster. Pass
+   * it to `close`; it is never rendered as a DOM `id`.
    */
   readonly id: string;
   /**
@@ -42,11 +51,16 @@ export interface ToastEntry<T> {
 export interface ToasterRegion {
   /** Records are waiting: shows them now, unless the region holds them. */
   offer(): void;
+  /**
+   * A shown record is replaced: validates its effective duration, then restarts its time. Throws
+   * before any change.
+   */
+  restart(id: string, duration: number | null): void;
   /** Closes a shown record: moves focus out of it, stops its time and starts its exit. */
   close(id: string): void;
 }
 
-/** Application-wide, so a toast id never matches a toast of another toaster. */
+/** Application-wide, so a generated id never matches a generated id of another toaster. */
 let allocated = 0;
 
 /** The longest delay `setTimeout` runs as given; a longer one overflows and runs at once. */
@@ -80,38 +94,112 @@ export class ToastStore<T> {
 
   readonly entries: Signal<readonly ToastEntry<T>[]> = this.#entries.asReadonly();
 
-  add(data: T, duration: number | null): string {
+  /**
+   * Adds a waiting record, or replaces the waiting or shown one with `id` in its slot; a closing
+   * one counts as closed: it is dropped and a new record with `id` is added as newest.
+   */
+  add(data: T, duration: number | null, id: string | undefined): string {
     if (duration !== null) {
       assertDuration(duration, "A toast's");
     }
 
-    allocated += 1;
+    // Not coerced or interpolated: an object's `toString` could throw or call the toaster.
+    if (id !== undefined && (typeof id !== "string" || id === "")) {
+      throw new TypeError("A toast's id must be a non-empty string.");
+    }
 
-    const id = `og-toast-${allocated}`;
+    const key = id ?? this.#generate();
 
     // A notification has no meaning in server HTML: nothing is kept, so the id matches nothing.
     if (this.#server) {
-      return id;
+      return key;
     }
 
     untracked(() => {
-      this.#entries.update((entries) => [
-        ...entries,
-        { record: { id, data }, duration, status: "waiting" },
-      ]);
+      const entries = this.#entries();
+      const index = entries.findIndex((entry) => entry.record.id === key);
+      const current = entries[index];
+      const record: OrigamiToastRecord<T> = { id: key, data };
 
-      // The region's invalid duration or limit throws before its release changes anything; the
-      // caller never gets this id, so the record goes too and the failed add keeps nothing.
+      if (current?.status === "waiting") {
+        // Waiting for a region, or held by a modal: swapped, and not offered.
+        this.#put(index, { record, duration, status: "waiting" });
+
+        return;
+      }
+
+      if (current?.status === "shown") {
+        // A shown record exists only while a region is registered; its destruction sends the
+        // record back to waiting. `restart` throws before it changes anything.
+        this.#region!.restart(key, duration);
+        this.#put(index, { record, duration, status: "shown" });
+
+        return;
+      }
+
+      const entry: ToastEntry<T> = { record, duration, status: "waiting" };
+      let closing: ToastEntry<T> | null = null;
+      let kept = entries;
+
+      if (current !== undefined) {
+        closing = current;
+        kept = [...entries.slice(0, index), ...entries.slice(index + 1)];
+      }
+
+      this.#entries.set([...kept, entry]);
+
+      // The region's invalid duration or limit throws before its release changes anything.
       try {
         this.#region?.offer();
       } catch (error) {
-        this.drop(id);
+        this.#undo(entry, closing, index);
 
         throw error;
       }
     });
 
-    return id;
+    return key;
+  }
+
+  /** The next `og-toast-<n>`, skipping an id this toaster holds in any status. */
+  #generate(): string {
+    for (;;) {
+      allocated += 1;
+
+      const candidate = `og-toast-${allocated}`;
+
+      if (this.find(candidate) === null) {
+        return candidate;
+      }
+    }
+  }
+
+  /** Writes `entry` at `index`, in place of the entry there. */
+  #put(index: number, entry: ToastEntry<T>): void {
+    const next = [...untracked(this.#entries)];
+
+    next[index] = entry;
+    this.#entries.set(next);
+  }
+
+  /**
+   * A failed offer: removes this add's own entry and puts back the closing entry it replaced, by
+   * identity, keeping every other write made meanwhile.
+   */
+  #undo(entry: ToastEntry<T>, closing: ToastEntry<T> | null, index: number): void {
+    let entries = untracked(this.#entries);
+
+    // Still this very object: the release never wrote it (`setStatus` replaces it), nor did a swap.
+    if (entries.includes(entry)) {
+      entries = entries.filter((other) => other !== entry);
+    }
+
+    // Back only if no record with its id is left: one another write put there stays.
+    if (closing !== null && !entries.some((other) => other.record.id === closing.record.id)) {
+      entries = [...entries.slice(0, index), closing, ...entries.slice(index)];
+    }
+
+    this.#entries.set(entries);
   }
 
   close(id: string): void {
@@ -249,6 +337,8 @@ export function toastStore<T>(toaster: OrigamiToaster<T>): ToastStore<T> {
  *
  * // Anywhere in the application:
  * inject(AppToasts).add({ title: "Todo created", kind: "success" });
+ * // One toast per id: a second add with "app-update" replaces the first in place.
+ * inject(AppToasts).add({ title: "Update ready", kind: "info" }, { id: "app-update" });
  * ```
  */
 export abstract class OrigamiToaster<T> {
@@ -261,18 +351,27 @@ export abstract class OrigamiToaster<T> {
   /**
    * Adds a toast. Its region shows it at once, newest first, or once the region mounts or
    * hydrates, and while a modal dialog blocks the page, once none is left; its time starts then.
-   * When that takes the open toasts over the region's `limit`, the oldest open one closes.
+   * When that takes the open toasts over the region's `limit`, the oldest open one closes. With
+   * the `id` of a toast that's waiting or shown, it replaces that toast in place instead, and a
+   * shown one's time restarts; one running its exit counts as closed, and the new toast is added.
    * Callable from any context, also inside an effect; writes are untracked.
    * @param data - What the toast shows, kept by reference as the record's `data`.
-   * @param options - Timing: a `duration` of its own instead of the region's.
-   * @returns The toast's id, for `close`. On the server nothing is kept and the id matches
-   *   nothing.
-   * @throws `RangeError` for a `duration` that isn't a positive number up to 2147483647 or
-   *   `Infinity`, also on the server, and for a registered region's invalid `duration` or
-   *   `limit`. A throwing `add` keeps nothing.
+   * @param options - The toast's `id`, to replace the open toast with that id, and a `duration`
+   *   of its own instead of the region's.
+   * @returns The given id, else the generated one, for `close`. On the server nothing is kept and
+   *   the id matches nothing.
+   * @throws `TypeError` for an `id` that isn't a non-empty string, and `RangeError` for a
+   *   `duration` that isn't a positive number up to 2147483647 or `Infinity`, both also on the
+   *   server, and for a registered region's invalid `duration` or `limit` when it reads them: a
+   *   release that isn't held reads both, a shown toast's replacement only `duration` and only
+   *   without its own, and a release held by a modal dialog neither. An `add` that throws for an
+   *   invalid input or configuration keeps nothing and changes no existing toast; another
+   *   exception during a release, such as one thrown by a Toast's `toast` Options signal that a
+   *   limit close reads, propagates and can leave that release partly done. A focus listener's
+   *   exception doesn't: the browser reports it and the release goes on.
    */
-  add(data: T, { duration }: OrigamiToastAddOptions = {}): string {
-    return this.#store.add(data, duration ?? null);
+  add(data: T, { id, duration }: OrigamiToastAddOptions = {}): string {
+    return this.#store.add(data, duration ?? null, id);
   }
 
   /**

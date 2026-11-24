@@ -90,7 +90,8 @@ export class ToastLifetimeRegion {
  * Mounts lifetime regions on demand and arms a focus listener, on the return target or on the
  * region host, that destroys the region synchronously inside its close's focus move, and with
  * a replacement mounts a new region on the same toaster that registers at once. A plain modal
- * `<dialog>` holds the toasts added from inside it.
+ * `<dialog>` holds the toasts added from inside it; `held-b` is one a control outside replaces, or
+ * closes and adds again under that dialog.
  */
 @Component({
   selector: "acceptance-toast-lifetime",
@@ -120,12 +121,21 @@ export class ToastLifetimeRegion {
     <button type="button" data-testid="lifetime-arm-host-replace" (click)="arm('host', true)">
       Replace in the region host's focus
     </button>
+    <button type="button" data-testid="lifetime-replace-held" (click)="replaceHeld()">
+      Replace held-b with Lb2, 1600 ms
+    </button>
+    <button type="button" data-testid="lifetime-requeue-held" (click)="requeueHeld(dialog)">
+      Under the modal dialog, close held-b and add it again as Lb2, 1600 ms
+    </button>
     <button type="button" data-testid="lifetime-dialog-open" (click)="dialog.showModal()">
       Open a modal dialog
     </button>
     <dialog #dialog data-testid="lifetime-dialog">
       <button type="button" data-testid="lifetime-dialog-add" (click)="add()">
         Add to the lifetime toaster
+      </button>
+      <button type="button" data-testid="lifetime-dialog-add-held" (click)="addHeld()">
+        Add Lb with id held-b, 250 ms
       </button>
       <button type="button" data-testid="lifetime-dialog-close" (click)="dialog.close()">
         Close
@@ -161,6 +171,22 @@ export class ToastLifetime {
   add(): void {
     this.#count += 1;
     this.#toasts.add({ title: `L${this.#count}` });
+  }
+
+  addHeld(): void {
+    this.#toasts.add({ title: "Lb" }, { id: "held-b", duration: 250 });
+  }
+
+  replaceHeld(): void {
+    this.#toasts.add({ title: "Lb2" }, { id: "held-b", duration: 1600 });
+  }
+
+  /** Holds the toasts with the dialog while it closes `held-b` and adds it again as the newest. */
+  requeueHeld(dialog: HTMLDialogElement): void {
+    dialog.showModal();
+    this.#toasts.close("held-b");
+    this.replaceHeld();
+    dialog.close();
   }
 
   arm(target: "return" | "host", replace: boolean): void {

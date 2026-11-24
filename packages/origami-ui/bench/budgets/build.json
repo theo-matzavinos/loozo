@@ -204,13 +204,13 @@
     "bundle.origami.raw": 48700
   },
   "toast": {
-    "bundle.initial.raw": 136100,
-    "bundle.initial.gzip": 44800,
-    "bundle.initial.brotli": 40100,
-    "bundle.added.raw": 43600,
-    "bundle.added.gzip": 14000,
-    "bundle.added.brotli": 12300,
-    "bundle.origami.raw": 13200
+    "bundle.initial.raw": 137100,
+    "bundle.initial.gzip": 45000,
+    "bundle.initial.brotli": 40300,
+    "bundle.added.raw": 44600,
+    "bundle.added.gzip": 14300,
+    "bundle.added.brotli": 12600,
+    "bundle.origami.raw": 14100
   },
   "slider": {
     "bundle.initial.raw": 134400,

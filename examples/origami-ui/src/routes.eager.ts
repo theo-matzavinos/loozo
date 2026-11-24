@@ -115,6 +115,11 @@ export const routes: Routes = [
       import("./fixtures/toast-modal.js").then((module) => module.ToastModalFixture),
   },
   {
+    path: "toast-replace",
+    loadComponent: () =>
+      import("./fixtures/toast-replace.js").then((module) => module.ToastReplaceFixture),
+  },
+  {
     path: "number-field",
     loadComponent: () =>
       import("./fixtures/number-field.js").then((module) => module.NumberFieldFixture),
