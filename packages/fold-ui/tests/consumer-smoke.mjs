@@ -19,7 +19,9 @@
 // sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
 // forced colors, and the date fields' and DatePicker's server state, cells that keep their width
 // while typing, gaps, looks, popup placement, choosing, Escape in a Dialog, readonly and disabled
-// policies and forced colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
+// policies and forced colors, and Accordion's and Collapsible's server state, ARIA links, class
+// routing to the content box, selection, locks, disabled looks, deferred content, themes and forced
+// colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
 // and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial focus, revealing the
 // active option or the focused control, and height caps) is consumer-scrolling.mjs's, in every
 // engine.
@@ -30,6 +32,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { chromium } from "playwright";
+import { disclosurePanelClasses } from "../components/disclosure/disclosure.ts";
 import { startServer } from "./consumer-server.mjs";
 
 const app = process.argv[2];
@@ -9397,6 +9400,637 @@ try {
     }
 
     assert.equal(await iconStroke("dp-field"), systemColors.canvasText);
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
+
+  // Accordion and Collapsible. Exact geometry and outline widths are DPR-1 values. Motion, native
+  // reveal, focus after Save and Tab during motion are consumer-disclosure.mjs's, in every engine;
+  // here every state reads settled, under reduced motion.
+  {
+    const triggerPanels = {
+      "cancel-trigger": "cancel-panel",
+      "exports-trigger": "exports-panel",
+      "legacy-trigger": "legacy-panel",
+      "profile-trigger": "profile-panel",
+      "notifications-trigger": "notifications-panel",
+      "migration-trigger": "migration-panel",
+      "applicant-trigger": "applicant-panel",
+      "billing-trigger": "billing-panel",
+      "preferences-trigger": "preferences-panel",
+      "receipts-trigger": "receipts-panel",
+      "reminders-trigger": "reminders-panel",
+      "light-first-trigger": "light-first-panel",
+      "light-second-trigger": "light-second-panel",
+      "reports-trigger": "reports-panel",
+      "show-more-trigger": "show-more-panel",
+      "invoice-filters-trigger": "invoice-filters-panel",
+      "locked-more-trigger": "locked-more-panel",
+      "trigger-disabled-more-trigger": "trigger-disabled-more-panel",
+      "invoice-notes-trigger": "invoice-notes-panel",
+      "table-row-trigger": "table-row-panel",
+    };
+    const initiallyOpen = new Set([
+      "profile-panel",
+      "applicant-panel",
+      "receipts-panel",
+      "light-first-panel",
+      "invoice-notes-panel",
+    ]);
+
+    // Server rendering: every part's slot, the triggers' and panels' ARIA links, closed panels
+    // plainly hidden (until-found needs the browser), open ones present, the host's class exactly
+    // fold's motion classes, and the indicators.
+    for (const id of ["faq", "settings", "sections", "inner-accordion", "light-accordion"]) {
+      assert.match(openingTag(html, id), /\bdata-slot="accordion"/, id);
+    }
+
+    for (const id of ["faq-cancel", "settings-profile", "applicant-item", "receipts-item"]) {
+      assert.match(openingTag(html, id), /\bdata-slot="accordion-item"/, id);
+    }
+
+    assert.match(
+      /<h3\b[^>]*\bid="faq-cancel-header"[^>]*>/.exec(html)[0],
+      /\bdata-slot="accordion-header"/,
+    );
+
+    for (const id of [
+      "nav-group",
+      "show-more",
+      "invoice-filters",
+      "locked-more",
+      "trigger-disabled-more",
+      "invoice-notes",
+      "table-row",
+    ]) {
+      assert.match(openingTag(html, id), /\bdata-slot="collapsible"/, id);
+    }
+
+    for (const [triggerId, panelId] of Object.entries(triggerPanels)) {
+      const trigger = openingTag(html, triggerId);
+      const panel = openingTag(html, panelId);
+      let part = "collapsible";
+
+      if (/\bdata-slot="accordion-panel"/.test(panel)) {
+        part = "accordion";
+      }
+      const open = initiallyOpen.has(panelId);
+
+      assert.match(trigger, /\btype="button"/, triggerId);
+      assert.match(trigger, new RegExp(`\\bdata-slot="${part}-trigger"`), triggerId);
+      assert.match(trigger, new RegExp(`\\baria-expanded="${open}"`), triggerId);
+      assert.match(trigger, new RegExp(`\\baria-controls="${panelId}"`), triggerId);
+      assert.match(panel, new RegExp(`\\bdata-slot="${part}-panel"`), panelId);
+      assert.match(panel, new RegExp(`\\baria-labelledby="${triggerId}"`), panelId);
+      assert.equal(/\bclass="([^"]*)"/.exec(panel)[1], disclosurePanelClasses, `${panelId} class`);
+
+      if (open) {
+        assert.doesNotMatch(panel, /\shidden[\s=>]/, panelId);
+        assert.match(panel, /\sdata-present=""/, panelId);
+      } else {
+        assert.match(panel, /\shidden=""/, panelId);
+      }
+
+      const markup = element(html, panelId);
+
+      assert.match(markup, new RegExp(`<div\\b[^>]*\\bdata-slot="${part}-panel-clip"`), panelId);
+      assert.match(markup, new RegExp(`<div\\b[^>]*\\bdata-slot="${part}-panel-content"`), panelId);
+    }
+
+    const indicators = (id) =>
+      tagsIn(element(html, id), "svg").filter((tag) =>
+        tag.includes('data-slot="accordion-indicator"'),
+      );
+
+    assert.equal(indicators("cancel-trigger").length, 1, "the built-in chevron");
+    assert.match(indicators("cancel-trigger")[0], /\baria-hidden="true"/);
+    assert.ok(
+      tagsIn(element(html, "cancel-trigger"), "span").some((tag) =>
+        tag.includes('data-slot="accordion-label"'),
+      ),
+      "the label wraps the trigger's content",
+    );
+    assert.equal(indicators("billing-trigger").length, 0, 'indicator="false"');
+    assert.equal(indicators("applicant-trigger").length, 1, "one replacement indicator");
+    assert.match(indicators("applicant-trigger")[0], /\bid="applicant-minus"/);
+    assert.match(indicators("applicant-trigger")[0], /\baria-hidden="true"/);
+
+    // The locked open item (Single without collapsible) and the disabled ones.
+    assert.match(openingTag(html, "profile-trigger"), /\baria-disabled="true"/);
+    assert.doesNotMatch(openingTag(html, "profile-trigger"), /\sdisabled[\s=>]/);
+    assert.match(openingTag(html, "legacy-trigger"), /\sdisabled=""/);
+    assert.match(openingTag(html, "migration-trigger"), /\baria-disabled="true"/);
+    assert.doesNotMatch(openingTag(html, "migration-trigger"), /\sdisabled[\s=>]/);
+    assert.match(openingTag(html, "locked-more-trigger"), /\sdisabled=""/);
+    assert.match(openingTag(html, "trigger-disabled-more-trigger"), /\baria-disabled="true"/);
+
+    // A Panel's class, static or a whole bound string, styles its content box, never its host.
+    const contentClasses = (panelId, part) => {
+      const tag = tagsIn(element(html, panelId), "div").find((tag) =>
+        tag.includes(`data-slot="${part}-panel-content"`),
+      );
+
+      return /\bclass="([^"]*)"/.exec(tag)[1].split(" ");
+    };
+
+    for (const panelId of ["applicant-panel", "billing-panel"]) {
+      const classes = contentClasses(panelId, "accordion");
+
+      assert.ok(classes.includes("px-8") && classes.includes("pb-3"), `${panelId} content`);
+      assert.equal(classes.includes("px-2"), false, `${panelId} content keeps fold's px-2`);
+    }
+
+    // The Collapsible's own binding: a static class and a bound whole string.
+    assert.deepEqual(contentClasses("reports-panel", "collapsible"), ["ps-6"]);
+    assert.deepEqual(contentClasses("invoice-filters-panel", "collapsible"), ["pt-2"]);
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+
+    const closedHidden = await page.evaluate(() => {
+      if ("onbeforematch" in document.getElementById("cancel-panel")) {
+        return "until-found";
+      }
+
+      return "";
+    });
+    const panelOf = (panelId) =>
+      page.evaluate((panelId) => {
+        const host = document.getElementById(panelId);
+        const style = getComputedStyle(host);
+        const content = host.querySelector(":scope > * > [data-slot$=panel-content]");
+        const contentStyle = getComputedStyle(content);
+
+        return {
+          hostClass: host.getAttribute("class"),
+          content: content.getAttribute("class").split(" "),
+          hostPadding: [
+            style.paddingTop,
+            style.paddingRight,
+            style.paddingBottom,
+            style.paddingLeft,
+          ],
+          contentPadding: [
+            contentStyle.paddingTop,
+            contentStyle.paddingRight,
+            contentStyle.paddingBottom,
+            contentStyle.paddingLeft,
+          ],
+          height: host.getBoundingClientRect().height,
+          hidden: host.getAttribute("hidden"),
+        };
+      }, panelId);
+    const exactHost = async (panelId, label) => {
+      const panel = await panelOf(panelId);
+
+      assert.equal(panel.hostClass, disclosurePanelClasses, `${panelId} host class, ${label}`);
+      assert.deepEqual(panel.hostPadding, ["0px", "0px", "0px", "0px"], `${panelId}, ${label}`);
+
+      if (panel.hidden !== null) {
+        assert.equal(panel.height, 0, `${panelId} closed height, ${label}`);
+      }
+
+      return panel;
+    };
+    const click = async (id) => {
+      await page.click(`#${id}`);
+      await rendered();
+    };
+    const settledOpen = (panelId) => untilAbsent(panelId, "hidden");
+    const settledClosed = (panelId, value) => until(panelId, "hidden", value);
+
+    // Hydrated: the same exact host and padded content boxes, then reactively: a new whole string
+    // replaces the content box's padding, and the host stays exact through toggles and the root's
+    // disabled state.
+    for (const panelId of ["applicant-panel", "billing-panel"]) {
+      await exactHost(panelId, "hydrated");
+    }
+
+    assert.deepEqual((await panelOf("applicant-panel")).contentPadding, [
+      "0px",
+      "32px",
+      "12px",
+      "32px",
+    ]);
+    await click("sections-pad");
+
+    const widened = await exactHost("applicant-panel", "px-16");
+
+    assert.ok(widened.content.includes("px-16") && !widened.content.includes("px-8"));
+    assert.equal(widened.contentPadding[1], "64px");
+    await click("sections-pad");
+    assert.ok((await exactHost("applicant-panel", "px-8 again")).content.includes("px-8"));
+
+    // The same for the Collapsible: its static class pads the sidebar's content box, never its
+    // host, and a new whole string replaces the filters' padding.
+    assert.deepEqual((await exactHost("reports-panel", "hydrated")).contentPadding, [
+      "0px",
+      "0px",
+      "0px",
+      "24px",
+    ]);
+    assert.deepEqual((await exactHost("invoice-filters-panel", "hydrated")).content, ["pt-2"]);
+    await click("filters-pad");
+
+    const lowered = await exactHost("invoice-filters-panel", "pt-6");
+
+    assert.deepEqual(lowered.content, ["pt-6"]);
+    assert.equal(lowered.contentPadding[0], "24px");
+    await click("filters-pad");
+    assert.deepEqual((await exactHost("invoice-filters-panel", "pt-2 again")).content, ["pt-2"]);
+
+    await click("billing-trigger");
+    await settledOpen("billing-panel");
+    await untilText("sections-value", "applicant,billing");
+
+    for (const step of ["applicant-trigger", "billing-trigger"]) {
+      await click(step);
+    }
+
+    await settledClosed("applicant-panel", closedHidden);
+    await settledClosed("billing-panel", closedHidden);
+    await untilText("sections-value", "");
+
+    for (const panelId of ["applicant-panel", "billing-panel"]) {
+      await exactHost(panelId, "closed");
+    }
+
+    for (const step of ["applicant-trigger", "billing-trigger"]) {
+      await click(step);
+    }
+
+    await settledOpen("billing-panel");
+    await click("sections-disable");
+    await click("sections-disable");
+
+    for (const panelId of ["applicant-panel", "billing-panel"]) {
+      assert.deepEqual((await exactHost(panelId, "reopened")).contentPadding.slice(1, 2), ["32px"]);
+    }
+
+    // Single with collapsible: clicks, Enter and Space open and close, and the model follows.
+    // Closed enabled panels are until-found where the browser supports it.
+    assert.equal(await attribute("cancel-panel", "hidden"), closedHidden);
+    await click("cancel-trigger");
+    await settledOpen("cancel-panel");
+    assert.equal(await textOf("faq-value"), "cancel");
+    assert.equal(await attribute("cancel-trigger", "aria-expanded"), "true");
+    await click("exports-trigger");
+    await settledClosed("cancel-panel", closedHidden);
+    assert.equal(await textOf("faq-value"), "exports");
+    await click("exports-trigger");
+    await settledClosed("exports-panel", closedHidden);
+    assert.equal(await textOf("faq-value"), "null");
+    await page.focus("#cancel-trigger");
+    await page.keyboard.press("Enter");
+    await untilText("faq-value", "cancel");
+    await page.keyboard.press("Space");
+    await untilText("faq-value", "null");
+    await settledClosed("cancel-panel", closedHidden);
+
+    // Disabled items and opted-out panels are plainly hidden; a natively disabled trigger ignores
+    // clicks, a focusable disabled one is a Tab stop that ignores them too.
+    for (const panelId of ["legacy-panel", "migration-panel", "notifications-panel"]) {
+      assert.equal(await attribute(panelId, "hidden"), "", panelId);
+    }
+
+    await page.click("#legacy-trigger", { force: true });
+    await page.focus("#migration-trigger");
+    assert.equal(await activeId(), "migration-trigger");
+    assert.equal(await page.evaluate(() => document.activeElement.tabIndex), 0);
+    await page.click("#migration-trigger", { force: true });
+    await rendered();
+    assert.equal(await textOf("faq-value"), "null");
+    assert.equal(await textOf("settings-value"), "profile");
+
+    // Single without collapsible: the open item is locked, focusable and ignores clicks; choosing
+    // another moves the lock, and the opted-out panel closes to plain hidden.
+    await page.focus("#profile-trigger");
+    assert.equal(await activeId(), "profile-trigger");
+    await page.click("#profile-trigger", { force: true });
+    await rendered();
+    assert.equal(await textOf("settings-value"), "profile");
+    await click("notifications-trigger");
+    await settledClosed("profile-panel", "");
+    assert.equal(await textOf("settings-value"), "notifications");
+    assert.equal(await attribute("profile-trigger", "aria-disabled"), null);
+    assert.equal(await attribute("notifications-trigger", "aria-disabled"), "true");
+    await click("profile-trigger");
+    await settledOpen("profile-panel");
+    await settledClosed("notifications-panel", "");
+
+    // Multiple: the replacement indicator follows the item, the nested accordion keeps its own
+    // value, and deferred content exists only while its panel is open.
+    const sectionIndicators = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#applicant-trigger [data-slot=accordion-indicator]")].map(
+          (svg) => svg.id,
+        ),
+      );
+
+    assert.deepEqual(await sectionIndicators(), ["applicant-minus"]);
+    await click("applicant-trigger");
+    await settledClosed("applicant-panel", closedHidden);
+    assert.deepEqual(await sectionIndicators(), ["applicant-plus"]);
+    await click("applicant-trigger");
+    await settledOpen("applicant-panel");
+    assert.equal(await textOf("sections-value"), "billing,applicant");
+    await click("preferences-trigger");
+    await settledOpen("preferences-panel");
+    await click("reminders-trigger");
+    await settledOpen("reminders-panel");
+    assert.equal(await textOf("inner-sections-value"), "receipts,reminders");
+    assert.equal(await textOf("sections-value"), "billing,applicant,preferences");
+    await click("reminders-trigger");
+    await settledClosed("reminders-panel", closedHidden);
+
+    await click("billing-defer");
+    assert.equal(await page.locator("#billing-fields").count(), 1, "open: mounted");
+    await click("billing-trigger");
+    await settledClosed("billing-panel", closedHidden);
+    await page.waitForSelector("#billing-fields", { state: "detached" });
+    await click("billing-trigger");
+    await settledOpen("billing-panel");
+    assert.equal(await page.locator("#billing-fields").count(), 1, "reopened: mounted");
+
+    // The disabled look comes from each trigger's own Item: enabled, locked, natively and
+    // focusably disabled, then the outer root disabled around an open inner accordion.
+    const looks = async (ids) => {
+      const result = {};
+
+      for (const id of ids) {
+        const style = await styleOf(`#${id}`, ["cursor", "opacity"]);
+
+        result[id] = `${style.cursor}/${style.opacity}`;
+      }
+
+      return result;
+    };
+
+    assert.deepEqual(
+      await looks(["cancel-trigger", "profile-trigger", "legacy-trigger", "migration-trigger"]),
+      {
+        "cancel-trigger": "pointer/1",
+        "profile-trigger": "default/1",
+        "legacy-trigger": "not-allowed/0.5",
+        "migration-trigger": "not-allowed/0.5",
+      },
+    );
+    await click("sections-disable");
+    assert.deepEqual(
+      await looks(["applicant-trigger", "preferences-trigger", "receipts-trigger"]),
+      {
+        "applicant-trigger": "not-allowed/0.5",
+        "preferences-trigger": "not-allowed/0.5",
+        "receipts-trigger": "pointer/1",
+      },
+    );
+    await click("receipts-trigger");
+    await settledClosed("receipts-panel", closedHidden);
+    await click("receipts-trigger");
+    await settledOpen("receipts-panel");
+    assert.equal(await textOf("inner-sections-value"), "receipts");
+    await page.click("#applicant-trigger", { force: true });
+    await rendered();
+    assert.equal(await textOf("sections-value"), "applicant,preferences,billing");
+    await click("sections-disable");
+
+    // Collapsible: clicks, Enter and Space; the sidebar's panel holds one list of items.
+    await click("reports-trigger");
+    await settledOpen("reports-panel");
+    assert.equal(await textOf("reports-value"), "true");
+    assert.equal(await attribute("reports-trigger", "aria-expanded"), "true");
+    assert.equal((await styleOf("#reports-chevron", ["rotate"])).rotate, "180deg");
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const content = document.querySelector(
+          "#reports-panel [data-slot=collapsible-panel-content]",
+        );
+
+        return [...content.children].map((child) => [
+          child.tagName,
+          [...child.children].map((item) => item.tagName),
+        ]);
+      }),
+      [["UL", ["LI", "LI"]]],
+    );
+    await page.keyboard.press("Enter");
+    await untilText("reports-value", "false");
+    await page.keyboard.press("Space");
+    await untilText("reports-value", "true");
+    await click("reports-trigger");
+    await settledClosed("reports-panel", closedHidden);
+
+    // The root's disabled blocks the trigger and plainly hides the panel, while the app's writes
+    // still open and close it; the trigger's own disabled leaves the panel findable.
+    assert.equal(await attribute("locked-more-panel", "hidden"), "");
+    await page.click("#locked-more-trigger", { force: true });
+    await rendered();
+    assert.equal(await attribute("locked-more-panel", "hidden"), "");
+    await click("locked-more-write");
+    await settledOpen("locked-more-panel");
+    assert.equal(await attribute("locked-more-trigger", "aria-expanded"), "true");
+    assert.equal(await attribute("locked-more-trigger", "disabled"), "");
+    await click("locked-more-write");
+    await settledClosed("locked-more-panel", "");
+    assert.equal(await attribute("trigger-disabled-more-panel", "hidden"), closedHidden);
+    await page.focus("#trigger-disabled-more-trigger");
+    assert.equal(await activeId(), "trigger-disabled-more-trigger");
+    await page.click("#trigger-disabled-more-trigger", { force: true });
+    await rendered();
+    assert.equal(await attribute("trigger-disabled-more-panel", "hidden"), closedHidden);
+
+    // The table row's panel spans its row; "Show more" and the link Button match.
+    await click("table-row-trigger");
+    await settledOpen("table-row-panel");
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const width = (id) => document.getElementById(id).getBoundingClientRect().width;
+
+        return Math.abs(width("table-row-panel") - width("table-row-details")) < 0.5;
+      }),
+      true,
+      "the row's panel spans the row",
+    );
+
+    const height = async (id) => (await styleOf(`#${id}`, ["height"])).height;
+
+    assert.equal(await height("reports-trigger"), "32px");
+    assert.equal(await height("invoice-filters-trigger"), "32px");
+    assert.equal(await height("show-more-trigger"), await height("show-more-twin"));
+    await click("show-more-trigger");
+    await settledOpen("show-more-panel");
+    assert.equal(await textOf("show-more-trigger"), "Show fewer");
+    assert.equal(await height("show-more-trigger"), await height("show-more-twin"));
+
+    // Looks in both themes, against the theme's own tokens: the 38px row, its type and color, the
+    // 16px chevron turning only while open, the dividers, the content box's padding, the hover
+    // tint (none while locked) and the ring.
+    const tokens = (scope) =>
+      page.evaluate((scope) => {
+        const probe = document.createElement("span");
+        const read = (property, key, value) => {
+          probe.style.cssText = `position: fixed; ${property}: ${value}`;
+
+          return getComputedStyle(probe)[key];
+        };
+
+        document.querySelector(scope).append(probe);
+
+        const result = {
+          foreground: read("color", "color", "var(--foreground)"),
+          muted: read("color", "color", "var(--muted-foreground)"),
+          border: read("color", "color", "var(--border)"),
+          hover: read(
+            "background",
+            "backgroundColor",
+            "color-mix(in oklab, var(--foreground) 4%, transparent)",
+          ),
+        };
+
+        probe.remove();
+
+        return result;
+      }, scope);
+    const rowLook = (triggerId) =>
+      page.evaluate((triggerId) => {
+        const trigger = document.getElementById(triggerId);
+        const style = getComputedStyle(trigger);
+        const chevron = getComputedStyle(trigger.querySelector("[data-slot=accordion-indicator]"));
+        const item = getComputedStyle(trigger.closest("[data-slot=accordion-item]"));
+
+        return {
+          height: style.height,
+          type: `${style.fontSize}/${style.fontWeight}`,
+          color: style.color,
+          chevron: `${chevron.width}×${chevron.height}`,
+          chevronColor: chevron.color,
+          rotate: chevron.rotate,
+          divider: `${item.borderBottomWidth} ${item.borderBottomStyle} ${item.borderBottomColor}`,
+        };
+      }, triggerId);
+
+    await click("cancel-trigger");
+    await settledOpen("cancel-panel");
+
+    for (const [scope, closedId, openId, lastItem] of [
+      ["#disclosures", "exports-trigger", "cancel-trigger", "faq-legacy"],
+      ["#light-disclosures", "light-second-trigger", "light-first-trigger", null],
+    ]) {
+      const theme = await tokens(scope);
+      const closed = await rowLook(closedId);
+      const open = await rowLook(openId);
+
+      assert.deepEqual(open, {
+        height: "38px",
+        type: "13px/600",
+        color: theme.foreground,
+        chevron: "16px×16px",
+        chevronColor: theme.muted,
+        rotate: "180deg",
+        divider: `1px solid ${theme.border}`,
+      });
+      assert.equal(closed.rotate, "none", `${closedId} rotate`);
+      assert.equal(closed.color, theme.foreground);
+
+      if (lastItem) {
+        assert.equal(
+          (await styleOf(`#${lastItem}`, ["borderBottomWidth"])).borderBottomWidth,
+          "0px",
+        );
+      } else {
+        assert.equal(closed.divider.split(" ")[0], "0px", "the last item has no divider");
+      }
+
+      await page.hover(`#${closedId}`);
+      assert.equal(
+        (await styleOf(`#${closedId}`, ["backgroundColor"])).backgroundColor,
+        theme.hover,
+        `${scope} hover`,
+      );
+    }
+
+    // The two-line label: the row grows with it and its icon is 16px.
+    assert.ok(parseFloat(await height("exports-trigger")) > 38, "a wrapping label grows the row");
+    assert.deepEqual(await styleOf("#exports-trigger [data-slot=accordion-label] svg", ["width"]), {
+      width: "16px",
+    });
+    assert.deepEqual((await panelOf("cancel-panel")).contentPadding, ["0px", "8px", "12px", "8px"]);
+    assert.equal((await styleOf("#applicant-minus", ["rotate"])).rotate, "none");
+
+    await page.hover("#profile-trigger");
+    assert.equal(
+      (await styleOf("#profile-trigger", ["backgroundColor"])).backgroundColor,
+      "rgba(0, 0, 0, 0)",
+      "no hover tint while locked",
+    );
+
+    for (const [id, color] of [
+      ["cancel-trigger", darkRing],
+      ["profile-trigger", darkRing],
+      ["light-first-trigger", lightRing],
+    ]) {
+      await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+      await page.keyboard.press("Shift");
+      await page.focus(`#${id}`);
+      await rendered();
+      assert.deepEqual(await outline(`#${id}`), ringOutline(color), `${id} ring`);
+    }
+
+    // Forced colors, from a fresh page: disabled triggers (natively, focusably and by the root) are
+    // GrayText, the locked one and an inner trigger under a disabled outer item ButtonText; the
+    // ring is a solid system color and the dividers stay.
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await fresh();
+
+    const forced = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      const read = (value) => {
+        probe.style.cssText = `position: fixed; forced-color-adjust: none; color: ${value}`;
+
+        return getComputedStyle(probe).color;
+      };
+
+      document.body.append(probe);
+
+      const result = {
+        buttonText: read("ButtonText"),
+        grayText: read("GrayText"),
+        highlight: read("Highlight"),
+      };
+
+      probe.remove();
+
+      return result;
+    });
+    const colorOf = async (id) => (await styleOf(`#${id}`, ["color"])).color;
+
+    assert.notEqual(forced.buttonText, forced.grayText);
+    assert.equal(await colorOf("legacy-trigger"), forced.grayText, "natively disabled");
+    assert.equal(await colorOf("migration-trigger"), forced.grayText, "focusably disabled");
+    assert.equal(await colorOf("profile-trigger"), forced.buttonText, "locked");
+    assert.equal(await colorOf("cancel-trigger"), forced.buttonText, "enabled");
+
+    await click("preferences-trigger");
+    await settledOpen("preferences-panel");
+    await click("sections-disable");
+    assert.equal(await colorOf("applicant-trigger"), forced.grayText, "root disabled");
+    assert.equal(
+      await colorOf("receipts-trigger"),
+      forced.buttonText,
+      "inner under a disabled root",
+    );
+
+    const divider = await styleOf("#faq-cancel", ["borderBottomStyle", "borderBottomWidth"]);
+
+    assert.deepEqual(divider, { borderBottomStyle: "solid", borderBottomWidth: "1px" });
+    await page.locator("#cancel-trigger").scrollIntoViewIfNeeded();
+    await page.keyboard.press("Shift");
+    await page.focus("#cancel-trigger");
+    await rendered();
+    assert.deepEqual(
+      await outline("#cancel-trigger"),
+      ringOutline(forced.highlight),
+      "forced ring",
+    );
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 

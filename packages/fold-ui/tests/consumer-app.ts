@@ -1,8 +1,17 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
 import { DatePipe } from "@angular/common";
-import { Component, LOCALE_ID, computed, inject, signal } from "@angular/core";
 import {
+  Component,
+  Injector,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from "@angular/core";
+import {
+  type FieldTree,
   FormField,
   disabled,
   email,
@@ -16,6 +25,7 @@ import {
   validate,
 } from "@angular/forms/signals";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
+import { AccordionParts } from "#ui/accordion";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
 import { Button, ButtonLink } from "#ui/button";
@@ -27,6 +37,7 @@ import {
   provideCalendarLabels,
 } from "#ui/calendar";
 import { Checkbox } from "#ui/checkbox";
+import { CollapsibleParts } from "#ui/collapsible";
 import { ComboboxParts } from "#ui/combobox";
 import {
   DateField,
@@ -67,7 +78,10 @@ import {
   LucideChevronDown,
   LucideEllipsis,
   LucideLink,
+  LucideMinus,
   LucidePencil,
+  LucidePlus,
+  LucideReceipt,
   LucideRotateCcw,
   LucideStore,
   LucideTrash,
@@ -1077,6 +1091,521 @@ export class FileFields {
   }
 }
 
+// Accordion and Collapsible: an FAQ, locked settings, form sections with app-owned validation,
+// a sidebar group, "Show more", notes open from the server, a table row, a late-inserted accordion
+// and a light copy, read by consumer-smoke.mjs and consumer-disclosure.mjs. The page's last
+// section, so nothing below it moves when a panel grows.
+@Component({
+  selector: "app-disclosures",
+  imports: [
+    AccordionParts,
+    Button,
+    CollapsibleParts,
+    Field,
+    FieldError,
+    FieldLabel,
+    FormField,
+    Input,
+    LucideArchive,
+    LucideChevronDown,
+    LucideMinus,
+    LucidePlus,
+    LucideReceipt,
+    RadioGroup,
+    RadioGroupItem,
+  ],
+  template: `
+    <section id="disclosures" class="grid w-[1144px] grid-cols-[220px_minmax(0,1fr)] gap-8 p-5">
+      <nav aria-label="Workspace" class="rounded-surface border border-border bg-surface p-3">
+        <ul class="grid gap-0.5">
+          <li><a href="#disclosures" id="overview-link">Overview</a></li>
+          <li zzCollapsible [(expanded)]="reportsOpen" id="nav-group">
+            <button
+              zzCollapsibleTrigger
+              variant="ghost"
+              class="w-full justify-start"
+              id="reports-trigger"
+            >
+              <svg lucideReceipt aria-hidden="true"></svg> Reports
+              <svg
+                lucideChevronDown
+                aria-hidden="true"
+                class="ms-auto transition-transform duration-180 ease-out motion-reduce:transition-none [[aria-expanded=true]>&]:rotate-180"
+                id="reports-chevron"
+              ></svg>
+            </button>
+            <div zzCollapsiblePanel class="ps-6" id="reports-panel">
+              <ul id="reports-list">
+                <li><a href="#disclosures" id="monthly-link">Monthly</a></li>
+                <li><a href="#disclosures" id="tax-summaries">Tax summaries</a></li>
+              </ul>
+            </div>
+          </li>
+          <li><a href="#disclosures" id="settings-link">Settings</a></li>
+        </ul>
+        <output id="reports-value">{{ reportsOpen() }}</output>
+      </nav>
+
+      <div class="grid min-w-0 grid-cols-2 items-start gap-8">
+        <div class="grid min-w-0 gap-6">
+          <div zzAccordionSingle [(value)]="faq" collapsible id="faq">
+            <div zzAccordionItem value="cancel" id="faq-cancel">
+              <h3 zzAccordionHeader id="faq-cancel-header">
+                <button zzAccordionTrigger id="cancel-trigger">How do I cancel a contract?</button>
+              </h3>
+              <div zzAccordionPanel id="cancel-panel">
+                Open the contract, then choose End contract. Access stays until the billing period
+                ends.
+              </div>
+            </div>
+            <div zzAccordionItem value="exports" id="faq-exports">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="exports-trigger">
+                  <svg lucideArchive aria-hidden="true" class="text-muted-foreground"></svg>
+                  <span>Download invoices and<br />payment records</span>
+                  <span class="text-label font-normal text-muted-foreground tabular-nums">3</span>
+                </button>
+              </h3>
+              <div zzAccordionPanel id="exports-panel">
+                <div class="grid max-w-[34ch] gap-3">
+                  <p>
+                    Open Reports and choose a billing period to download its invoices and payment
+                    records. Each export follows the organization and currency of the report.
+                  </p>
+                  <p>
+                    Use the invoice PDFs for a payment approval, an audit or a supplier request. The
+                    archive holds one PDF for each invoice in the period.
+                  </p>
+                  <p>
+                    Large reports are prepared in the background. A
+                    <a href="#disclosures" id="faq-link">download link</a> appears in Reports when
+                    the files are ready and stays for seven days.
+                  </p>
+                  <p>
+                    Import the payment ledger into your accounting system: it lists reversals and
+                    adjustments next to settled payments.
+                  </p>
+                  <p id="faq-export-format">
+                    <strong id="faq-export-phrase">Juniper settlement ledger</strong> exports as a
+                    UTF-8 CSV.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div zzAccordionItem value="legacy" disabled id="faq-legacy">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="legacy-trigger">Legacy imports</button>
+              </h3>
+              <div zzAccordionPanel id="legacy-panel">Legacy imports are no longer available.</div>
+            </div>
+          </div>
+          <output id="faq-value">{{ faq() ?? "null" }}</output>
+
+          <div zzAccordionSingle [(value)]="settings" id="settings">
+            <div zzAccordionItem value="profile" hiding="hidden" id="settings-profile">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="profile-trigger">Billing profile</button>
+              </h3>
+              <div zzAccordionPanel id="profile-panel">Northline Studio, monthly invoicing.</div>
+            </div>
+            <div zzAccordionItem value="notifications" hiding="hidden" id="settings-notifications">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger id="notifications-trigger">Notifications</button>
+              </h3>
+              <div zzAccordionPanel id="notifications-panel">
+                Send payment receipts to your billing email.
+              </div>
+            </div>
+            <div zzAccordionItem value="migration" disabled id="settings-migration">
+              <h3 zzAccordionHeader>
+                <button zzAccordionTrigger focusableWhenDisabled id="migration-trigger">
+                  Account migration
+                </button>
+              </h3>
+              <div zzAccordionPanel id="migration-panel">
+                Available once your workspace is eligible.
+              </div>
+            </div>
+          </div>
+          <output id="settings-value">{{ settings() ?? "null" }}</output>
+
+          <div zzCollapsible #more="zzCollapsible" id="show-more">
+            <p>November invoice, paid</p>
+            <p>October invoice, paid</p>
+            <div zzCollapsiblePanel id="show-more-panel">
+              <p>September invoice, paid</p>
+              <p>August invoice, paid</p>
+            </div>
+            <div class="flex items-center gap-4">
+              <button zzCollapsibleTrigger variant="link" size="sm" id="show-more-trigger">
+                {{ more.state.expanded() ? "Show fewer" : "Show 2 more" }}
+              </button>
+              <button zzButton variant="link" size="sm" id="show-more-twin">
+                {{ more.state.expanded() ? "Show fewer" : "Show 2 more" }}
+              </button>
+            </div>
+          </div>
+
+          <div zzCollapsible hiding="hidden" id="invoice-filters">
+            <button zzCollapsibleTrigger id="invoice-filters-trigger">Invoice filters</button>
+            <div zzCollapsiblePanel [class]="filtersPad()" id="invoice-filters-panel">
+              Filter by invoice number or period.
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-4">
+            <div zzCollapsible disabled [(expanded)]="lockedMoreOpen" id="locked-more">
+              <button zzCollapsibleTrigger variant="link" size="sm" id="locked-more-trigger">
+                Archived invoices
+              </button>
+              <div zzCollapsiblePanel id="locked-more-panel">Archived invoice records.</div>
+            </div>
+            <button
+              zzButton
+              variant="ghost"
+              size="sm"
+              (click)="lockedMoreOpen.set(!lockedMoreOpen())"
+              id="locked-more-write"
+            >
+              Write archived open
+            </button>
+            <div zzCollapsible id="trigger-disabled-more">
+              <button
+                zzCollapsibleTrigger
+                variant="link"
+                size="sm"
+                disabled
+                focusableWhenDisabled
+                id="trigger-disabled-more-trigger"
+              >
+                Pending invoices
+              </button>
+              <div zzCollapsiblePanel id="trigger-disabled-more-panel">
+                Pending invoice records.
+              </div>
+            </div>
+          </div>
+
+          <div zzCollapsible [(expanded)]="notesOpen" id="invoice-notes">
+            <button zzCollapsibleTrigger variant="ghost" size="sm" id="invoice-notes-trigger">
+              Invoice notes
+            </button>
+            <div zzCollapsiblePanel id="invoice-notes-panel">
+              Reverse charge applies to EU customers.
+            </div>
+          </div>
+        </div>
+
+        <div class="grid min-w-0 gap-6">
+          <form novalidate (submit)="$event.preventDefault(); save()" id="payment-form">
+            <div
+              zzAccordionMultiple
+              [(value)]="sections"
+              [disabled]="sectionsDisabled()"
+              id="sections"
+            >
+              <div
+                zzAccordionItem
+                value="applicant"
+                #applicant="zzAccordionItem"
+                id="applicant-item"
+              >
+                <h2 zzAccordionHeader>
+                  <button zzAccordionTrigger id="applicant-trigger">
+                    Applicant
+                    @if (applicant.state.expanded()) {
+                      <svg lucideMinus zzAccordionIndicator id="applicant-minus"></svg>
+                    } @else {
+                      <svg lucidePlus zzAccordionIndicator id="applicant-plus"></svg>
+                    }
+                  </button>
+                </h2>
+                <div zzAccordionPanel [class]="sectionPad()" id="applicant-panel">
+                  <div zzField>
+                    <label zzFieldLabel>Name</label>
+                    <input zzInput [formField]="payment.name" id="applicant-name" />
+                  </div>
+                </div>
+              </div>
+              <div zzAccordionItem value="billing" id="billing-item">
+                <h2 zzAccordionHeader>
+                  <button zzAccordionTrigger indicator="false" id="billing-trigger">
+                    Billing contact
+                  </button>
+                </h2>
+                <div
+                  zzAccordionPanel
+                  class="px-8"
+                  #billingPanel="zzAccordionPanel"
+                  id="billing-panel"
+                >
+                  @if (!deferBilling() || billingPanel.state.open()) {
+                    <div class="grid gap-4" id="billing-fields">
+                      <div zzField #deliveryField="zzField" id="delivery-field">
+                        <span zzFieldLabel id="delivery-label">Send invoices by</span>
+                        <div zzRadioGroup [formField]="payment.delivery" id="delivery">
+                          <button zzRadioGroupItem value="email" id="delivery-email">Email</button>
+                          <button zzRadioGroupItem value="post" id="delivery-post">Post</button>
+                        </div>
+                        @if (deliveryField.state.errorsShown()) {
+                          <p zzFieldError id="delivery-error">
+                            {{ deliveryField.state.errors()[0]?.message }}
+                          </p>
+                        }
+                      </div>
+                      <div zzField #emailField="zzField" id="billing-email-field">
+                        <label zzFieldLabel>Billing email</label>
+                        <input
+                          zzInput
+                          type="email"
+                          [formField]="payment.email"
+                          id="billing-email"
+                        />
+                        @if (emailField.state.errorsShown()) {
+                          <p zzFieldError id="billing-email-error">
+                            {{ emailField.state.errors()[0]?.message }}
+                          </p>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+              <div zzAccordionItem value="preferences" id="preferences-item">
+                <h2 zzAccordionHeader>
+                  <button zzAccordionTrigger id="preferences-trigger">Payment preferences</button>
+                </h2>
+                <div zzAccordionPanel id="preferences-panel">
+                  <div
+                    zzAccordionMultiple
+                    [(value)]="innerSections"
+                    class="rounded-control-sm border border-border px-1"
+                    id="inner-accordion"
+                  >
+                    <div zzAccordionItem value="receipts" id="receipts-item">
+                      <h3 zzAccordionHeader>
+                        <button zzAccordionTrigger id="receipts-trigger">Receipt delivery</button>
+                      </h3>
+                      <div zzAccordionPanel id="receipts-panel">
+                        Receipts go to your billing email.
+                      </div>
+                    </div>
+                    <div zzAccordionItem value="reminders" id="reminders-item">
+                      <h3 zzAccordionHeader>
+                        <button zzAccordionTrigger id="reminders-trigger">Payment reminders</button>
+                      </h3>
+                      <div zzAccordionPanel id="reminders-panel">
+                        A reminder goes out three days before a payment is due.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button zzButton type="submit" variant="primary" class="mt-3" id="payment-save">
+              Save settings
+            </button>
+          </form>
+          <output id="sections-value">{{ sections().join(",") }}</output>
+          <output id="inner-sections-value">{{ innerSections().join(",") }}</output>
+          <output id="payment-saves">{{ paymentSaves() }}</output>
+          <div class="flex flex-wrap gap-2">
+            <button zzButton variant="ghost" size="sm" (click)="widenApplicant()" id="sections-pad">
+              Toggle applicant padding
+            </button>
+            <button zzButton variant="ghost" size="sm" (click)="lowerFilters()" id="filters-pad">
+              Toggle filters padding
+            </button>
+            <button
+              zzButton
+              variant="ghost"
+              size="sm"
+              (click)="sectionsDisabled.set(!sectionsDisabled())"
+              id="sections-disable"
+            >
+              Toggle sections disabled
+            </button>
+            <button
+              zzButton
+              variant="ghost"
+              size="sm"
+              (click)="deferBilling.set(true)"
+              id="billing-defer"
+            >
+              Defer billing fields
+            </button>
+            <button
+              zzButton
+              variant="ghost"
+              size="sm"
+              (click)="lateShown.set(true)"
+              id="late-insert"
+            >
+              Insert accordion
+            </button>
+          </div>
+
+          <!-- The row's cell keeps its span; the Panel is a div inside it. -->
+          <table class="w-full border-collapse text-start" id="table">
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th>Customer</th>
+                <th>Due</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody zzCollapsible id="table-row">
+              <tr id="table-row-summary">
+                <td>
+                  <button zzCollapsibleTrigger variant="ghost" size="sm" id="table-row-trigger">
+                    INV-0412
+                  </button>
+                </td>
+                <td>Northline Studio</td>
+                <td>1 December</td>
+                <td>€1,240.00</td>
+              </tr>
+              <tr id="table-row-details">
+                <td colspan="4" class="p-0">
+                  <div zzCollapsiblePanel class="px-2" id="table-row-panel">
+                    Two line items: design retainer and hosting.
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          @if (lateShown()) {
+            <div zzAccordionMultiple [value]="lateValues" id="late-accordion">
+              <div zzAccordionItem value="findable">
+                <h3 zzAccordionHeader>
+                  <button zzAccordionTrigger>Initially open, findable</button>
+                </h3>
+                <div zzAccordionPanel id="late-findable-panel">Open from the start.</div>
+              </div>
+              <div zzAccordionItem value="hidden" hiding="hidden">
+                <h3 zzAccordionHeader>
+                  <button zzAccordionTrigger>Initially open, ordinary hidden</button>
+                </h3>
+                <div zzAccordionPanel id="late-hidden-panel">Open from the start.</div>
+              </div>
+            </div>
+          }
+
+          <div class="light bg-background p-3 text-foreground" id="light-disclosures">
+            <div zzAccordionSingle collapsible value="first" id="light-accordion">
+              <div zzAccordionItem value="first">
+                <h3 zzAccordionHeader>
+                  <button zzAccordionTrigger id="light-first-trigger">Payment terms</button>
+                </h3>
+                <div zzAccordionPanel id="light-first-panel">Invoices are due within 30 days.</div>
+              </div>
+              <div zzAccordionItem value="second">
+                <h3 zzAccordionHeader>
+                  <button zzAccordionTrigger id="light-second-trigger">Late fees</button>
+                </h3>
+                <div zzAccordionPanel id="light-second-panel">No fees for the first 10 days.</div>
+              </div>
+            </div>
+          </div>
+
+          <p class="flex flex-wrap gap-4">
+            <a href="#faq-export-format" id="faq-fragment-link">Export format</a>
+            <a href="#tax-summaries" id="tax-fragment-link">Tax summaries</a>
+            <a href="#:~:text=Juniper%20settlement%20ledger" id="faq-text-link"
+              >Settlement ledger</a
+            >
+          </p>
+        </div>
+      </div>
+    </section>
+  `,
+})
+export class Disclosures {
+  protected readonly reportsOpen = signal(false);
+  protected readonly faq = signal<string | null>(null);
+  protected readonly settings = signal<string | null>("profile");
+  protected readonly sections = signal<readonly string[]>(["applicant"]);
+  protected readonly innerSections = signal<readonly string[]>(["receipts"]);
+  protected readonly sectionPad = signal("px-8");
+  protected readonly filtersPad = signal("pt-2");
+  protected readonly sectionsDisabled = signal(false);
+  protected readonly deferBilling = signal(false);
+  protected readonly lockedMoreOpen = signal(false);
+  protected readonly notesOpen = signal(true);
+  protected readonly lateShown = signal(false);
+  protected readonly lateValues = ["findable", "hidden"];
+  protected readonly paymentSaves = signal(0);
+
+  // Form sections: the app owns validation and knows which section holds which field.
+  protected readonly payment = form(
+    signal({ name: "Alex Rivera", delivery: null as string | null, email: "" }),
+    (path) => {
+      required(path.name, { message: "Enter your name" });
+      required(path.delivery, { message: "Choose how we send invoices" });
+      required(path.email, { message: "Enter a billing email" });
+    },
+  );
+  readonly #sectionFields = [
+    { section: "applicant", fields: [this.payment.name] },
+    { section: "billing", fields: [this.payment.delivery, this.payment.email] },
+  ];
+  readonly #injector = inject(Injector);
+
+  protected widenApplicant(): void {
+    if (this.sectionPad() === "px-8") {
+      this.sectionPad.set("px-16");
+    } else {
+      this.sectionPad.set("px-8");
+    }
+  }
+
+  protected lowerFilters(): void {
+    if (this.filtersPad() === "pt-2") {
+      this.filtersPad.set("pt-6");
+    } else {
+      this.filtersPad.set("pt-2");
+    }
+  }
+
+  protected async save(): Promise<void> {
+    await submit(this.payment, {
+      action: async () => {
+        this.paymentSaves.update((saves) => saves + 1);
+      },
+      onInvalid: () => this.#showErrors(),
+    });
+  }
+
+  #showErrors(): void {
+    const invalid: { section: string; field: FieldTree<unknown> }[] = [];
+
+    for (const { section, fields } of this.#sectionFields) {
+      for (const field of fields) {
+        if (field().invalid()) {
+          invalid.push({ section, field });
+        }
+      }
+    }
+
+    if (invalid.length === 0) {
+      return;
+    }
+
+    const sections = new Set(this.sections());
+
+    for (const error of invalid) {
+      sections.add(error.section);
+    }
+
+    this.sections.set([...sections]);
+    // The write removes `hidden` (and mounts deferred content) on the next render; focus before it
+    // is a no-op. focusBoundControl() reaches a fold RadioGroup through its focus(): its tab stop.
+    afterNextRender(() => invalid[0].field().focusBoundControl(), { injector: this.#injector });
+  }
+}
+
 @Component({
   selector: "app-root",
   imports: [
@@ -1086,6 +1615,7 @@ export class FileFields {
     AvatarParts,
     Calendars,
     DateEntries,
+    Disclosures,
     Checkbox,
     ComboboxParts,
     DialogParts,
@@ -2735,6 +3265,7 @@ export class FileFields {
       <button zzButton id="after-country-search">After the country search</button>
     </section>
     <app-date-entries />
+    <app-disclosures />
   `,
 })
 export class App {

@@ -1,7 +1,8 @@
 // End to end, the way a consumer meets fold: a fresh `ng new --style=tailwind --ssr` app installs
 // the packed fold and Origami, runs `ng add` and `add` for every component with the prefix `zz`,
-// builds for production with prerendering and passes a Chromium smoke (consumer-smoke.mjs) and the
-// scrolling suite (consumer-scrolling.mjs) in each engine.
+// builds for production with prerendering and passes a Chromium smoke (consumer-smoke.mjs), the
+// scrolling suite (consumer-scrolling.mjs) and the disclosure check (consumer-disclosure.mjs) in
+// each engine.
 //
 // Browser and AOT build steps take Origami's machine-wide gate lock. Needs network access for the
 // app's npm install.
@@ -153,6 +154,8 @@ ng([
   "avatar",
   "progress",
   "calendar",
+  "accordion",
+  "collapsible",
 ]);
 
 const installed = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -160,16 +163,19 @@ const folders = await readdir(join(app, "src/ui"));
 
 assert.deepEqual(installed.imports, { "#ui/*": "./src/ui/*/index.ts" });
 assert.deepEqual(folders.sort(), [
+  "accordion",
   "alert-dialog",
   "avatar",
   "button",
   "calendar",
   "checkbox",
   "cn",
+  "collapsible",
   "combobox",
   "date-field",
   "date-picker",
   "dialog",
+  "disclosure",
   "field",
   "file-field",
   "input",
@@ -227,6 +233,11 @@ for (const engine of ["chromium", "firefox", "webkit"]) {
   run(
     "sh",
     [gateLock, "node", join(packageDirectory, "tests/consumer-scrolling.mjs"), app, engine],
+    app,
+  );
+  run(
+    "sh",
+    [gateLock, "node", join(packageDirectory, "tests/consumer-disclosure.mjs"), app, engine],
     app,
   );
 }

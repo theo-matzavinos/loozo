@@ -486,13 +486,25 @@ async function launch(engine) {
   return webkit.launch(webkitLaunchOptions());
 }
 
-/** A page of its own for one scenario: the viewport and motion it names, hydrated and idle. */
-export async function openPage(browser, base, errors, { width, height, reducedMotion = "reduce" }) {
+/**
+ * A page of its own for one scenario: the viewport and motion it names, hydrated and idle. `init`,
+ * when given, runs in the page before any of its own scripts.
+ */
+export async function openPage(
+  browser,
+  base,
+  errors,
+  { width, height, reducedMotion = "reduce", init = null },
+) {
   const page = await browser.newPage({
     viewport: { width, height },
     deviceScaleFactor: 1,
     reducedMotion,
   });
+
+  if (init) {
+    await page.addInitScript(init);
+  }
 
   page.on("console", (message) => {
     const text = message.text();

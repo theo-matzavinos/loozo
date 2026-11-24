@@ -13,10 +13,12 @@
     "types": [],
     "noEmit": true,
     "paths": {
+      "@loozo/origami-ui/accordion": ["../origami-ui/accordion/src/public-api.ts"],
       "@loozo/origami-ui/avatar": ["../origami-ui/avatar/src/public-api.ts"],
       "@loozo/origami-ui/button": ["../origami-ui/button/src/public-api.ts"],
       "@loozo/origami-ui/calendar": ["../origami-ui/calendar/src/public-api.ts"],
       "@loozo/origami-ui/checkbox": ["../origami-ui/checkbox/src/public-api.ts"],
+      "@loozo/origami-ui/collapsible": ["../origami-ui/collapsible/src/public-api.ts"],
       "@loozo/origami-ui/collection": ["../origami-ui/collection/src/public-api.ts"],
       "@loozo/origami-ui/combobox": ["../origami-ui/combobox/src/public-api.ts"],
       "@loozo/origami-ui/date-field": ["../origami-ui/date-field/src/public-api.ts"],
