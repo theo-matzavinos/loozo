@@ -8,7 +8,7 @@
     "build": "pnpm --filter './packages/*' run build",
     "check": "pnpm --filter './packages/*' run check",
     "typecheck": "pnpm --filter './packages/*' run typecheck",
-    "test": "pnpm --filter './packages/*' run test && node --test 'scripts/*.test.mjs'",
+    "test": "pnpm --filter './packages/*' run test && node --test 'scripts/*.test.mjs' 'tools/origami-lint/*.test.mjs'",
     "docs": "pnpm --filter @loozo/angular-router run build && pnpm --filter @loozo/origami-ui run build && pnpm --filter @loozo/docs run build"
   },
   "devDependencies": {
