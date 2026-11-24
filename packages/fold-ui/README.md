@@ -47,6 +47,7 @@ ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names otp-field
 ng generate @loozo/fold-ui:add --names select combobox
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
+ng generate @loozo/fold-ui:add --names accordion collapsible
 ng generate @loozo/fold-ui:add --names menu
 ng generate @loozo/fold-ui:add --names toggle toggle-group toolbar
 ng generate @loozo/fold-ui:add --names toast
@@ -56,7 +57,7 @@ ng generate @loozo/fold-ui:add --names calendar
 ng generate @loozo/fold-ui:add --names date-field date-picker
 ```
 
-NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar, Progress and Meter import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar`, `/progress` and `/meter`, which no published Origami has yet (npm has 0.0.4). Select, Popover, Dialog and Sheet scroll in a ScrollArea, so adding one adds `scroll-area` and needs `/scroll-area` too. So does Table, whose TableFrame scrolls in one. Tabs and Tooltip import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
+NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar, Progress and Meter import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar`, `/progress` and `/meter`, which no published Origami has yet (npm has 0.0.4). Select, Popover, Dialog and Sheet scroll in a ScrollArea, so adding one adds `scroll-area` and needs `/scroll-area` too. So does Table, whose TableFrame scrolls in one. Tabs, Tooltip, Accordion and Collapsible import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Toggle and ToggleGroup import only what 0.0.4 has. Toolbar imports `OrigamiToolbarMenuTrigger` from `@loozo/origami-ui/toolbar`, which no published Origami has yet, so `add toolbar` doesn't build on 0.0.4 even without a Menu; its popup triggers sit in fold's Popover and Menu, which need `/scroll-area` too. All three are tested with this repository's Origami, built from source, not with 0.0.4.
 
@@ -93,7 +94,7 @@ src/ui/
     └── …
 ```
 
-`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; MenuTrigger is styled by `ButtonStyle` and the panel and rows come from `popup`, so adding `menu` adds `button` and `popup`; Toast's buttons use `Button` and its cards `popup`, so adding `toast` adds `button` and `popup`; Calendar's buttons use `buttonVariants` and fold's Button, so adding `calendar` adds `button`; DatePicker's popup hosts the Calendar on `popup`'s surface round DateFieldInput, so adding `date-picker` adds `date-field`, `calendar` (and so `button`) and `popup`; FileFieldButton is styled by Button's `buttonVariants`, so adding `file-field` adds `button`; Toggle is a ghost Button, so adding `toggle` adds `button`; ToggleGroup's items share Toggle's on look, so adding `toggle-group` adds `toggle` (and so `button`); Toolbar's controls use both, so adding `toolbar` adds `toggle-group`, `toggle` and `button`, but not `radio-group`, `popover`, `menu` or `tooltip`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
+`add` also copies the components a component imports: AlertDialog's, Dialog's and Sheet's buttons are styled by Button's `ButtonStyle`, so adding `alert-dialog`, `dialog` or `sheet` adds `button` too; Textarea shares Input's look, so adding `textarea` adds `input`; Select, Combobox, Tooltip and Popover share the floating layers' look and motion from `popup`, so adding any of them adds `popup`, Combobox's input is Input's look, so adding `combobox` adds `input` too, and PopoverTrigger is styled by `ButtonStyle`, so adding `popover` adds `button`; MenuTrigger is styled by `ButtonStyle` and the panel and rows come from `popup`, so adding `menu` adds `button` and `popup`; Toast's buttons use `Button` and its cards `popup`, so adding `toast` adds `button` and `popup`; Calendar's buttons use `buttonVariants` and fold's Button, so adding `calendar` adds `button`; DatePicker's popup hosts the Calendar on `popup`'s surface round DateFieldInput, so adding `date-picker` adds `date-field`, `calendar` (and so `button`) and `popup`; FileFieldButton is styled by Button's `buttonVariants`, so adding `file-field` adds `button`; Toggle is a ghost Button, so adding `toggle` adds `button`; ToggleGroup's items share Toggle's on look, so adding `toggle-group` adds `toggle` (and so `button`); Toolbar's controls use both, so adding `toolbar` adds `toggle-group`, `toggle` and `button`, but not `radio-group`, `popover`, `menu` or `tooltip`; Accordion's and Collapsible's panels share their motion from `disclosure`, so adding either adds `disclosure`, and CollapsibleTrigger is styled by `ButtonStyle`, so adding `collapsible` adds `button`; and every component merges its classes with `cn`, so the first `add` adds `cn`. Components import each other as `../button`.
 
 The files are yours from then on. `add` writes them with your prefix and the Angular CLI formats them with your workspace's Prettier, so `add` can't tell a file you edited from one you didn't. When a named component's folder already exists, `--existing` decides:
 
@@ -125,13 +126,23 @@ Tailwind's default colors and `text-*` sizes stay available.
 
 ## Class merging and slots
 
-Every part except the AlertDialog, Dialog and Sheet roots and TooltipTrigger takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
+Every part except the AlertDialog, Dialog, Sheet and Collapsible roots and TooltipTrigger takes a `class` input that's merged over fold's classes, so a conflicting utility of yours wins:
 
 ```html
 <button foldButton class="px-6">Wider</button>
 ```
 
 One exception: AvatarFallback's loading delay and Progress's unknown sweep are component styles, which an ordinary `animate-*` utility doesn't override. Use Tailwind's important form, `animate-none!`, as their sections show, or edit the motion rule in your copy. ScrollArea's `class` is on its root, whose layout is fold's; see [ScrollArea](#scrollarea).
+
+An AccordionPanel's or CollapsiblePanel's `class` styles its content box, inside the clip that animates, never the Panel itself, so padding can't jump the closed height. Give it a static `class`, or bind a whole string with `[class]`. For a class that comes and goes, bind the whole string or put it on your own element inside the Panel:
+
+```html
+<div foldAccordionPanel [class]="wide() ? 'px-16' : 'px-8'">
+  <div class="grid gap-4" [class.opacity-60]="saving()">…</div>
+</div>
+```
+
+`[class.x]`, `[ngClass]` and other directives or scripts that write a Panel's class aren't supported: after the first render they write the Panel itself, which can pad the closed box or stop its motion. To style the Panel's own box, target it from a parent, such as `[&_[data-slot=accordion-panel]]:…`.
 
 The merging comes from `cn`, a component like the others. `cn/cn.ts` exports `tv`, `tailwind-variants`' variant builder, and `cn(...classes)`, which joins classes and keeps the last of conflicting utilities. Both are configured with the theme's text sizes, radii, shadows and animations, which Tailwind's defaults don't have: without them, `text-title` would count as a text color and cancel `text-foreground`. Use them for your own components too:
 
@@ -154,9 +165,9 @@ export class Panel {
 
 `cn.ts` lists the `--text-*`, `--radius-*`, `--shadow-*` and `--animate-*` names of `theme.css`. Keep them in sync: when you add one to the theme, add its name to `cn.ts`, or its utilities won't merge with their peers.
 
-Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name`, `file-field-size` and `file-field-clear-slot` around `file-field-clear`). OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside. Meter's and MeterRing's root is `meter`, with `meter-fill` inside a Meter, and `meter-arc` and `meter-value` inside a MeterRing. The date fields' roots are `date-field` (DateField, TimeField and DateTimeField alike), with `date-field-input` (the box) holding `date-field-segments`, the scrolling row, with a `date-field-cell` per unit, each with its `date-field-segment`, and a `date-field-literal` per separator; DatePicker's are `date-picker` (every picker root: DatePicker, DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker), `date-picker-trigger` (with `date-picker-value` and `date-picker-icon`), `date-picker-content` and `date-picker-footer`. Select's, Combobox's, Menu's and Popover's Content, DialogBody and SheetBody render a ScrollArea inside, so its `scroll-area…` slots are there too: target their scroller as `[&_[data-slot=scroll-area-viewport]]`.
+Every part except TooltipTrigger, which shares its button's, sets a `data-slot` attribute, such as `data-slot="button"` or `data-slot="alert-dialog-content"`, to target it from CSS or from a parent's classes, like `[&_[data-slot=button]]:w-full`. The decorative markup inside Checkbox, Switch, RadioGroupItem and Slider has its own: `checkbox-indicator` (the check) and `checkbox-mixed-indicator` (the minus), `switch-thumb`, `radio-group-indicator`, and `slider-track`, `slider-rail` and `slider-fill`. NumberField's parts are `number-field`, `number-field-input`, `number-field-decrement`, `number-field-increment` and `number-field-adornment`; Slider's are `slider` and `slider-thumb`. FileField's are `file-field`, `file-field-input`, `file-field-button`, `file-field-drop-zone` (with `file-field-drop-zone-icon`) and `file-field-value` (with `file-field-value-icon`, `file-field-name`, `file-field-size` and `file-field-clear-slot` around `file-field-clear`). OtpField's are `otp-field` and `otp-field-input`, with `otp-field-cell` for each cell and, inside a cell, `otp-field-dot` (a masked digit) and `otp-field-caret` (the bar). Select's are `select`, `select-trigger`, `select-content` and `select-option`, with `select-value` and `select-icon` inside the Trigger and `select-option-text` and `select-option-indicator` inside an option; Combobox's are `combobox`, `combobox-input`, `combobox-trigger`, `combobox-content`, `combobox-option` (with `combobox-option-text` and `combobox-option-indicator`) and `combobox-empty`. Tabs' are `tabs`, `tabs-list`, `tabs-trigger` (with `tabs-indicator`, the dot) and `tabs-panel`; Tooltip's are `tooltip` and `tooltip-content`; Popover's are `popover`, `popover-trigger` and `popover-content`. Menu's are `menu`, `menu-trigger`, `menu-content`, `menu-item`, `menu-link`, `menu-checkbox-item` (with `menu-checkbox-item-indicator`), `menu-radio-group`, `menu-radio-item` (with `menu-radio-item-indicator`), `menu-group`, `menu-group-label`, `menu-separator`, `menu-sub`, `menu-sub-trigger` (with `menu-sub-trigger-icon`) and `menu-shortcut`. Toast's are `toast-region`, `toast-list`, `toast` (with `toast-icon`, `toast-title` and `toast-description`) and `toast-close`; a toast's action is a `button`. ScrollArea's are `scroll-area`, with `scroll-area-viewport`, `scroll-area-content`, one `scroll-area-scrollbar` per axis and its `scroll-area-thumb` in its template; Avatar's are `avatar`, `avatar-image` and `avatar-fallback`; Progress's are `progress`, with `progress-fill` inside. Meter's and MeterRing's root is `meter`, with `meter-fill` inside a Meter, and `meter-arc` and `meter-value` inside a MeterRing. The date fields' roots are `date-field` (DateField, TimeField and DateTimeField alike), with `date-field-input` (the box) holding `date-field-segments`, the scrolling row, with a `date-field-cell` per unit, each with its `date-field-segment`, and a `date-field-literal` per separator; DatePicker's are `date-picker` (every picker root: DatePicker, DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker), `date-picker-trigger` (with `date-picker-value` and `date-picker-icon`), `date-picker-content` and `date-picker-footer`. Accordion's are `accordion` (both roots), `accordion-item`, `accordion-header`, `accordion-trigger` (with `accordion-label` around your content and `accordion-indicator`) and `accordion-panel`, with `accordion-panel-clip` and `accordion-panel-content` inside; Collapsible's are `collapsible`, `collapsible-trigger` and `collapsible-panel`, with `collapsible-panel-clip` and `collapsible-panel-content` inside. Select's, Combobox's, Menu's and Popover's Content, DialogBody and SheetBody render a ScrollArea inside, so its `scroll-area…` slots are there too: target their scroller as `[&_[data-slot=scroll-area-viewport]]`.
 
-State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. An OtpField's cells have `data-filled`, `data-caret` and `data-selected`; like NumberField, the row reads its input's `:focus-visible`, `:disabled`, `[readonly]` and `[aria-invalid=true]` through `:has()`. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton and a FileFieldClear `data-disabled` while their field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. A toast has `data-kind`, `data-entering` and `data-leaving`, is `inert` through its exit, and sets `--toast-index`, its place in the deck, 0 for the newest. A ScrollArea has `data-overflow-x` and `data-overflow-y` while its viewport overflows that way, and each scrollbar `data-orientation` and, while shown, `data-visible`. An Avatar has `data-status`: `idle`, `loading`, `loaded` or `error`. A Progress has `data-complete` or `data-indeterminate`, and the `--og-progress-percent` custom property while its value is known. A Meter and a MeterRing have the `--og-meter-percent` custom property; fold adds `data-region` (`optimum`, `suboptimum` or `worst`) when any of `low`, `high` or `optimum` is set. A date field's segments have `aria-invalid`, `aria-readonly`, `aria-disabled` and, while empty, `data-placeholder`; the box reads them, and the segments' `:focus`, through `:has()`. A DatePickerTrigger has `aria-expanded`, `aria-invalid` and `data-disabled`, and in the button shape fold adds `data-placeholder` while the value is empty (null, or no days) and `data-readonly` while the picker is readonly, each `""` or absent; DatePickerContent has `data-entering` and `data-leaving`. fold's Field adds `data-orientation`.
+State is styled from the attributes Origami sets: a disabled button has `data-disabled`, so `data-disabled:` and `not-data-disabled:` variants key on it. A Field has `data-invalid`, `data-disabled` and `data-required` and its control `aria-invalid`, plus `aria-readonly` on a readonly Checkbox, Switch or RadioGroup; Input and Textarea also style native `:disabled` and `[readonly]`. A checked Checkbox, an on Switch and a selected RadioGroupItem have `data-checked`; a mixed Checkbox has `data-mixed` and no `data-checked`. A NumberField has no state attributes of its own: its box reads its input's `:disabled`, `[readonly]`, `[aria-invalid=true]` and `:focus-visible` through `:has()`, and a − or + button at a limit or while readonly has `data-disabled` without being natively disabled. An OtpField's cells have `data-filled`, `data-caret` and `data-selected`; like NumberField, the row reads its input's `:focus-visible`, `:disabled`, `[readonly]` and `[aria-invalid=true]` through `:has()`. A Slider has `data-disabled`, `data-dragging` and the `--og-slider-percent` custom property, and its thumb `aria-invalid` and `aria-readonly`. A FileFieldDropZone has `data-drag-over` while a file drag is over it, and a FileFieldButton and a FileFieldClear `data-disabled` while their field is disabled; both read their input's `:focus-visible`, `:disabled` and `[aria-invalid=true]` through `:has()`. A Select Trigger has `aria-expanded`, `aria-invalid`, `aria-readonly`, `data-disabled` and, while nothing is chosen, `data-placeholder`; a Combobox input styles native `:disabled` and `[readonly]` like Input. An option has `data-active` while highlighted, `data-selected` and `data-disabled`, and a list `data-entering` and `data-leaving` while it animates. A TabsTrigger has `aria-selected`, `data-disabled` and its root's `data-orientation`, and a TabsList `aria-orientation`; Tooltip and Popover Content have `data-entering` and `data-leaving`, and a PopoverTrigger `aria-expanded`. Menu rows style `:focus`, the real focus the mouse moves too; a checked checkbox or radio item has `data-checked`, a disabled row `data-disabled`, a destructive item `data-variant="destructive"` and an open MenuSubTrigger `aria-expanded`, and MenuContent has `data-side`, `data-entering` and `data-leaving`. A toast has `data-kind`, `data-entering` and `data-leaving`, is `inert` through its exit, and sets `--toast-index`, its place in the deck, 0 for the newest. A ScrollArea has `data-overflow-x` and `data-overflow-y` while its viewport overflows that way, and each scrollbar `data-orientation` and, while shown, `data-visible`. An Avatar has `data-status`: `idle`, `loading`, `loaded` or `error`. A Progress has `data-complete` or `data-indeterminate`, and the `--og-progress-percent` custom property while its value is known. A Meter and a MeterRing have the `--og-meter-percent` custom property; fold adds `data-region` (`optimum`, `suboptimum` or `worst`) when any of `low`, `high` or `optimum` is set. A date field's segments have `aria-invalid`, `aria-readonly`, `aria-disabled` and, while empty, `data-placeholder`; the box reads them, and the segments' `:focus`, through `:has()`. A DatePickerTrigger has `aria-expanded`, `aria-invalid` and `data-disabled`, and in the button shape fold adds `data-placeholder` while the value is empty (null, or no days) and `data-readonly` while the picker is readonly, each `""` or absent; DatePickerContent has `data-entering` and `data-leaving`. An AccordionItem and a Collapsible root have `data-expanded` and `data-disabled`, and their triggers `aria-expanded`, `aria-disabled` and `data-disabled` (also on Single's locked open trigger); an AccordionItem sets `--accordion-trigger-opacity`, `--accordion-trigger-cursor` and `--accordion-trigger-forced-text`, its trigger's disabled look, and resets them for nested items. A Panel has `data-expanded`, `data-entering`, `data-present` and `data-leaving`, and `hidden` (`until-found` or `""`) once closed. fold's Field adds `data-orientation`.
 
 A Calendar root's slot is `calendar`, whichever of the four it is; inside it are `calendar-header` (with `calendar-previous`, `calendar-heading`, `calendar-view-switch` and `calendar-next`), `calendar-grid`, `calendar-weekday`, `calendar-cell` with `calendar-cell-label` (the chip) inside, and CalendarRange's `calendar-prompt`. A cell has Origami's `aria-selected`, `data-selected`, `data-today`, `data-outside`, `data-disabled`, `data-current`, `data-range-start`, `data-range-end`, `data-in-range` and `data-preview`; the grid has `aria-invalid`, `aria-readonly` and `aria-disabled`. fold adds two presence attributes from CalendarRange's `state.anchor()`: `data-anchor` on the pending first day's cell and `data-pending` on the grid while a first day is pending. They're `""` or absent, never `"false"`, so style with `[data-pending]` and `:not([data-pending])`. While the grid has `data-pending`, the committed range's band, end fills, rounding and forced-colors rail caps yield to the square preview.
 
@@ -1119,6 +1130,216 @@ The value is yours: a tab with no matching value, or a `null` value, leaves noth
 - **Not navigation.** For links between pages, use a `<nav>` of links with `aria-current="page"`, not Tabs.
 
 [Origami's README](../origami-ui/tabs/README.md) describes the keys, activation, disabled tabs and hydration.
+
+## Accordion
+
+```ts
+import { AccordionParts } from "#ui/accordion";
+
+readonly faq = signal<string | null>(null); // Single
+readonly sections = signal<readonly string[]>(["applicant"]); // Multiple
+```
+
+`AccordionSingle` and `AccordionMultiple` stack sections that open and close, over Origami's [Accordion](../origami-ui/accordion/README.md), which owns the behavior: selection, the locks, the ARIA links, `hidden` and find-in-page reveal. The rows sit on the current ground, divided by 1px `border` lines. Each trigger is a full-width row, at least 38px tall, with 13px 600 `foreground` text and a 16px `muted-foreground` chevron at its inline end that turns while its panel is open. Panels grow and shrink in 180ms with a fade. You write each section's heading, with `AccordionHeader` on it, around the Trigger:
+
+<!-- prettier-ignore -->
+```html
+<!-- An FAQ: one open at a time, and the open one closes again. -->
+<div foldAccordionSingle [(value)]="faq" collapsible>
+  <div foldAccordionItem value="cancel">
+    <h3 foldAccordionHeader><button foldAccordionTrigger>How do I cancel a contract?</button></h3>
+    <div foldAccordionPanel>Open the contract and choose End contract…</div>
+  </div>
+  <div foldAccordionItem value="legacy" disabled>…</div>
+</div>
+
+<!-- Settings: without collapsible, the open section stays open until another one opens. -->
+<div foldAccordionSingle [(value)]="settings">…</div>
+
+<!-- Mobile navigation: no heading, no chevron. -->
+<div foldAccordionSingle collapsible>
+  <div foldAccordionItem value="reports">
+    <div foldAccordionHeader><button foldAccordionTrigger indicator="false">Reports</button></div>
+    <div foldAccordionPanel><a href="/reports/monthly">Monthly</a></div>
+  </div>
+</div>
+```
+
+- `AccordionSingle`: at most one open item. It takes `value` (two-way, `string | null`), `disabled`, `collapsible` (the open item's trigger closes it) and `class`, and emits `valueChange`. Its template reference, `#accordion="foldAccordionSingle"` with your prefix, has `state`, with `itemValues` and `disabled` signals. `itemValues` follows page order as of the latest item added or removed: reordering the same items, such as sorting a keyed `@for`, doesn't update it.
+- `AccordionMultiple`: items open independently. It takes `value` (two-way, `readonly string[]`, never mutated), `disabled` and `class`, and `state` as above.
+- `AccordionItem`: one section. It takes `value`, `disabled`, `hiding` (`until-found` by default, or `hidden`) and `class`. `#item="foldAccordionItem"` has `state`, with `expanded` and `disabled` (the root's or its own) signals.
+- `AccordionHeader`: put it on your heading element (`h2`, `h3`…), or on a `div` where there's no heading. It takes `class`.
+- `AccordionTrigger`: a `<button>` row. It takes `id`, `focusableWhenDisabled`, `indicator` (`true` by default; `false` drops the chevron) and `class`. Its content is the label: text and other non-interactive phrasing content, such as a 16px icon before it or a count after it, never a link, button or input, which a `<button>` can't hold. Long labels wrap.
+- `AccordionIndicator`: put it on an icon inside a Trigger to replace the chevron. It doesn't turn; it takes `class`.
+- `AccordionPanel`: the section's content. It renders two `div`s inside itself and sets `display: grid`, so put it on a `div`, `section`, `article`, `aside`, `nav` or `dd`, never a `p`, list or table cell (the rule is the [Collapsible's Panel elements](#collapsible)). It takes `id` and `class`, which styles its content box (see [Class merging](#class-merging-and-slots)): 8px in from the row's sides and 12px below by default. `#panel="foldAccordionPanel"` has `state`, with an `open` signal that stays true until the closing motion ends.
+
+The value is yours: a value with no item, or `null`, opens nothing, and removing an item doesn't remove its value.
+
+- **Item values.** Give every item an explicit `value`. Without one, Origami generates it separately on the server and in the browser, so an item open from the start, a saved selection or hydration can't match it.
+- **Headings.** fold renders no heading: put `AccordionHeader` on the level that fits the page, or a `div` in navigation, where a heading would clutter the outline. A trigger without a heading in a document section loses its place in the page's outline. Give a Panel `role="region"` yourself when a few large sections should be landmarks.
+- **Single's lock.** Without `collapsible`, the open item's trigger can't close it: it has `aria-disabled="true"` and `data-disabled`, stays focusable and keeps full contrast, the ring and a default cursor, with no hover tint. It doesn't guarantee an open item: writing `null`, or removing the open section, leaves none open.
+- **The indicator.** Project your own icon with `AccordionIndicator`, such as a plus that becomes a minus. Write both branches, `@if` and `@else`: a projected `@if` alone also removes the chevron while it's false.
+
+  <!-- prettier-ignore -->
+  ```html
+  <div foldAccordionItem value="applicant" #item="foldAccordionItem">
+    <h2 foldAccordionHeader>
+      <button foldAccordionTrigger>
+        Applicant
+        @if (item.state.expanded()) {
+          <svg lucideMinus foldAccordionIndicator></svg>
+        } @else {
+          <svg lucidePlus foldAccordionIndicator></svg>
+        }
+      </button>
+    </h2>
+    <div foldAccordionPanel class="px-8">…</div>
+  </div>
+  ```
+
+- **Disabled.** A disabled root or item dims its triggers to 50% with a `not-allowed` cursor, natively disabled, or a Tab stop with `aria-disabled` under `focusableWhenDisabled`. The look comes from each trigger's own item, so an accordion nested in a disabled item's panel keeps its own.
+- **Find in page.** A closed panel is `hidden="until-found"` by default, so the browser's find-in-page, a link to an `id` inside it and a text fragment (`#:~:text=`) open its item: the browser fires `beforematch`, Origami updates your value, then the browser removes `hidden` and scrolls. Only text that's rendered can be found, so deferred content isn't. Disabled items and `hiding="hidden"` use plain `hidden`. The server HTML is plain `hidden` until the page hydrates, so a fragment followed before then can miss closed text (Firefox does when a page opens at one), and browsers without `hidden="until-found"` (Safari before 26.2, Firefox before 139) use plain `hidden`.
+- **VoiceOver in Safari 26.2 to 26.x.** When script removes `hidden="until-found"`, VoiceOver can't navigate to the revealed content ([WebKit bug 310623](https://bugs.webkit.org/show_bug.cgi?id=310623)). Origami removes it on every ordinary open: a trigger click or key, or your app writing the value. A find-in-page or fragment reveal, where the browser removes it, isn't affected. Safari 27.0 fixes it. If you support those Safari versions, give sections whose content readers must reach `hiding="hidden"`: they then open from plain `hidden`, which VoiceOver handles, but find-in-page and fragment links can't open them.
+- **Where a match ends up.** When the browser reveals a match, its panel opens at once, without the motion, and in an `AccordionSingle` the item that reveal closes closes at once too. The panels taking part in the reveal don't move after the browser scrolls, so the match lands where the browser scrolled to; a change that isn't part of the reveal, such as a panel your app is closing around the match, can still move or hide it. Once the reveal settles, clicks, keys and your writes animate under the usual motion rules (see Motion). Safari's Find, and Firefox's from 139 to 147, can open the item without scrolling to the match at all, with or without reduced motion.
+- **Deferred content.** Panels keep their content rendered while closed. To render it only while open, gate it on the Panel's `state.open()`, as Tabs does with its value; it then isn't findable while closed and loses its own state, such as unsaved inputs in a child component, each time it closes. Keep form values in your model, as Signal Forms does, so closing a section keeps them.
+
+  ```html
+  <div foldAccordionPanel #panel="foldAccordionPanel">
+    @if (panel.state.open()) {
+    <app-applicant-fields [form]="payment" />
+    }
+  </div>
+  ```
+
+- **Motion.** A panel's height eases between 0 and its content's height, with a fade, in 180ms; a second click turns it from where it is. Under `prefers-reduced-motion: reduce` it opens and closes at once, and the chevron still turns, without a transition. A panel that mounts open in the browser, such as an accordion in a dialog or on a page you navigate to, slides in once; panels open in the server HTML don't. In browsers without `@starting-style` (Safari before 17.5, Firefox before 129), a panel opening from plain `hidden` snaps open; closing still animates.
+- **Tab during motion.** Tab can reach an opening panel's controls before its motion ends, and its edges can cut their focus ring until then; the ring shows in full once it settles. If you Tab into a panel while it's closing, focus returns to the page when it hides; the next Tab continues after the panel.
+- **Forms.** The browser's constraint validation can't reach a control in a closed section: it reports the error and doesn't submit, with the section still closed. Use `novalidate`, validate in your app, open the sections with errors, then focus the first erroneous control after the next render, when the section's `hidden` is gone and deferred content is rendered:
+
+  ```ts
+  readonly payment = form(signal({ name: "", delivery: null as string | null, email: "" }), (path) => {
+    required(path.name, { message: "Enter your name" });
+    required(path.delivery, { message: "Choose how we send invoices" });
+    required(path.email, { message: "Enter a billing email" });
+  });
+  // Which section holds which field, in page order.
+  readonly #sectionFields = [
+    { section: "applicant", fields: [this.payment.name] },
+    { section: "billing", fields: [this.payment.delivery, this.payment.email] },
+  ];
+  readonly #injector = inject(Injector);
+
+  protected async save(): Promise<void> {
+    await submit(this.payment, {
+      action: async () => this.api.save(this.payment().value()),
+      onInvalid: () => this.#showErrors(),
+    });
+  }
+
+  #showErrors(): void {
+    const invalid: { section: string; field: FieldTree<unknown> }[] = [];
+
+    for (const { section, fields } of this.#sectionFields) {
+      for (const field of fields) {
+        if (field().invalid()) {
+          invalid.push({ section, field });
+        }
+      }
+    }
+
+    if (invalid.length === 0) {
+      return;
+    }
+
+    this.sections.set([...new Set([...this.sections(), ...invalid.map((error) => error.section)])]);
+    // focusBoundControl() reaches fold controls through their focus(): a RadioGroup's tab stop.
+    afterNextRender(() => invalid[0].field().focusBoundControl(), { injector: this.#injector });
+  }
+  ```
+
+  <!-- prettier-ignore -->
+  ```html
+  <form novalidate (submit)="$event.preventDefault(); save()">
+    <div foldAccordionMultiple [(value)]="sections">
+      …
+      <div foldAccordionItem value="billing">
+        <h2 foldAccordionHeader><button foldAccordionTrigger>Billing contact</button></h2>
+        <div foldAccordionPanel class="px-8">
+          <div foldField #delivery="foldField">
+            <span foldFieldLabel>Send invoices by</span>
+            <div foldRadioGroup [formField]="payment.delivery">…</div>
+            @if (delivery.state.errorsShown()) {
+              <p foldFieldError>{{ delivery.state.errors()[0]?.message }}</p>
+            }
+          </div>
+          <div foldField>…<input foldInput type="email" [formField]="payment.email" /></div>
+        </div>
+      </div>
+    </div>
+    <button foldButton type="submit">Save settings</button>
+  </form>
+  ```
+
+  Without Signal Forms, give the control you'll focus its own reference, such as `<div foldRadioGroup #deliveryGroup …>` (the Field's `#delivery` is the Field, not the group), query it with a TypeScript-private field (Angular rejects `#private` queries) and call its `focus()` the same way: `private readonly deliveryGroup = viewChild("deliveryGroup", { read: RadioGroup });`, then `this.deliveryGroup()?.focus()` after the next render. The control gets focus while its section is still opening, so it can be partly cut off until the motion ends.
+
+- **No arrow keys.** Tab moves between the triggers; there's no arrow, Home or End navigation (Origami's contract).
+
+[Origami's README](../origami-ui/accordion/README.md) describes selection, the locks and the replaceable options.
+
+## Collapsible
+
+```ts
+import { CollapsibleParts } from "#ui/collapsible";
+
+readonly reportsOpen = signal(false);
+```
+
+`Collapsible` shows and hides one panel from one trigger, over Origami's [Collapsible](../origami-ui/collapsible/README.md). fold adds the trigger's Button look and the panel's motion, the Accordion's: no row, icon or turning chevron of its own, so you pick the look. The root is any element and has no classes of its own:
+
+<!-- prettier-ignore -->
+```html
+<!-- A sidebar group: a ghost trigger with a chevron that turns, and the list inside the Panel. -->
+<li foldCollapsible [(expanded)]="reportsOpen">
+  <button foldCollapsibleTrigger variant="ghost" class="w-full justify-start">
+    <svg lucideReceipt aria-hidden="true"></svg> Reports
+    <svg
+      lucideChevronDown
+      aria-hidden="true"
+      class="ms-auto transition-transform duration-180 ease-out motion-reduce:transition-none [[aria-expanded=true]>&]:rotate-180"
+    ></svg>
+  </button>
+  <div foldCollapsiblePanel class="ps-6">
+    <ul>
+      <li><a href="/reports/monthly">Monthly</a></li>
+      <li><a href="/reports/tax">Tax summaries</a></li>
+    </ul>
+  </div>
+</li>
+
+<!-- "Show more" after the rows that always show. -->
+<div foldCollapsible #more="foldCollapsible">
+  <div foldCollapsiblePanel>…more rows…</div>
+  <button foldCollapsibleTrigger variant="link" size="sm">
+    {{ more.state.expanded() ? "Show fewer" : "Show 12 more" }}
+  </button>
+</div>
+
+<!-- A table row's details: the cell keeps its span, the Panel is a div inside it. -->
+<tbody foldCollapsible>
+  <tr>
+    <td><button foldCollapsibleTrigger variant="ghost" size="sm">INV-0412</button></td>
+    …
+  </tr>
+  <tr><td colspan="4" class="p-0"><div foldCollapsiblePanel class="px-2">…details…</div></td></tr>
+</tbody>
+```
+
+- `Collapsible`: the root. It takes `expanded` (two-way), `disabled` and `hiding` (`until-found` by default, or `hidden`). `#collapsible="foldCollapsible"` has `state`, with `expanded` and `disabled` (the root's, not the Trigger's) signals.
+- `CollapsibleTrigger`: a `<button>` styled like a [Button](#button): it takes `variant` (`secondary` by default), `size`, `class`, `id`, `disabled` and `focusableWhenDisabled`. A `link` trigger is as tall as its text, like a link Button; add `py-*` for a larger target. Don't add `foldButton` to it: the trigger already is one, and two button directives on one element aren't supported.
+- `CollapsiblePanel`: the content. It takes `id` and `class`, which styles its content box (see [Class merging](#class-merging-and-slots)). `#panel="foldCollapsiblePanel"` has `state`, with an `open` signal that stays true until the closing motion ends.
+
+- **Disabled.** The root's `disabled` blocks the trigger and find-in-page, so its closed panel is plain `hidden`; your writes to `expanded` still open and close it. The trigger's own `disabled` blocks only the trigger: the panel stays findable.
+- **Panel elements.** The Panel renders two `div`s inside itself and sets `display: grid`, so it must accept flow content and keep its meaning as a grid: a `div` (the one to reach for), `section`, `article`, `aside`, `nav` or `dd`. Put a list or table inside the Panel, not on it, and put the Panel inside a `td`, `th`, `li` or `fieldset` rather than on one: a grid `td` loses its `colspan`, an `li` its marker. Nothing checks it.
+- Find in page, deferred content, motion, Tab during motion and forms work as in [Accordion](#accordion), and so does the Safari 26.x VoiceOver bug, with `hiding="hidden"` as its workaround.
 
 ## Tooltip
 
@@ -2394,6 +2615,7 @@ protected readonly classes = computed(() => cn(popupClasses, "w-72 p-3", this.cl
 - No multiple Select, clear button, option groups or separators as parts (plain `role="group"` and `role="separator"` markup works), item-aligned positioning or virtualization. Near the viewport's edge, Origami flips a list's alignment or slides it along the edge to keep it in view; it overflows only along its main axis, when neither side of its trigger has room.
 - No multiple files, upload progress or previews in FileField.
 - No scrolling or wrapping Tabs List, sliding underline or link tabs.
+- No arrow, Home or End keys between Accordion triggers (Origami's contract), and no ready-made disclosure row or built-in indicator on CollapsibleTrigger. Before hydration, closed panels are plain `hidden`, so find-in-page and fragments can't open them yet; constraint validation doesn't open a closed section (see [Forms](#accordion)); Safari's Find, and Firefox's from 139 to 147, can open an item without scrolling to the match; and focus can drop to the page when Tab enters a closing panel.
 - No Tooltip shorthand attribute, close delay or arrows; no PopoverAnchor, PopoverClose, title or description parts, and no open look on PopoverTrigger. Near the viewport's edge, Origami flips a Tooltip's or Popover's alignment or slides it along the edge to keep it in view; it overflows only along its main axis, when neither side of its Trigger has room.
 - No context menu, menubar, mixed checkbox item or disabled MenuLink (use a disabled MenuItem), and no keep-open on Enter for checkbox and radio items: that's Origami's contract. In a narrow viewport, a submenu that fits on neither side of its parent, such as a 200px submenu at 390px, overflows the viewport's edge.
 - No replacing or deduplicating a toast by id, hotkey, promise or loading toasts, swipe, or placement other than the bottom corners. Outside Chromium, the deck's heights snap instead of animating (no `interpolate-size`; the offsets and scale still animate), and when the front toast closes, the next one snaps to its full height once the exit ends.

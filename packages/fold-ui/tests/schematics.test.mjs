@@ -426,16 +426,19 @@ describe("add", () => {
     }
   });
 
-  test("copies the form controls, the lists, the floating layers, Tabs, Dialog, Sheet and the display components with only what they import", async () => {
+  test("copies the form controls, the lists, the floating layers, Tabs, the disclosures, Dialog, Sheet and the display components with only what they import", async () => {
     const cases = {
+      accordion: ["accordion", "cn", "disclosure"],
       avatar: ["avatar", "cn"],
       badge: ["badge", "cn"],
       calendar: ["button", "calendar", "cn"],
       checkbox: ["checkbox", "cn"],
+      collapsible: ["button", "cn", "collapsible", "disclosure"],
       combobox: ["cn", "combobox", "input", "popup", "scroll-area"],
       "date-field": ["cn", "date-field"],
       "date-picker": ["button", "calendar", "cn", "date-field", "date-picker", "popup"],
       dialog: ["button", "cn", "dialog", "scroll-area"],
+      disclosure: ["disclosure"],
       empty: ["cn", "empty"],
       field: ["cn", "field"],
       "file-field": ["button", "cn", "file-field"],
@@ -586,6 +589,29 @@ describe("add", () => {
     assert.match(
       readText(tree, "src/ui/popover/popover-content.ts"),
       /exportAs: "zzPopoverContent"/,
+    );
+  });
+
+  test("renames Accordion's and Collapsible's parts, exportAs and the indicator slot with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["accordion", "collapsible"] },
+      await setUp(runner),
+    );
+    const trigger = readText(tree, "src/ui/accordion/accordion-trigger.ts");
+
+    assert.match(
+      readText(tree, "src/ui/accordion/accordion-item.ts"),
+      /exportAs: "zzAccordionItem"/,
+    );
+    assert.match(trigger, /selector: "button\[zzAccordionTrigger\]"/);
+    // The fallback chevron and a consumer's replacement meet in this slot: both must carry the prefix.
+    assert.match(trigger, /select="\[zzAccordionIndicator\]"/);
+    assert.match(trigger, /<svg\s+lucideChevronDown\s+zzAccordionIndicator\b/);
+    assert.match(
+      readText(tree, "src/ui/collapsible/collapsible-panel.ts"),
+      /exportAs: "zzCollapsiblePanel"/,
     );
   });
 

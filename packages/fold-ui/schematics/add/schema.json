@@ -10,6 +10,7 @@
       "items": {
         "type": "string",
         "enum": [
+          "accordion",
           "alert-dialog",
           "avatar",
           "badge",
@@ -17,10 +18,12 @@
           "calendar",
           "checkbox",
           "cn",
+          "collapsible",
           "combobox",
           "date-field",
           "date-picker",
           "dialog",
+          "disclosure",
           "empty",
           "field",
           "file-field",
