@@ -366,7 +366,7 @@ export class QueryFieldValidation {
           #report="ogQueryField"
           class="field"
           data-testid="report-root"
-          [(query)]="query"
+          [query]="query()"
           (queryChange)="queryChanged($event)"
           (caretChange)="caretChanged($event)"
           [analysis]="analysis()"
@@ -1135,10 +1135,15 @@ export class QueryFieldFixture {
       this.reportAfter().nativeElement.focus();
     }
 
-    // Written to the root's own model: the two-way binding re-applies only a changed expression,
-    // so it wouldn't restore the query an edit replaced.
-    if (this.rewrite()) {
-      this.reportRoot()?.query.set(text.toLowerCase());
+    // The README's normalization pattern: a one-way `[query]` and this one handler, which writes
+    // the root's own model too when it changes the text, since an unchanged binding expression
+    // wouldn't restore the query an edit replaced.
+    const next = this.rewrite() ? text.toLowerCase() : text;
+
+    this.query.set(next);
+
+    if (next !== text) {
+      this.reportRoot()?.query.set(next);
     }
   }
 

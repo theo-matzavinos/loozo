@@ -203,7 +203,27 @@ Put the rows and the Message inside `ogQueryFieldContent`: there they belong to 
 
 ## Editing and events
 
-The input owns its text, selection, scroll and undo history, so it must support selection: `type="text"` (the default) or `type="search"`, not `email` or another type without `setSelectionRange`. `[(query)]` updates on every edit, synchronously in its `input` event, then `caretChange` reports the caret, so a `computed` of both sees them together; a side effect in `(queryChange)` sees the old caret. A `(queryChange)` or `(caretChange)` handler that moves focus away ends the edit or key there: the blur's null caret and closed list stand. The key changes nothing after the blur, so whatever the handler did stands, but it still settles its own event: Enter is consumed after a highlight and otherwise still searches, unless the handler replaced the Input; it never picks. Its `value` attribute is the query until its first render, so the server renders it; after that, a query you write from outside shows in the input after the next render (when it differs from the text, outside a composition), moves a focused input's caret to its end and closes the list. To normalize edits, write the root's own `query` from `(queryChange)` (`#qf="ogQueryField"`, `qf.query.set(…)`), or use replaced Options: a two-way binding re-applies only a changed expression, so writing your bound signal back to the value it held before the edit (lower-casing an `R` typed over an `r`) wouldn't reach the input. That write replaces the browser's undo history in at least Chromium. A native form reset restores the first query without an `input` event, so `query` lags until the next edit; a search field isn't a form control.
+The input owns its text, selection, scroll and undo history, so it must support selection: `type="text"` (the default) or `type="search"`, not `email` or another type without `setSelectionRange`. `[(query)]` updates on every edit, synchronously in its `input` event, then `caretChange` reports the caret, so a `computed` of both sees them together; a side effect in `(queryChange)` sees the old caret. A `(queryChange)` or `(caretChange)` handler that moves focus away ends the edit or key there: the blur's null caret and closed list stand. The key changes nothing after the blur, so whatever the handler did stands, but it still settles its own event: Enter is consumed after a highlight and otherwise still searches, unless the handler replaced the Input; it never picks. Its `value` attribute is the query until its first render, so the server renders it; after that, a query you write from outside shows in the input after the next render (when it differs from the text, outside a composition), moves a focused input's caret to its end and closes the list.
+
+To normalize edits, bind the query one way and write it from a single `(queryChange)` handler, which also writes the root's own `query` when it changes the text:
+
+```html
+<div ogQueryField #qf="ogQueryField" [query]="query()" (queryChange)="normalize(qf, $event)">
+```
+
+```ts
+normalize(qf: OrigamiQueryField, text: string): void {
+  const next = text.toLowerCase();
+
+  this.query.set(next);
+
+  if (next !== text) {
+    qf.query.set(next);
+  }
+}
+```
+
+A binding is re-applied only when its expression changes, so writing your signal back to the value it held before the edit (lower-casing an `R` typed over an `r`) reaches the input only through the root's own `query`. Don't combine this with `[(query)]`: its listener and yours run in attribute order, and one after yours writes the raw edit back. Replaced Options whose `query` normalizes in its own `set` work too. That write replaces the browser's undo history in at least Chromium. A native form reset restores the first query without an `input` event, so `query` lags until the next edit; a search field isn't a form control.
 
 `(search)` emits the query on Enter while no suggestion is highlighted, the list open or closed, also with invalid tokens; the key keeps its default, so a surrounding form submits too (wiring both runs twice). The one exception: the Enter right after a highlight you saw lapsed does nothing (below). `(caretChange)` emits null on blur, for a range selection and when the input goes away.
 
