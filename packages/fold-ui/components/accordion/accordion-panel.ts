@@ -40,13 +40,15 @@ export class AccordionPanel {
   readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #singlePanels = inject(AccordionSinglePanels, { optional: true });
 
+  readonly #followed = inject(OrigamiCollapsibleState);
+
   constructor() {
     this.#singlePanels?.register(
       this.#host,
       {
         root: inject(OrigamiAccordionState),
         item: inject(OrigamiAccordionItem).state,
-        followed: inject(OrigamiCollapsibleState),
+        followed: this.#followed,
       },
       inject(DestroyRef),
     );
@@ -55,10 +57,10 @@ export class AccordionPanel {
   /**
    * A browser reveal opens this Panel at once and, in a Single, closes the one its request closed at
    * once. Origami's own `beforematch` listener, from the composed Panel, runs first and has already
-   * requested this item.
+   * requested this item; a refused request snaps nothing.
    */
   protected snapReveal(event: Event): void {
-    const revealed = snapDisclosureReveal(event);
+    const revealed = snapDisclosureReveal(event, () => this.#followed.expanded());
 
     if (revealed) {
       this.#singlePanels?.concealOthers(this.#host);

@@ -1,5 +1,5 @@
 import { Component, computed, inject, input } from "@angular/core";
-import { OrigamiCollapsiblePanel } from "@loozo/origami-ui/collapsible";
+import { OrigamiCollapsiblePanel, OrigamiCollapsibleState } from "@loozo/origami-ui/collapsible";
 import { cn } from "../cn";
 import { disclosureClipClasses, disclosurePanelClasses, snapDisclosureReveal } from "../disclosure";
 
@@ -29,7 +29,12 @@ export class CollapsiblePanel {
   /** `open()`: true from the start of the entrance until the exit finishes; gate deferred content on it. */
   readonly state = inject(OrigamiCollapsiblePanel).state;
 
-  protected readonly snapReveal = snapDisclosureReveal;
+  readonly #collapsible = inject(OrigamiCollapsibleState);
+
+  protected snapReveal(event: Event): void {
+    snapDisclosureReveal(event, () => this.#collapsible.expanded());
+  }
+
   protected readonly panelClasses = disclosurePanelClasses;
   protected readonly contentClasses = computed(() => cn(this.class()));
 }

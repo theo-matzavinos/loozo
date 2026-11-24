@@ -1269,6 +1269,15 @@ async function run(browser, base, engine) {
       assert.equal(await attribute(page, "plan-trigger", "aria-expanded"), "true");
       assert.equal(await attribute(page, "archived-trigger", "aria-expanded"), "false");
       assertSteady(series(revealing, "plan-panel"), "plan-panel through a refused reveal");
+
+      // The refused Panel never shows: no snap open, so nothing to animate closed.
+      for (const sample of series(revealing, "archived-panel")) {
+        assert.ok(
+          sample.height < 0.5 && sample.opacity < 0.01,
+          `archived-panel showed through a refused reveal: ${describe([sample])}`,
+        );
+      }
+
       console.log(
         `${engine}: refused archived-panel ends ${describe(series(revealing, "archived-panel").slice(-1))}`,
       );

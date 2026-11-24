@@ -23,17 +23,20 @@ export const disclosureClipClasses =
 /**
  * The browser's own reveal of this Panel (find-in-page, an ID or a text fragment): it fires
  * `beforematch`, removes `hidden="until-found"` and then scrolls to the match. Snapping the Panel to
- * its open layout inside the event lets that scroll see the match where it ends up. Returns whether
- * it was such a reveal; a bubbled reveal of a nested Panel and an app's synthetic event aren't.
+ * its open layout inside the event lets that scroll see the match where it ends up. Origami's own
+ * listener has already requested the expansion, so `expanded` reads whether it was accepted: a refused
+ * request doesn't snap (the browser still removes `hidden`, but the Panel stays at its closed layout).
+ * Returns whether it snapped; a bubbled reveal of a nested Panel and an app's synthetic event don't.
  */
-export function snapDisclosureReveal(event: Event): boolean {
+export function snapDisclosureReveal(event: Event, expanded: () => boolean): boolean {
   const host = event.currentTarget;
 
   if (
     !event.isTrusted ||
     !(host instanceof HTMLElement) ||
     event.target !== host ||
-    host.getAttribute("hidden") !== "until-found"
+    host.getAttribute("hidden") !== "until-found" ||
+    !expanded()
   ) {
     return false;
   }
