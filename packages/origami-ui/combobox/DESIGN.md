@@ -1,6 +1,6 @@
 # Combobox design map
 
-Ownership and read timing. Usage is in the [README](README.md); the contract is SPEC section 31. The composed Popover's own map is in [popover/DESIGN.md](../popover/DESIGN.md); the shared listbox core (`ɵOrigamiListbox`, `/collection`) is mapped as Select's in [select/DESIGN.md](../select/DESIGN.md).
+Ownership and read timing. Usage is in the [README](README.md); the contract is SPEC section 31. The composed Popover's own map is in [popover/DESIGN.md](../popover/DESIGN.md); the shared listbox core (`ɵOrigamiListbox`, `/collection`) is mapped as Select's in [select/DESIGN.md](../select/DESIGN.md). The [query field](../query-field/DESIGN.md) holds another core and also provides the Popover input owner.
 
 ## Ownership
 

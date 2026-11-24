@@ -1,6 +1,11 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
-import { assertReferences, bootstrapHeld, stopRetentionObservation } from "./observation.js";
+import {
+  assertReferences,
+  bootstrapHeld,
+  fixture,
+  stopRetentionObservation,
+} from "./observation.js";
 
 /** Holds the genuine lazy dependency response; never substitutes code, HTML or annotations. */
 async function holdDependency(page: Page, marker: string) {
@@ -3485,4 +3490,519 @@ test("V27 N20 H1 H2: Popover and Tooltip data-side is absent in server HTML, whi
   } finally {
     releaseMain();
   }
+});
+
+/** The query field's report mount, as the server renders it: closed, invalid, described by its errors. */
+async function expectServerQueryField(page: Page): Promise<void> {
+  const input = page.getByTestId("report-input");
+  const content = page.getByTestId("report-content");
+  const errors = page.getByTestId("report-errors");
+  const contentId = await content.getAttribute("id");
+  const errorsId = await errors.getAttribute("id");
+
+  expect(contentId).toMatch(/\S/);
+  expect(errorsId).toMatch(/\S/);
+  await expect(input).toHaveAttribute("role", "combobox");
+  await expect(input).toHaveAttribute("aria-autocomplete", "list");
+  await expect(input).toHaveAttribute("autocomplete", "off");
+  await expect(input).toHaveAttribute("spellcheck", "false");
+  await expect(input).toHaveAttribute("value", "report staus:open");
+  await expect(input).toHaveAttribute("aria-expanded", "false");
+  await expect(input).toHaveAttribute("aria-controls", contentId ?? "");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await expect(input).toHaveAttribute("aria-describedby", errorsId ?? "");
+  await expect(input).not.toHaveAttribute("aria-activedescendant", /.*/);
+  await expect(errors).toHaveText("Άγνωστο φίλτρο «staus»");
+  await expect(content).toHaveAttribute("role", "listbox");
+  await expect(content).toHaveAttribute("popover", "manual");
+  await expect(content).toHaveAttribute("inert", "");
+  await expect(content).toHaveAttribute("aria-hidden", "true");
+  await expect(page.getByTestId("report-marks").locator("[data-invalid]")).toHaveText([
+    "staus",
+    ":open",
+  ]);
+  await expect(page.getByTestId("static-input")).not.toHaveAttribute("aria-invalid", /.*/);
+  await expect(page.getByTestId("static-input")).toHaveAttribute("aria-required", "true");
+  await expect(page.getByTestId("factory-input")).toHaveAttribute("aria-invalid", "true");
+  // Authored part IDs are the server's, and the description names them.
+  await expect(page.getByTestId("factory-errors")).toHaveAttribute("id", "factory-errors-id");
+  await expect(page.getByTestId("factory-input")).toHaveAttribute(
+    "aria-describedby",
+    "factory-errors-id",
+  );
+}
+
+test("QF2 H1 H2: a query field's server HTML is closed, invalid and described by its errors, and hydration keeps the nodes; a pick on the hydrated node clears aria-invalid, the list closes and reopens, and substituted Options drive a composer", async ({
+  page,
+}, info) => {
+  await fixture(page, "query-field", info, () => expectServerQueryField(page));
+  await expectServerQueryField(page);
+
+  const input = page.getByTestId("report-input");
+  const content = page.getByTestId("report-content");
+  const presented = () => content.evaluate((node) => node.matches(":popover-open"));
+
+  await input.evaluate((node: HTMLInputElement) => {
+    node.focus();
+    node.setSelectionRange(10, 10);
+  });
+  await expect.poll(presented).toBe(true);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(input).toHaveValue("report status:open");
+  await expect(input).not.toHaveAttribute("aria-invalid", /.*/);
+  await expect(input).not.toHaveAttribute("aria-describedby", /.*/);
+  await expect(page.getByTestId("report-errors")).toHaveText("");
+  await page.keyboard.press("Escape");
+  await expect.poll(presented).toBe(false);
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(presented).toBe(true);
+  await expect(input).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await expect.poll(presented).toBe(false);
+
+  // The factory composer's own signals drive it after hydration.
+  const factory = page.getByTestId("factory-input");
+
+  await factory.evaluate((node: HTMLInputElement) => {
+    node.focus();
+    node.setSelectionRange(10, 10);
+  });
+  await expect
+    .poll(() =>
+      page.getByTestId("factory-content").evaluate((node) => node.matches(":popover-open")),
+    )
+    .toBe(true);
+  await expect(page.getByTestId("factory-message")).toHaveText("Άγνωστο φίλτρο «staus»");
+
+  // Authored part IDs survive hydration and are the ones the input and the rows name.
+  await expect(page.getByTestId("factory-errors")).toHaveAttribute("id", "factory-errors-id");
+  await expect(factory).toHaveAttribute("aria-describedby", "factory-errors-id");
+  await expect(page.getByTestId("factory-message")).toHaveAttribute("id", "factory-message-id");
+  await expect(page.getByTestId("factory-row-0")).toHaveAttribute("id", "factory-row-id-0");
+  await expect(page.getByTestId("factory-row-0")).toHaveAttribute(
+    "aria-describedby",
+    "factory-message-id",
+  );
+  await page.keyboard.press("ArrowDown");
+  await expect(factory).toHaveAttribute("aria-activedescendant", "factory-row-id-0");
+  await page.keyboard.press("Escape");
+  await assertReferences(page, info);
+});
+
+test("QF3 H2 H3: text typed into the query field before it hydrates is adopted once, without opening, and its caret is read at the first render; the first genuine ArrowDown opens on the first row", async ({
+  page,
+}, info) => {
+  const incremental = info.project.metadata.hydration === "incremental";
+  const host = page.locator("acceptance-query-field-fixture");
+  const input = page.getByTestId("report-input");
+  const content = page.getByTestId("report-content");
+  const releaseMain = await bootstrapHeld(page, "/query-field", info);
+  let lazy: { release: () => void; requests: string[] } | null = null;
+
+  try {
+    if (incremental) {
+      lazy = await holdDependency(page, "data-client-rendered");
+      releaseMain();
+      await shell(page, info.project.metadata.runtime);
+    }
+
+    await expect(host).not.toHaveAttribute("data-client-rendered", /.*/);
+    await input.evaluate((node: HTMLInputElement) => {
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    });
+    await page.keyboard.type(" st");
+
+    if (lazy !== null) {
+      await expect.poll(() => lazy?.requests.length ?? 0).toBeGreaterThan(0);
+    }
+
+    await expect(input).toHaveValue("report staus:open st");
+    await expect(page.getByTestId("report-query")).toHaveText("report staus:open");
+  } finally {
+    releaseMain();
+    lazy?.release();
+  }
+
+  await shell(page, info.project.metadata.runtime);
+  await expect(host).toHaveAttribute("data-client-rendered", "true");
+  await expect(page.getByTestId("report-query")).toHaveText("report staus:open st");
+  await expect(input).toBeFocused();
+  await expect(page.getByTestId("report-caret")).toHaveText("20");
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(false);
+
+  // One edit: the queryChange log holds the typed text once.
+  const log = (await page.getByTestId("report-log").textContent()) ?? "";
+
+  expect(log.split(",").filter((entry) => entry.startsWith("q:"))).toEqual([
+    "q:report staus:open st",
+  ]);
+
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+  await expect(input).toHaveAttribute(
+    "aria-activedescendant",
+    (await page.getByTestId("report-row-0").getAttribute("id")) ?? "",
+  );
+  await page.keyboard.press("Escape");
+  await page.keyboard.type("a");
+  await expect(page.getByTestId("report-query")).toHaveText("report staus:open sta");
+  await expect.poll(() => content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+});
+
+/** QF25's staged geometry: held ResizeObserver deliveries, and the block's geometry reads and attribute writes after its destroy. */
+interface QueryFieldGeometry {
+  holding: boolean;
+  held: { readonly targets: (string | null)[]; readonly run: () => void }[];
+  watching: boolean;
+  reads: string[];
+  writes: string[];
+}
+
+/**
+ * Before bootstrap: while `holding`, every ResizeObserver delivery is held (its targets recorded)
+ * until the test runs it; while `watching`, `getBoundingClientRect` on a `block-…` node is
+ * recorded, the read a position calculation starts with.
+ */
+async function installQueryFieldGeometry(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const geometry: QueryFieldGeometry = {
+      holding: false,
+      held: [],
+      watching: false,
+      reads: [],
+      writes: [],
+    };
+    const Native = window.ResizeObserver;
+
+    (window as unknown as { queryFieldGeometry: QueryFieldGeometry }).queryFieldGeometry = geometry;
+    window.ResizeObserver = class extends Native {
+      constructor(callback: ResizeObserverCallback) {
+        super((entries, observer) => {
+          if (!geometry.holding) {
+            callback(entries, observer);
+
+            return;
+          }
+
+          const targets: (string | null)[] = [];
+
+          for (const entry of entries) {
+            targets.push(entry.target.getAttribute("data-testid"));
+          }
+
+          geometry.held.push({ targets, run: () => callback(entries, observer) });
+        });
+      }
+    };
+
+    const rectangle = Element.prototype.getBoundingClientRect;
+
+    Element.prototype.getBoundingClientRect = function (
+      ...args: Parameters<typeof rectangle>
+    ): DOMRect {
+      const testid = this.getAttribute("data-testid");
+
+      if (geometry.watching && testid !== null && testid.startsWith("block-")) {
+        geometry.reads.push(testid);
+      }
+
+      return rectangle.apply(this, args);
+    };
+  });
+}
+
+test("QF25 H1 H2 H4: a query field split across hydrate boundaries associates only registered parts, keeps the server's description until its describers match it, and a block destroyed mid-exit with a geometry delivery held leaves nothing to its remount", async ({
+  page,
+}, info) => {
+  test.skip(
+    info.project.metadata.hydration !== "incremental",
+    "Split boundaries stay dehydrated only under incremental hydration.",
+  );
+
+  const input = page.getByTestId("split-input");
+  const label = page.getByTestId("split-label");
+  const content = page.getByTestId("split-content");
+  const errors = page.getByTestId("split-errors");
+  const staus = "Άγνωστο φίλτρο «staus»";
+  type Handle = Awaited<ReturnType<Locator["elementHandle"]>>;
+  const server: { ids: { input: string; content: string; errors: string } | null } = { ids: null };
+  const nodes = new Map<string, Handle>();
+
+  await installQueryFieldGeometry(page);
+
+  /** Whether the server's node for `testId` is still the one the page shows. */
+  async function same(testId: string): Promise<boolean> {
+    const handle = nodes.get(testId);
+
+    if (handle === undefined || handle === null) {
+      return false;
+    }
+
+    return handle.evaluate(
+      (node, id) => node.isConnected && node === document.querySelector(`[data-testid="${id}"]`),
+      testId,
+    );
+  }
+
+  async function allSame(): Promise<void> {
+    for (const testId of nodes.keys()) {
+      expect(await same(testId), testId).toBe(true);
+    }
+  }
+
+  await fixture(page, "query-field-split", info, async () => {
+    const ids = {
+      input: (await input.getAttribute("id")) ?? "",
+      content: (await content.getAttribute("id")) ?? "",
+      errors: (await errors.getAttribute("id")) ?? "",
+    };
+
+    server.ids = ids;
+    await expect(label).toHaveAttribute("for", ids.input);
+    await expect(input).toHaveAttribute("aria-controls", ids.content);
+    await expect(input).toHaveAttribute("aria-describedby", ids.errors);
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(input).toHaveAccessibleDescription(staus);
+
+    for (const [testId, locator] of [
+      ["split-input", input],
+      ["split-label", label],
+      ["split-content", content],
+      ["split-errors", errors],
+    ] as const) {
+      nodes.set(testId, await locator.elementHandle());
+    }
+  });
+
+  const ids = server.ids!;
+  const presented = () => content.evaluate((node) => node.matches(":popover-open"));
+
+  // The Label hydrated with the fixture; no control has registered. Every server node stays.
+  await expect(label).not.toHaveAttribute("for", /.*/);
+  await allSame();
+  await expect(input).toHaveAccessibleDescription(staus);
+
+  // The Input hydrates: the Label names it; dehydrated Content isn't associated; the description
+  // is still the server's, the only IDs the describer has.
+  await page.keyboard.press("Alt+1");
+  await expect(label).toHaveAttribute("for", ids.input);
+  await expect(input).toHaveAttribute("id", ids.input);
+  await expect(input).not.toHaveAttribute("aria-controls", /.*/);
+  await expect(input).toHaveAttribute("aria-describedby", ids.errors);
+  await expect(input).toHaveAccessibleDescription(staus);
+  await allSame();
+  await input.evaluate((node: HTMLInputElement) => {
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+  });
+  await page.keyboard.type(" st");
+  await expect(page.getByTestId("split-query")).toHaveText("report staus:open st");
+  await expect.poll(presented).toBe(false);
+  await expect(input).toHaveAttribute("aria-expanded", "false");
+  await expect(input).toHaveAccessibleDescription(staus);
+
+  // Content hydrates: aria-controls returns, the requested rows present without a key.
+  await page.keyboard.press("Alt+2");
+  await expect(input).toHaveAttribute("aria-controls", ids.content);
+  await expect(content).toHaveAttribute("id", ids.content);
+  await expect.poll(presented).toBe(true);
+  await expect(input).toHaveAttribute("aria-expanded", "true");
+  await expect(input).toHaveAccessibleDescription(staus);
+  await allSame();
+
+  // A valid edit before Errors attaches: no ID is registered, so the server's list stays as the
+  // static fallback, and the dehydrated Errors still holds the server's text.
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("report st");
+  await expect(input).not.toHaveAttribute("aria-invalid", /.*/);
+  await expect(input).toHaveAttribute("aria-describedby", ids.errors);
+  await expect(input).toHaveAccessibleDescription(staus);
+
+  // Errors hydrates on the same node and renders the valid query's errors: none.
+  await page.keyboard.press("Alt+3");
+  await expect(errors).toHaveText("");
+  await expect(input).toHaveAttribute("aria-describedby", ids.errors);
+  await expect(input).toHaveAccessibleDescription("");
+  await allSame();
+
+  // An invalid edit names the registered Errors, now matching the server's list.
+  await page.keyboard.type(" zz:");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await expect(input).toHaveAttribute("aria-describedby", ids.errors);
+  await expect(input).toHaveAccessibleDescription("Άγνωστο φίλτρο «zz»");
+  await allSame();
+
+  // The block, Shown. Its anchor resizes and the floating tracker's ResizeObserver delivery for it
+  // is held: the position update has started and not run. Without reduced motion the list is then
+  // dismissed and its 1 s exit runs; with it, the block is torn down while Shown. Either way it's
+  // destroyed while the delivery is held, then remounted, and only then is the delivery run.
+  // Nothing the old block started may read or write its old nodes or touch the new block.
+  const running = info.project.metadata.motion === "no-preference";
+  const block = page.getByTestId("block-input");
+  const blockContent = page.getByTestId("block-content");
+  const blockPresented = () => blockContent.evaluate((node) => node.matches(":popover-open"));
+  const attributes = (handle: Handle) =>
+    handle!.evaluate((node) => {
+      const record: Record<string, string> = {};
+
+      for (const attribute of node.attributes) {
+        record[attribute.name] = attribute.value;
+      }
+
+      return record;
+    });
+  const geometry = () =>
+    page.evaluate(() => {
+      const state = (window as unknown as { queryFieldGeometry: QueryFieldGeometry })
+        .queryFieldGeometry;
+
+      return {
+        held: state.held.map((delivery) => delivery.targets),
+        reads: [...state.reads],
+        writes: [...state.writes],
+      };
+    });
+
+  await block.click();
+  await expect(page.locator("acceptance-query-field-block")).toHaveAttribute(
+    "data-query-field-block-rendered",
+    "true",
+  );
+  await page.keyboard.press("End");
+  await page.keyboard.type("st");
+  await expect.poll(blockPresented).toBe(true);
+
+  const old = { input: await block.elementHandle(), content: await blockContent.elementHandle() };
+
+  await block.evaluate((node: HTMLInputElement) => {
+    const state = (window as unknown as { queryFieldGeometry: QueryFieldGeometry })
+      .queryFieldGeometry;
+
+    state.holding = true;
+    node.style.inlineSize = "320px";
+  });
+  await expect
+    .poll(async () => (await geometry()).held.some((targets) => targets.includes("block-input")))
+    .toBe(true);
+
+  // The destroy task: from here on every geometry read of a block node and every attribute write
+  // on the old nodes is recorded. Without reduced motion, Escape starts the exit in the page, and
+  // two frames after the first that sees it running (the exit's own start-up work done) the block
+  // is destroyed, well inside its 1 s.
+  const destroyed = await page.evaluate(async (motion) => {
+    const state = (window as unknown as { queryFieldGeometry: QueryFieldGeometry })
+      .queryFieldGeometry;
+    const field = document.querySelector<HTMLInputElement>('[data-testid="block-input"]')!;
+    const list = document.querySelector<HTMLElement>('[data-testid="block-content"]')!;
+    const animating = () =>
+      list.getAnimations().some((animation) => animation.playState === "running");
+
+    if (motion) {
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+
+      const deadline = performance.now() + 500;
+
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (animating() || performance.now() > deadline) {
+            resolve();
+          } else {
+            requestAnimationFrame(check);
+          }
+        };
+
+        check();
+      });
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
+      });
+    }
+
+    const exit = animating();
+    const shown = list.matches(":popover-open");
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        state.writes.push(
+          `${(record.target as Element).getAttribute("data-testid")}:${record.attributeName}`,
+        );
+      }
+    });
+
+    observer.observe(field, { attributes: true });
+    observer.observe(list, { attributes: true });
+    state.watching = true;
+    document.querySelector<HTMLButtonElement>('[data-testid="block-toggle"]')!.click();
+
+    return { exit, shown };
+  }, running);
+
+  expect(destroyed).toEqual({ exit: running, shown: true });
+  await expect(block).toHaveCount(0);
+  expect(await old.input!.evaluate((node) => node.isConnected)).toBe(false);
+
+  const oldInput = await attributes(old.input);
+  const oldContent = await attributes(old.content);
+
+  await page.getByTestId("block-toggle").dispatchEvent("click");
+  await expect(page.getByTestId("block-query")).toHaveText("report staus:open ");
+  await expect(block).toHaveCount(1);
+  expect(
+    await old.input!.evaluate((node, fresh) => node === fresh, await block.elementHandle()),
+  ).toBe(false);
+
+  const fresh = { input: await block.elementHandle(), content: await blockContent.elementHandle() };
+  const freshInput = await attributes(fresh.input);
+  const freshContent = await attributes(fresh.content);
+  const before = await geometry();
+
+  // Run the held deliveries, then wait past the old exit's end.
+  expect(before.held.length).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const state = (window as unknown as { queryFieldGeometry: QueryFieldGeometry })
+      .queryFieldGeometry;
+    const held = state.held;
+
+    state.holding = false;
+    state.held = [];
+
+    for (const delivery of held) {
+      delivery.run();
+    }
+  });
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 1200);
+      }),
+  );
+
+  const after = await geometry();
+
+  // The destroy's own write releases the old activation, leaving the old Content inert; nothing
+  // reads or writes a block node after it, the held delivery's run included.
+  expect(before.reads).toEqual([]);
+  expect(before.writes).toEqual(["block-content:inert"]);
+  expect(after.reads).toEqual([]);
+  expect(after.writes).toEqual(before.writes);
+  expect(await attributes(old.input)).toEqual(oldInput);
+  expect(await attributes(old.content)).toEqual(oldContent);
+  expect(await attributes(fresh.input)).toEqual(freshInput);
+  expect(await attributes(fresh.content)).toEqual(freshContent);
+  await expect(block).toHaveAttribute("aria-expanded", "false");
+  await expect(blockContent).not.toHaveAttribute("data-leaving", /.*/);
+  await expect.poll(blockPresented).toBe(false);
 });

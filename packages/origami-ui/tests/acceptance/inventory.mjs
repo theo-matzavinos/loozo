@@ -326,6 +326,24 @@ export const inventory = {
     "OrigamiScrollAreaThumb",
   ],
   meter: ["OrigamiMeter", "OrigamiMeterOptions", "OrigamiMeterState"],
+  "query-field": [
+    "OrigamiQueryField",
+    "OrigamiQueryFieldOptions",
+    "OrigamiQueryFieldState",
+    "OrigamiQueryFieldInput",
+    "OrigamiQueryFieldInputOptions",
+    "OrigamiQueryFieldContent",
+    "OrigamiQueryFieldContentOptions",
+    "OrigamiQueryFieldSuggestion",
+    "OrigamiQueryFieldSuggestionOptions",
+    "OrigamiQueryFieldMessage",
+    "OrigamiQueryFieldErrors",
+    "OrigamiQueryAnalysis",
+    "OrigamiQueryRange",
+    "OrigamiQuerySegment",
+    "OrigamiQuerySuggestion",
+    "OrigamiQueryToken",
+  ],
 };
 
 export const typeOnly = new Set([
@@ -353,4 +371,9 @@ export const typeOnly = new Set([
   "OrigamiOtpFieldCell",
   "OrigamiAvatarStatus",
   "OrigamiScrollAreaOrientation",
+  "OrigamiQueryAnalysis",
+  "OrigamiQueryRange",
+  "OrigamiQuerySegment",
+  "OrigamiQuerySuggestion",
+  "OrigamiQueryToken",
 ]);
