@@ -1,4 +1,13 @@
-import { Component, booleanAttribute, computed, inject, input, model } from "@angular/core";
+import {
+  Component,
+  ElementRef,
+  afterRenderEffect,
+  booleanAttribute,
+  computed,
+  inject,
+  input,
+  model,
+} from "@angular/core";
 import {
   OrigamiQueryField,
   OrigamiQueryFieldContent,
@@ -135,12 +144,45 @@ export class SearchBar implements OrigamiQueryFieldOptions<SearchBarSuggestion> 
   readonly class = input("");
 
   readonly #field = inject(OrigamiQueryField);
+  readonly #host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
   /**
    * Origami's readonly observation: `query`, `caret`, `tokens`, `segments`, `caretToken`,
    * `invalid`, `suggestions`, `open`, `scrollLeft`, `composing` and `disabled`.
    */
   readonly state = inject<OrigamiQueryFieldState<SearchBarSuggestion>>(OrigamiQueryFieldState);
+
+  /** The token at the caret, by its start and message; a change of it starts the list anew. */
+  readonly #caretToken = computed(() => {
+    const token = this.state.caretToken();
+
+    return token === null ? null : `${token.start}|${token.error ?? ""}`;
+  });
+
+  constructor() {
+    // The message scrolls with the fixes, so a list kept open for another token would keep the
+    // last token's offset and could hide the new message above it: start it from the top. A move
+    // within the same token keeps your scrolling and the highlight's reveal.
+    let previous: string | null = null;
+
+    afterRenderEffect({
+      write: () => {
+        const token = this.#caretToken();
+
+        if (token !== previous) {
+          previous = token;
+
+          const viewport = this.#host.querySelector<HTMLElement>(
+            "[data-slot=search-bar-content] [data-slot=scroll-area-viewport]",
+          );
+
+          if (viewport !== null && viewport.scrollTop !== 0) {
+            viewport.scrollTop = 0;
+          }
+        }
+      },
+    });
+  }
 
   /** Focuses the input. */
   focus(options?: FocusOptions): void {

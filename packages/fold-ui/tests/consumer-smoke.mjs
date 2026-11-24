@@ -12596,7 +12596,7 @@ try {
     await page.keyboard.press("ControlOrMeta+a");
     // A qualifier long enough that its message wraps past the list's room under the input.
     await page.keyboard.type(
-      `report staus-with-a-${"very-long-hyphenated-".repeat(12)}qualifier-name-that-wraps:open`,
+      `staus:open staus-with-a-${"very-long-hyphenated-".repeat(12)}qualifier-name-that-wraps:open`,
     );
     await page.keyboard.press("Escape");
     // The new query's analysis renders first: a movement over stale tokens opens nothing.
@@ -12605,12 +12605,12 @@ try {
         document.querySelector("#search-bar-overflow [data-slot=search-bar-mark][data-invalid]") !==
         null,
     );
-    // Arrows from `report` into the invalid qualifier: a movement into another invalid token opens
-    // the list with its message and fixes.
+    // Arrows from `staus` into the long invalid qualifier: a movement into another invalid token
+    // opens the list with its message and fixes.
     await page.keyboard.press("Home");
     await rendered();
 
-    for (let step = 0; step < 9; step += 1) {
+    for (let step = 0; step < 13; step += 1) {
       await page.keyboard.press("ArrowRight");
     }
 
@@ -12652,6 +12652,29 @@ try {
     );
 
     assert.deepEqual(squeezed, { viewport: true, visible: true, underPointer: true });
+
+    // Back to `staus`, another invalid token, with the list scrolled down to the long one's fix:
+    // the list starts from the top again, so the new message shows.
+    await page.keyboard.press("Home");
+    await until(() =>
+      document
+        .querySelector("#search-bar-overflow [data-slot=search-bar-message]")
+        ?.textContent.includes("«staus»"),
+    );
+    await rendered();
+
+    const replaced = await page.evaluate((content) => {
+      const list = document.querySelector(content);
+      const box = list.querySelector("[data-slot=scroll-area-viewport]").getBoundingClientRect();
+      const message = list.querySelector("[data-slot=search-bar-message]").getBoundingClientRect();
+
+      return {
+        open: list.matches(":popover-open"),
+        messageShown: message.top >= box.top - 0.5 && message.top < box.bottom,
+      };
+    }, overflowContent);
+
+    assert.deepEqual(replaced, { open: true, messageShown: true });
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 1280, height: 720 });
   }
