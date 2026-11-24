@@ -142,26 +142,13 @@ export class ToolbarAlignment {
       <output data-role="marks-value">{{ marks().join(",") }}</output>
       <output data-role="mark-outputs">{{ markOutputs() }}</output>
     </div>
-    <button
-      type="button"
-      data-testid="toolbar-joined-move"
-      (click)="joinedKeys.set(['marks', 'cut', 'copy'])"
-    >
+    <button type="button" data-testid="toolbar-joined-move" (click)="joinedKeys.set(['marks', 'cut', 'copy'])">
       Move the marks before Cut
     </button>
-    <button
-      type="button"
-      data-testid="toolbar-marks-disable"
-      (click)="marksDisabled.set(!marksDisabled())"
-    >
+    <button type="button" data-testid="toolbar-marks-disable" (click)="marksDisabled.set(!marksDisabled())">
       Toggle marks disabled
     </button>
-    <div
-      ogToggleGroupSingle
-      [(value)]="outside"
-      aria-label="Outside"
-      data-toolbar-case="outside-group"
-    >
+    <div ogToggleGroupSingle [(value)]="outside" aria-label="Outside" data-toolbar-case="outside-group">
       <button ogToggleGroupItem value="a" data-role="a">A</button>
       <button ogToggleGroupItem value="b" data-role="b">B</button>
     </div>
@@ -245,11 +232,7 @@ export class ToolbarAlignment {
       </span>
       <button ogToolbarItem data-role="bold">Bold</button>
     </div>
-    <button
-      type="button"
-      data-testid="toolbar-format-disable"
-      (click)="formatDisabled.set(!formatDisabled())"
-    >
+    <button type="button" data-testid="toolbar-format-disable" (click)="formatDisabled.set(!formatDisabled())">
       Toggle format disabled
     </button>
     <button
@@ -306,9 +289,7 @@ export class ToolbarAlignment {
         <input aria-label="Last" data-role="last" />
       </div>
     </div>
-    <button type="button" data-testid="toolbar-outside-between">
-      Between the outside toolbars
-    </button>
+    <button type="button" data-testid="toolbar-outside-between">Between the outside toolbars</button>
     <div ogPopover data-toolbar-case="content-before">
       <div ogPopoverContent role="group" aria-label="Options before" data-role="content">
         <input aria-label="First" data-role="first" />
@@ -327,7 +308,11 @@ export class ToolbarAlignment {
     <div ogToolbar aria-label="Menu" data-toolbar-case="menu">
       <button ogToolbarItem data-role="copy">Copy</button>
       <div ogMenu [(open)]="menuOpen" [disabled]="menuDisabled()">
-        <button ogToolbarMenuTrigger [focusableWhenDisabled]="menuFocusable()" data-role="trigger">
+        <button
+          ogToolbarMenuTrigger
+          [focusableWhenDisabled]="menuFocusable()"
+          data-role="trigger"
+        >
           More
         </button>
         <div ogMenuContent data-role="content">

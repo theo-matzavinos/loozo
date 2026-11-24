@@ -218,7 +218,9 @@ export class StatusPicker {
       <button type="button" data-testid="status-after">After the status</button>
       <output data-testid="status-value">{{ describe(model().status) }}</output>
       <output data-testid="status-touched">{{ todo.status().touched() }}</output>
-      <button type="button" data-testid="write-status" (click)="writeStatus()">Write Closed</button>
+      <button type="button" data-testid="write-status" (click)="writeStatus()">
+        Write Closed
+      </button>
       <button type="button" data-testid="focus-status" (click)="todo.status().focusBoundControl()">
         Focus the status control
       </button>

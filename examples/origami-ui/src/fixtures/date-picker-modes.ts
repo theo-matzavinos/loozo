@@ -73,9 +73,7 @@ function increment(value: number): number {
               [(view)]="raView"
             >
               <span ogCalendarHeading>{{ raCal.state.heading() }}</span>
-              <button type="button" data-testid="ra-years" (click)="raView.set('years')">
-                Choose a year
-              </button>
+              <button type="button" data-testid="ra-years" (click)="raView.set('years')">Choose a year</button>
               <table
                 ogCalendarGrid
                 calendarViewRows
@@ -88,9 +86,7 @@ function increment(value: number): number {
               <output data-testid="ra-anchor">{{ raCal.state.anchor() ?? "null" }}</output>
             </div>
           </div>
-          <button ogDatePickerTrigger data-testid="ra-trigger">
-            {{ rangeText(ra.state.value()) }}
-          </button>
+          <button ogDatePickerTrigger data-testid="ra-trigger">{{ rangeText(ra.state.value()) }}</button>
         </div>
       </div>
       <button type="button" data-testid="ra-after">After</button>
@@ -100,9 +96,7 @@ function increment(value: number): number {
       <output data-testid="ra-value-changes">{{ raValueChanges() }}</output>
       <output data-testid="ra-touches">{{ raTouches() }}</output>
       <output data-testid="ra-touched">{{ modes.stay().touched() }}</output>
-      <output data-testid="ra-policy"
-        >{{ ra.state.disabled() }} {{ ra.state.readonly() }} {{ ra.state.open() }}</output
-      >
+      <output data-testid="ra-policy">{{ ra.state.disabled() }} {{ ra.state.readonly() }} {{ ra.state.open() }}</output>
       <button type="button" data-testid="ra-focus" (click)="modes.stay().focusBoundControl()">
         Focus the bound control
       </button>
@@ -136,9 +130,7 @@ function increment(value: number): number {
             </div>
             <button type="button" data-testid="mu-done" (click)="muOpen.set(false)">Done</button>
           </div>
-          <button ogDatePickerTrigger data-testid="mu-trigger">
-            {{ mu.state.value().length }} days
-          </button>
+          <button ogDatePickerTrigger data-testid="mu-trigger">{{ mu.state.value().length }} days</button>
         </div>
       </div>
       <button type="button" data-testid="mu-after">After</button>
@@ -146,9 +138,7 @@ function increment(value: number): number {
       <output data-testid="mu-open">{{ muOpen() }}</output>
       <output data-testid="mu-value-changes">{{ muValueChanges() }}</output>
       <output data-testid="mu-touches">{{ muTouches() }}</output>
-      <output data-testid="mu-policy"
-        >{{ mu.state.disabled() }} {{ mu.state.readonly() }} {{ mu.state.open() }}</output
-      >
+      <output data-testid="mu-policy">{{ mu.state.disabled() }} {{ mu.state.readonly() }} {{ mu.state.open() }}</output>
       <button type="button" data-testid="mu-focus" (click)="modes.holidays().focusBoundControl()">
         Focus the bound control
       </button>
@@ -176,9 +166,7 @@ function increment(value: number): number {
               [(view)]="moView"
             >
               <span ogCalendarHeading data-testid="mo-heading">{{ moCal.state.heading() }}</span>
-              <button type="button" data-testid="mo-years" (click)="moView.set('years')">
-                Choose a year
-              </button>
+              <button type="button" data-testid="mo-years" (click)="moView.set('years')">Choose a year</button>
               <table
                 ogCalendarGrid
                 calendarViewRows
@@ -189,9 +177,7 @@ function increment(value: number): number {
               ></table>
             </div>
           </div>
-          <button ogDatePickerTrigger data-testid="mo-trigger">
-            {{ mo.state.value() ?? "Choose a month" }}
-          </button>
+          <button ogDatePickerTrigger data-testid="mo-trigger">{{ mo.state.value() ?? "Choose a month" }}</button>
         </div>
       </div>
       <button type="button" data-testid="mo-after">After</button>
@@ -200,9 +186,7 @@ function increment(value: number): number {
       <output data-testid="mo-view">{{ moView() }}</output>
       <output data-testid="mo-value-changes">{{ moValueChanges() }}</output>
       <output data-testid="mo-touches">{{ moTouches() }}</output>
-      <output data-testid="mo-policy"
-        >{{ mo.state.disabled() }} {{ mo.state.readonly() }} {{ mo.state.open() }}</output
-      >
+      <output data-testid="mo-policy">{{ mo.state.disabled() }} {{ mo.state.readonly() }} {{ mo.state.open() }}</output>
       <button type="button" data-testid="mo-focus" (click)="modes.expiry().focusBoundControl()">
         Focus the bound control
       </button>

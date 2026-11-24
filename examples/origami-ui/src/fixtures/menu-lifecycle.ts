@@ -238,7 +238,9 @@ export class MenuShadowItems {
           </div>
         }
       </div>
-      <button #departingElsewhere type="button" data-testid="departing-elsewhere">Elsewhere</button>
+      <button #departingElsewhere type="button" data-testid="departing-elsewhere">
+        Elsewhere
+      </button>
       <button type="button" data-testid="close-departing" (click)="departingOpen.set(false)">
         Close
       </button>

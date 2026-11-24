@@ -8,9 +8,7 @@ import { destination as plain } from "../../plain/destination.generated.js";
   imports: [RouterLink],
   template: `
     <article id="list">
-      <p>
-        List page <span id="list-page">{{ route.search().page ?? 1 }}</span>
-      </p>
+      <p>List page <span id="list-page">{{ route.search().page ?? 1 }}</span></p>
       <nav>
         <a id="list-item" [routerLink]="route.link({ to: item, params: { id: 3 } })">Item 3</a>
         <a id="list-page-template" [routerLink]="route.link({ search: { page: 2 } })">Page 2</a>

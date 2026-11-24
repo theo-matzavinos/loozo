@@ -166,7 +166,9 @@ export class CalendarDayRows {
       <output data-testid="r-state">{{ rStateText(r.state.value()) }} {{ r.state.month() }}</output>
       <output data-testid="r-anchor">{{ r.state.anchor() ?? "null" }}</output>
       <output data-testid="r-outputs">{{ rOutputs() }}</output>
-      <button type="button" data-testid="r-write" (click)="writeRange()">Write 2–6 November</button>
+      <button type="button" data-testid="r-write" (click)="writeRange()">
+        Write 2–6 November
+      </button>
       <button type="button" data-testid="r-write-reversed" (click)="writeReversedRange()">
         Write 20 back to 10 October
       </button>

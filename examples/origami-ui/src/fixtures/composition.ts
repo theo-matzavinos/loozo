@@ -550,179 +550,52 @@ export class StateObservation {
     RadioGroupPrecedence,
   ],
   template: `
-    <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">
-      Attach composition behavior
-    </button>
+    <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach composition behavior</button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
     <acceptance-composition />
 
     <section data-testid="existing-providers">
       <h2>Existing Options</h2>
-      <div composedCollection readonlyStates #collectionReadExisting="readonlyStates">
-        <span acceptanceExistingCollectionItem [value]="itemValue()">Provided item</span>
-        <output data-testid="existing-collection-readonly">{{
-          collectionReadExisting.valid()
-        }}</output>
+      <div composedCollection readonlyStates #collectionReadExisting="readonlyStates"><span acceptanceExistingCollectionItem [value]="itemValue()">Provided item</span>
+        <output data-testid="existing-collection-readonly">{{ collectionReadExisting.valid() }}</output>
       </div>
-      <div
-        acceptanceExistingPresence
-        #presenceExisting="acceptanceExistingPresence"
-        data-testid="existing-presence"
-      >
-        <span readonlyStates #presenceReadExisting="readonlyStates"
-          ><output data-testid="existing-presence-readonly">{{
-            presenceReadExisting.valid()
-          }}</output></span
-        >
-        @if (presenceExisting.state.open()) {
-          <p data-testid="existing-presence-child">Composed presence</p>
-        }
+      <div acceptanceExistingPresence #presenceExisting="acceptanceExistingPresence" data-testid="existing-presence">
+        <span readonlyStates #presenceReadExisting="readonlyStates"><output data-testid="existing-presence-readonly">{{ presenceReadExisting.valid() }}</output></span>
+        @if (presenceExisting.state.open()) { <p data-testid="existing-presence-child">Composed presence</p> }
       </div>
-      <button
-        type="button"
-        data-testid="existing-present"
-        (click)="presenceExisting.present.set(!presenceExisting.present())"
-      >
-        Toggle provided presence
-      </button>
-      <section
-        acceptanceExistingCollapsible
-        #rootExisting="acceptanceExistingCollapsible"
-        data-testid="existing-root"
-        (unusedExpandedChange)="unusedOutputs.update(increment)"
-      >
-        <button
-          acceptanceExistingCollapsibleTrigger
-          [id]="id() + '-existing'"
-          data-testid="existing-options-trigger"
-        >
-          Provided trigger
-        </button>
-        <div
-          acceptanceExistingCollapsiblePanel
-          [id]="id() + '-panel-existing'"
-          data-testid="existing-options-panel"
-        >
-          Provided panel
-        </div>
-        <button
-          type="button"
-          data-testid="existing-options-disable"
-          (click)="rootExisting.disabled.set(!rootExisting.disabled())"
-        >
-          Change effective disabled Options
-        </button>
-        <span readonlyStates #collapsibleReadExisting="readonlyStates"
-          ><output data-testid="existing-collapsible-readonly">{{
-            collapsibleReadExisting.valid()
-          }}</output></span
-        >
-        <span stateObservation #firstExisting="stateObservation"></span
-        ><span stateObservation #secondExisting="stateObservation"></span>
-        <output data-testid="existing-same-state">{{
-          rootExisting.state === firstExisting.collapsible &&
-            firstExisting.collapsible === secondExisting.collapsible
-        }}</output>
+      <button type="button" data-testid="existing-present" (click)="presenceExisting.present.set(!presenceExisting.present())">Toggle provided presence</button>
+      <section acceptanceExistingCollapsible #rootExisting="acceptanceExistingCollapsible" data-testid="existing-root" (unusedExpandedChange)="unusedOutputs.update(increment)">
+        <button acceptanceExistingCollapsibleTrigger [id]="id() + '-existing'" data-testid="existing-options-trigger">Provided trigger</button>
+        <div acceptanceExistingCollapsiblePanel [id]="id() + '-panel-existing'" data-testid="existing-options-panel">Provided panel</div>
+        <button type="button" data-testid="existing-options-disable" (click)="rootExisting.disabled.set(!rootExisting.disabled())">Change effective disabled Options</button>
+        <span readonlyStates #collapsibleReadExisting="readonlyStates"><output data-testid="existing-collapsible-readonly">{{ collapsibleReadExisting.valid() }}</output></span>
+        <span stateObservation #firstExisting="stateObservation"></span><span stateObservation #secondExisting="stateObservation"></span>
+        <output data-testid="existing-same-state">{{ rootExisting.state === firstExisting.collapsible && firstExisting.collapsible === secondExisting.collapsible }}</output>
         <section acceptanceExistingCollapsible #nestedExisting="acceptanceExistingCollapsible">
           <span stateObservation #nearestExisting="stateObservation"></span>
-          <output data-testid="existing-nearest-state">{{
-            nestedExisting.state === nearestExisting.collapsible &&
-              rootExisting.state !== nearestExisting.collapsible
-          }}</output>
+          <output data-testid="existing-nearest-state">{{ nestedExisting.state === nearestExisting.collapsible && rootExisting.state !== nearestExisting.collapsible }}</output>
         </section>
       </section>
-      <section
-        acceptanceExistingSingle
-        #singleExisting="acceptanceExistingSingle"
-        (unusedValueChange)="unusedOutputs.update(increment)"
-      >
+      <section acceptanceExistingSingle #singleExisting="acceptanceExistingSingle" (unusedValueChange)="unusedOutputs.update(increment)">
         <article composedAccordionItem value="one">
-          <button
-            acceptanceExistingAccordionTrigger
-            [id]="id() + '-accordion-existing'"
-            data-testid="existing-accordion-trigger"
-          >
-            Provided trigger
-          </button>
-          <div
-            acceptanceExistingAccordionPanel
-            [id]="id() + '-accordion-panel-existing'"
-            data-testid="existing-accordion-panel"
-          >
-            Provided panel
-          </div>
+          <button acceptanceExistingAccordionTrigger [id]="id() + '-accordion-existing'" data-testid="existing-accordion-trigger">Provided trigger</button>
+          <div acceptanceExistingAccordionPanel [id]="id() + '-accordion-panel-existing'" data-testid="existing-accordion-panel">Provided panel</div>
         </article>
-        <span readonlyStates #accordionReadExisting="readonlyStates"
-          ><output data-testid="existing-accordion-readonly">{{
-            accordionReadExisting.valid()
-          }}</output></span
-        >
+        <span readonlyStates #accordionReadExisting="readonlyStates"><output data-testid="existing-accordion-readonly">{{ accordionReadExisting.valid() }}</output></span>
         <output data-testid="existing-single-value">{{ singleExisting.value() }}</output>
       </section>
-      <section
-        acceptanceExistingMultiple
-        #multipleExisting="acceptanceExistingMultiple"
-        (unusedValueChange)="unusedOutputs.update(increment)"
-      >
-        <article ogAccordionItem value="one">
-          <button ogAccordionTrigger data-testid="existing-multiple-trigger">
-            Multiple selection
-          </button>
-          <div ogAccordionPanel>Multiple panel</div>
-        </article>
-        <output data-testid="existing-multiple-value">{{
-          multipleExisting.value().join(",")
-        }}</output>
+      <section acceptanceExistingMultiple #multipleExisting="acceptanceExistingMultiple" (unusedValueChange)="unusedOutputs.update(increment)">
+        <article ogAccordionItem value="one"><button ogAccordionTrigger data-testid="existing-multiple-trigger">Multiple selection</button><div ogAccordionPanel>Multiple panel</div></article>
+        <output data-testid="existing-multiple-value">{{ multipleExisting.value().join(',') }}</output>
       </section>
-      <section
-        acceptanceExistingPopover
-        #popoverExisting="acceptanceExistingPopover"
-        (unusedOpenChange)="unusedOutputs.update(increment)"
-      >
-        <button
-          acceptanceExistingPopoverTrigger
-          [id]="id() + '-popover-existing'"
-          data-testid="existing-popover-trigger"
-        >
-          Provided popover trigger
-        </button>
-        <span
-          acceptanceExistingPopoverAnchor
-          [id]="id() + '-anchor-existing'"
-          data-testid="existing-popover-anchor"
-          >Provided anchor</span
-        >
-        <section
-          acceptanceExistingPopoverContent
-          #contentExisting="acceptanceExistingPopoverContent"
-          [id]="id() + '-content-existing'"
-          class="surface"
-          data-testid="existing-popover-content"
-        >
-          <span readonlyStates #popoverReadExisting="readonlyStates"
-            ><output data-testid="existing-popover-readonly">{{
-              popoverReadExisting.valid()
-            }}</output></span
-          >
+      <section acceptanceExistingPopover #popoverExisting="acceptanceExistingPopover" (unusedOpenChange)="unusedOutputs.update(increment)">
+        <button acceptanceExistingPopoverTrigger [id]="id() + '-popover-existing'" data-testid="existing-popover-trigger">Provided popover trigger</button>
+        <span acceptanceExistingPopoverAnchor [id]="id() + '-anchor-existing'" data-testid="existing-popover-anchor">Provided anchor</span>
+        <section acceptanceExistingPopoverContent #contentExisting="acceptanceExistingPopoverContent" [id]="id() + '-content-existing'" class="surface" data-testid="existing-popover-content">
+          <span readonlyStates #popoverReadExisting="readonlyStates"><output data-testid="existing-popover-readonly">{{ popoverReadExisting.valid() }}</output></span>
           @if (contentExisting.state.open()) {
-            <button
-              type="button"
-              data-testid="existing-popover-protect"
-              (click)="popoverExisting.dismissible.set(false)"
-            >
-              Protect replaced root Options
-            </button>
-            <button
-              type="button"
-              data-testid="existing-popover-reposition"
-              (click)="
-                contentExisting.side.set('inline-end');
-                contentExisting.align.set('end');
-                contentExisting.gap.set(12)
-              "
-            >
-              Change complete Content Options
-            </button>
+            <button type="button" data-testid="existing-popover-protect" (click)="popoverExisting.dismissible.set(false)">Protect replaced root Options</button>
+            <button type="button" data-testid="existing-popover-reposition" (click)="contentExisting.side.set('inline-end'); contentExisting.align.set('end'); contentExisting.gap.set(12)">Change complete Content Options</button>
           }
         </section>
         <output data-testid="existing-popover-open">{{ popoverExisting.state.open() }}</output>
@@ -731,238 +604,66 @@ export class StateObservation {
 
     <section data-testid="factory-providers">
       <h2>Factory Options</h2>
-      <div composedCollection readonlyStates #collectionReadFactory="readonlyStates">
-        <span acceptanceFactoryCollectionItem [value]="itemValue()">Provided item</span>
-        <output data-testid="factory-collection-readonly">{{
-          collectionReadFactory.valid()
-        }}</output>
+      <div composedCollection readonlyStates #collectionReadFactory="readonlyStates"><span acceptanceFactoryCollectionItem [value]="itemValue()">Provided item</span>
+        <output data-testid="factory-collection-readonly">{{ collectionReadFactory.valid() }}</output>
       </div>
-      <div
-        acceptanceFactoryPresence
-        #presenceFactory="acceptanceFactoryPresence"
-        data-testid="factory-presence"
-      >
-        <span readonlyStates #presenceReadFactory="readonlyStates"
-          ><output data-testid="factory-presence-readonly">{{
-            presenceReadFactory.valid()
-          }}</output></span
-        >
-        @if (presenceFactory.state.open()) {
-          <p data-testid="factory-presence-child">Composed presence</p>
-        }
+      <div acceptanceFactoryPresence #presenceFactory="acceptanceFactoryPresence" data-testid="factory-presence">
+        <span readonlyStates #presenceReadFactory="readonlyStates"><output data-testid="factory-presence-readonly">{{ presenceReadFactory.valid() }}</output></span>
+        @if (presenceFactory.state.open()) { <p data-testid="factory-presence-child">Composed presence</p> }
       </div>
-      <button
-        type="button"
-        data-testid="factory-present"
-        (click)="presenceFactory.present.set(!presenceFactory.present())"
-      >
-        Toggle provided presence
-      </button>
-      <section
-        acceptanceFactoryCollapsible
-        #rootFactory="acceptanceFactoryCollapsible"
-        data-testid="factory-root"
-        (unusedExpandedChange)="unusedOutputs.update(increment)"
-      >
-        <button
-          acceptanceFactoryCollapsibleTrigger
-          [id]="id() + '-factory'"
-          data-testid="factory-options-trigger"
-        >
-          Provided trigger
-        </button>
-        <div
-          acceptanceFactoryCollapsiblePanel
-          [id]="id() + '-panel-factory'"
-          data-testid="factory-options-panel"
-        >
-          Provided panel
-        </div>
-        <button
-          type="button"
-          data-testid="factory-options-disable"
-          (click)="rootFactory.disabled.set(!rootFactory.disabled())"
-        >
-          Change effective disabled Options
-        </button>
-        <span readonlyStates #collapsibleReadFactory="readonlyStates"
-          ><output data-testid="factory-collapsible-readonly">{{
-            collapsibleReadFactory.valid()
-          }}</output></span
-        >
-        <span stateObservation #firstFactory="stateObservation"></span
-        ><span stateObservation #secondFactory="stateObservation"></span>
-        <output data-testid="factory-same-state">{{
-          rootFactory.state === firstFactory.collapsible &&
-            firstFactory.collapsible === secondFactory.collapsible
-        }}</output>
+      <button type="button" data-testid="factory-present" (click)="presenceFactory.present.set(!presenceFactory.present())">Toggle provided presence</button>
+      <section acceptanceFactoryCollapsible #rootFactory="acceptanceFactoryCollapsible" data-testid="factory-root" (unusedExpandedChange)="unusedOutputs.update(increment)">
+        <button acceptanceFactoryCollapsibleTrigger [id]="id() + '-factory'" data-testid="factory-options-trigger">Provided trigger</button>
+        <div acceptanceFactoryCollapsiblePanel [id]="id() + '-panel-factory'" data-testid="factory-options-panel">Provided panel</div>
+        <button type="button" data-testid="factory-options-disable" (click)="rootFactory.disabled.set(!rootFactory.disabled())">Change effective disabled Options</button>
+        <span readonlyStates #collapsibleReadFactory="readonlyStates"><output data-testid="factory-collapsible-readonly">{{ collapsibleReadFactory.valid() }}</output></span>
+        <span stateObservation #firstFactory="stateObservation"></span><span stateObservation #secondFactory="stateObservation"></span>
+        <output data-testid="factory-same-state">{{ rootFactory.state === firstFactory.collapsible && firstFactory.collapsible === secondFactory.collapsible }}</output>
         <section acceptanceFactoryCollapsible #nestedFactory="acceptanceFactoryCollapsible">
           <span stateObservation #nearestFactory="stateObservation"></span>
-          <output data-testid="factory-nearest-state">{{
-            nestedFactory.state === nearestFactory.collapsible &&
-              rootFactory.state !== nearestFactory.collapsible
-          }}</output>
+          <output data-testid="factory-nearest-state">{{ nestedFactory.state === nearestFactory.collapsible && rootFactory.state !== nearestFactory.collapsible }}</output>
         </section>
       </section>
-      <section
-        acceptanceFactorySingle
-        #singleFactory="acceptanceFactorySingle"
-        (unusedValueChange)="unusedOutputs.update(increment)"
-      >
+      <section acceptanceFactorySingle #singleFactory="acceptanceFactorySingle" (unusedValueChange)="unusedOutputs.update(increment)">
         <article composedAccordionItem value="one">
-          <button
-            acceptanceFactoryAccordionTrigger
-            [id]="id() + '-accordion-factory'"
-            data-testid="factory-accordion-trigger"
-          >
-            Provided trigger
-          </button>
-          <div
-            acceptanceFactoryAccordionPanel
-            [id]="id() + '-accordion-panel-factory'"
-            data-testid="factory-accordion-panel"
-          >
-            Provided panel
-          </div>
+          <button acceptanceFactoryAccordionTrigger [id]="id() + '-accordion-factory'" data-testid="factory-accordion-trigger">Provided trigger</button>
+          <div acceptanceFactoryAccordionPanel [id]="id() + '-accordion-panel-factory'" data-testid="factory-accordion-panel">Provided panel</div>
         </article>
-        <span readonlyStates #accordionReadFactory="readonlyStates"
-          ><output data-testid="factory-accordion-readonly">{{
-            accordionReadFactory.valid()
-          }}</output></span
-        >
+        <span readonlyStates #accordionReadFactory="readonlyStates"><output data-testid="factory-accordion-readonly">{{ accordionReadFactory.valid() }}</output></span>
         <output data-testid="factory-single-value">{{ singleFactory.value() }}</output>
       </section>
-      <section
-        acceptanceFactoryMultiple
-        #multipleFactory="acceptanceFactoryMultiple"
-        (unusedValueChange)="unusedOutputs.update(increment)"
-      >
-        <article ogAccordionItem value="one">
-          <button ogAccordionTrigger data-testid="factory-multiple-trigger">
-            Multiple selection
-          </button>
-          <div ogAccordionPanel>Multiple panel</div>
-        </article>
-        <output data-testid="factory-multiple-value">{{
-          multipleFactory.value().join(",")
-        }}</output>
+      <section acceptanceFactoryMultiple #multipleFactory="acceptanceFactoryMultiple" (unusedValueChange)="unusedOutputs.update(increment)">
+        <article ogAccordionItem value="one"><button ogAccordionTrigger data-testid="factory-multiple-trigger">Multiple selection</button><div ogAccordionPanel>Multiple panel</div></article>
+        <output data-testid="factory-multiple-value">{{ multipleFactory.value().join(',') }}</output>
       </section>
-      <section
-        acceptanceFactoryPopover
-        #popoverFactory="acceptanceFactoryPopover"
-        (unusedOpenChange)="unusedOutputs.update(increment)"
-      >
-        <button
-          acceptanceFactoryPopoverTrigger
-          [id]="id() + '-popover-factory'"
-          data-testid="factory-popover-trigger"
-        >
-          Provided popover trigger
-        </button>
-        <span
-          acceptanceFactoryPopoverAnchor
-          [id]="id() + '-anchor-factory'"
-          data-testid="factory-popover-anchor"
-          >Provided anchor</span
-        >
-        <section
-          acceptanceFactoryPopoverContent
-          #contentFactory="acceptanceFactoryPopoverContent"
-          [id]="id() + '-content-factory'"
-          class="surface"
-          data-testid="factory-popover-content"
-        >
-          <span readonlyStates #popoverReadFactory="readonlyStates"
-            ><output data-testid="factory-popover-readonly">{{
-              popoverReadFactory.valid()
-            }}</output></span
-          >
+      <section acceptanceFactoryPopover #popoverFactory="acceptanceFactoryPopover" (unusedOpenChange)="unusedOutputs.update(increment)">
+        <button acceptanceFactoryPopoverTrigger [id]="id() + '-popover-factory'" data-testid="factory-popover-trigger">Provided popover trigger</button>
+        <span acceptanceFactoryPopoverAnchor [id]="id() + '-anchor-factory'" data-testid="factory-popover-anchor">Provided anchor</span>
+        <section acceptanceFactoryPopoverContent #contentFactory="acceptanceFactoryPopoverContent" [id]="id() + '-content-factory'" class="surface" data-testid="factory-popover-content">
+          <span readonlyStates #popoverReadFactory="readonlyStates"><output data-testid="factory-popover-readonly">{{ popoverReadFactory.valid() }}</output></span>
           @if (contentFactory.state.open()) {
-            <button
-              type="button"
-              data-testid="factory-popover-protect"
-              (click)="popoverFactory.dismissible.set(false)"
-            >
-              Protect replaced root Options
-            </button>
-            <button
-              type="button"
-              data-testid="factory-popover-reposition"
-              (click)="
-                contentFactory.side.set('inline-end');
-                contentFactory.align.set('end');
-                contentFactory.gap.set(12)
-              "
-            >
-              Change complete Content Options
-            </button>
+            <button type="button" data-testid="factory-popover-protect" (click)="popoverFactory.dismissible.set(false)">Protect replaced root Options</button>
+            <button type="button" data-testid="factory-popover-reposition" (click)="contentFactory.side.set('inline-end'); contentFactory.align.set('end'); contentFactory.gap.set(12)">Change complete Content Options</button>
           }
         </section>
         <output data-testid="factory-popover-open">{{ popoverFactory.state.open() }}</output>
       </section>
     </section>
 
-    <button type="button" data-testid="all-provider-ids" (click)="id.set('changed-provider')">
-      Change all provider IDs
-    </button>
-    <section sharedSingle>
-      <article ogAccordionItem value="one">
-        <button ogAccordionTrigger data-testid="shared-existing-trigger">
-          Abstract shared Options
-        </button>
-        <div ogAccordionPanel>Panel</div>
-      </article>
-    </section>
-    <section sharedFactorySingle>
-      <article ogAccordionItem value="one">
-        <button ogAccordionTrigger data-testid="shared-factory-trigger">
-          Factory shared Options
-        </button>
-        <div ogAccordionPanel>Panel</div>
-      </article>
-    </section>
+    <button type="button" data-testid="all-provider-ids" (click)="id.set('changed-provider')">Change all provider IDs</button>
+    <section sharedSingle><article ogAccordionItem value="one"><button ogAccordionTrigger data-testid="shared-existing-trigger">Abstract shared Options</button><div ogAccordionPanel>Panel</div></article></section>
+    <section sharedFactorySingle><article ogAccordionItem value="one"><button ogAccordionTrigger data-testid="shared-factory-trigger">Factory shared Options</button><div ogAccordionPanel>Panel</div></article></section>
     <output data-testid="provider-unused-outputs">{{ unusedOutputs() }}</output>
-    <button type="button" data-testid="utilities-outside" (click)="checkOutsideContext()">
-      Check required injection context
-    </button>
+    <button type="button" data-testid="utilities-outside" (click)="checkOutsideContext()">Check required injection context</button>
     <output data-testid="outside-injection-errors">{{ outsideErrors() }}</output>
-    <button
-      type="button"
-      data-testid="identity-reorder"
-      (click)="identityKeys.set(['second', 'first'])"
-    >
-      Reorder identity owners
-    </button>
-    <button
-      type="button"
-      data-testid="identity-dom-id"
-      (click)="identityDomain.set('changed-domain')"
-    >
-      Change consumer DOM IDs
-    </button>
+    <button type="button" data-testid="identity-reorder" (click)="identityKeys.set(['second', 'first'])">Reorder identity owners</button>
+    <button type="button" data-testid="identity-dom-id" (click)="identityDomain.set('changed-domain')">Change consumer DOM IDs</button>
     @for (key of identityKeys(); track key) {
-      <acceptance-identity-owner
-        [domId]="identityDomId(key)"
-        [attr.data-key]="key"
-        data-testid="identity-owner"
-      />
+      <acceptance-identity-owner [domId]="identityDomId(key)" [attr.data-key]="key" data-testid="identity-owner" />
     }
-    <button
-      type="button"
-      data-testid="independent-applications"
-      (click)="mountIndependentApplications()"
-    >
-      Mount two independent Angular applications
-    </button>
-    <div data-testid="independent-host-a"></div>
-    <div data-testid="independent-host-b"></div>
-    <button
-      type="button"
-      data-testid="application-isolation"
-      (click)="verifyApplicationNamespaces()"
-    >
-      Reuse a destroyed application's host
-    </button>
+    <button type="button" data-testid="independent-applications" (click)="mountIndependentApplications()">Mount two independent Angular applications</button>
+    <div data-testid="independent-host-a"></div><div data-testid="independent-host-b"></div>
+    <button type="button" data-testid="application-isolation" (click)="verifyApplicationNamespaces()">Reuse a destroyed application's host</button>
     <output data-testid="application-isolation-result">{{ applicationIsolation() }}</output>
     @if (attached()) {
       <output data-testid="unhosted-identities">{{ unhostedIdentities }}</output>

@@ -247,18 +247,10 @@ export class ToastCaller {
       <button type="button" data-testid="break-duration" (click)="mainDuration.set(-1)">
         Set the region's duration to -1
       </button>
-      <button
-        type="button"
-        data-testid="huge-region-duration"
-        (click)="mainDuration.set(2147483648)"
-      >
+      <button type="button" data-testid="huge-region-duration" (click)="mainDuration.set(2147483648)">
         Set the region's duration to 2147483648
       </button>
-      <button
-        type="button"
-        data-testid="max-region-duration"
-        (click)="mainDuration.set(2147483647)"
-      >
+      <button type="button" data-testid="max-region-duration" (click)="mainDuration.set(2147483647)">
         Set the region's duration to 2147483647
       </button>
       <button type="button" data-testid="fix-config" (click)="fixConfig()">
@@ -285,9 +277,7 @@ export class ToastCaller {
       <output data-testid="bad-duration-error">{{ badDurationError() }}</output>
       <output data-testid="main-config">{{ mainDuration() }} {{ mainLimit() }}</output>
       <output data-testid="config-error">{{ configError() }}</output>
-      <output data-testid="toaster-injectable"
-        >{{ baseInjectable }} {{ subclassInjectable }}</output
-      >
+      <output data-testid="toaster-injectable">{{ baseInjectable }} {{ subclassInjectable }}</output>
       <output data-testid="region-state">{{ titles(region.state.toasts()) }}</output>
       <output data-testid="same-data">{{ region.state.toasts()[0]?.data === lastData() }}</output>
 
@@ -333,11 +323,7 @@ export class ToastCaller {
         </ol>
       </section>
       @if (secondRegion()) {
-        <section
-          [ogToastRegion]="toasts"
-          aria-label="Duplicate"
-          data-testid="second-region"
-        ></section>
+        <section [ogToastRegion]="toasts" aria-label="Duplicate" data-testid="second-region"></section>
       }
       <button type="button" data-testid="mount-second-region" (click)="secondRegion.set(true)">
         Mount a second region on the same toaster
@@ -357,9 +343,7 @@ export class ToastCaller {
         aria-label="Other notifications"
         data-testid="factory-region"
       >
-        <output data-testid="factory-region-state">{{
-          titles(factoryRegion.state.toasts())
-        }}</output>
+        <output data-testid="factory-region-state">{{ titles(factoryRegion.state.toasts()) }}</output>
         <ol>
           @for (toast of factoryRegion.state.toasts(); track toast.id) {
             <li
@@ -401,11 +385,7 @@ export class ToastCaller {
               <span toastStateProbe [attr.data-testid]="'probe-' + toast.data.title">
                 {{ toast.data.title }}
               </span>
-              <button
-                existingClose
-                [disabled]="true"
-                [attr.data-testid]="'close-' + toast.data.title"
-              >
+              <button existingClose [disabled]="true" [attr.data-testid]="'close-' + toast.data.title">
                 Close
               </button>
             </li>

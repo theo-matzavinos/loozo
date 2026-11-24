@@ -8,11 +8,7 @@ import { injectRoute } from "./route.generated.js";
   template: `
     <section id="team">
       <h2>Team {{ route.params().teamId }}</h2>
-      <a
-        id="members-link"
-        [routerLink]="route.link({ to: members, params: { teamId: route.params().teamId } })"
-        >Members</a
-      >
+      <a id="members-link" [routerLink]="route.link({ to: members, params: { teamId: route.params().teamId } })">Members</a>
     </section>
   `,
 })

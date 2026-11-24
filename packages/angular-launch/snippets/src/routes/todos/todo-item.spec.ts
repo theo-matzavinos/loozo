@@ -4,7 +4,7 @@ import { TestBed } from "@angular/core/testing";
 import { By } from "@angular/platform-browser";
 import { provideRouter } from "@angular/router";
 import { RouterTestingHarness } from "@angular/router/testing";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { routes } from "../../../generated/routes.generated.js";
 import TodosPage from "./page.js";
 import { TodoItem } from "./todo-item.js";

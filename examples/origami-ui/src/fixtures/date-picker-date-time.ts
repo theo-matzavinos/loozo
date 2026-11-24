@@ -197,14 +197,7 @@ function kinds(errors: readonly { readonly kind: string }[]): string {
       <div ogDialog [(open)]="dialogOpen">
         <button ogDialogTrigger data-testid="dialog-trigger">Open dialog</button>
         <dialog ogDialogContent aria-label="Meeting" data-testid="dialog-content">
-          <div
-            ogDateTimePicker
-            #g="ogDateTimePicker"
-            data-testid="g-root"
-            locale="en-US"
-            [(value)]="gValue"
-            [(open)]="gOpen"
-          >
+          <div ogDateTimePicker #g="ogDateTimePicker" data-testid="g-root" locale="en-US" [(value)]="gValue" [(open)]="gOpen">
             <div ogDateFieldInput aria-label="Meeting starts" data-testid="g-input">
               @for (part of g.state.segments(); track part.key) {
                 @if (part.type === "literal") {
@@ -213,16 +206,18 @@ function kinds(errors: readonly { readonly kind: string }[]): string {
                   <span [ogDateFieldSegment]="part.type" [attr.data-segment]="part.type"></span>
                 }
               }
-              <button ogDatePickerTrigger aria-label="Choose date" data-testid="g-trigger">
-                ▾
-              </button>
+              <button ogDatePickerTrigger aria-label="Choose date" data-testid="g-trigger">▾</button>
             </div>
             <div ogDatePickerContent class="panel" data-testid="g-content">
-              <div ogCalendar #gCal="ogCalendar" today="2026-10-27" locale="en-US" [(view)]="gView">
+              <div
+                ogCalendar
+                #gCal="ogCalendar"
+                today="2026-10-27"
+                locale="en-US"
+                [(view)]="gView"
+              >
                 <span ogCalendarHeading>{{ gCal.state.heading() }}</span>
-                <button type="button" data-testid="g-years" (click)="gView.set('years')">
-                  Choose a year
-                </button>
+                <button type="button" data-testid="g-years" (click)="gView.set('years')">Choose a year</button>
                 <table
                   ogCalendarGrid
                   calendarViewRows

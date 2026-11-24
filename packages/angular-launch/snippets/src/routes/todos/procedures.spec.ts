@@ -1,5 +1,5 @@
 import { callProcedure } from "@loozo/angular-launch/testing";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import type { Todo } from "../../todos.server.js";
 import todos from "./route.js";
 

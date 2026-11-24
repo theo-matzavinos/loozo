@@ -158,11 +158,7 @@ export class ExistingSlider implements OrigamiSliderOptions {
         {{ main.state.dragging() }}</output
       >
       <div class="controls">
-        <button
-          type="button"
-          data-testid="main-config-default"
-          (click)="configure(undefined, undefined, 1)"
-        >
+        <button type="button" data-testid="main-config-default" (click)="configure(undefined, undefined, 1)">
           Default range
         </button>
         <button type="button" data-testid="main-config-zoom" (click)="configure(20, 185, 10)">
@@ -178,11 +174,7 @@ export class ExistingSlider implements OrigamiSliderOptions {
           Zero step
         </button>
         @for (value of writes; track $index) {
-          <button
-            type="button"
-            [attr.data-testid]="'main-write-' + value"
-            (click)="mainValue.set(value)"
-          >
+          <button type="button" [attr.data-testid]="'main-write-' + value" (click)="mainValue.set(value)">
             Write {{ value }}
           </button>
         }
@@ -219,12 +211,7 @@ export class ExistingSlider implements OrigamiSliderOptions {
         >
           <div class="track" ogSliderTrack data-testid="lifetime-track">
             @if (lifetimeThumb()) {
-              <div
-                class="thumb"
-                ogSliderThumb
-                data-testid="lifetime-thumb"
-                aria-label="Lifetime"
-              ></div>
+              <div class="thumb" ogSliderThumb data-testid="lifetime-thumb" aria-label="Lifetime"></div>
             }
           </div>
         </div>
@@ -246,14 +233,7 @@ export class ExistingSlider implements OrigamiSliderOptions {
       <h2>Signal Forms</h2>
       <div ogField #zoomField="ogField" data-testid="zoom-field">
         <span ogFieldLabel id="zoom-label">Zoom</span>
-        <div
-          class="slider"
-          ogSlider
-          #zoom="ogSlider"
-          data-testid="zoom"
-          [formField]="settings.zoom"
-          step="10"
-        >
+        <div class="slider" ogSlider #zoom="ogSlider" data-testid="zoom" [formField]="settings.zoom" step="10">
           <div class="track" ogSliderTrack data-testid="zoom-track">
             <div class="range"></div>
             <div
@@ -294,11 +274,7 @@ export class ExistingSlider implements OrigamiSliderOptions {
       </div>
       <output data-testid="composed-value">{{ model().opacity }}</output>
       <output data-testid="composed-touched">{{ settings.opacity().touched() }}</output>
-      <button
-        type="button"
-        data-testid="composed-focus"
-        (click)="settings.opacity().focusBoundControl()"
-      >
+      <button type="button" data-testid="composed-focus" (click)="settings.opacity().focusBoundControl()">
         Focus the opacity control
       </button>
       <button type="button" data-testid="composed-readonly" (click)="opacityReadonly.update(flip)">
@@ -336,11 +312,7 @@ export class ExistingSlider implements OrigamiSliderOptions {
       <button type="button" data-testid="factory-disable" (click)="replaced.disabled.update(flip)">
         Toggle disabled
       </button>
-      <button
-        type="button"
-        data-testid="factory-readonly-on-focus"
-        (click)="replaced.disableOnFocus.set(true)"
-      >
+      <button type="button" data-testid="factory-readonly-on-focus" (click)="replaced.disableOnFocus.set(true)">
         Disable on focus
       </button>
 

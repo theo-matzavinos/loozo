@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Server code: Node's Request keeps the Origin header, which happy-dom's Request drops.
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vitest";
 import { handleRequest } from "../../../generated/server.generated.js";
 
 describe("POST /_rpc/todos/complete", () => {

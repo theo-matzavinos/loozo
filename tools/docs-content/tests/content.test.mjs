@@ -406,10 +406,7 @@ test("embeds snippets with captions, regions, dedent and source links", () => {
   assert.equal(figures.length, 4);
   assert.match(figures[0], /<figcaption><code>snippets\/example.ts<\/code>/);
   assert.match(figures[0], new RegExp(`href="${blob}/packages/widgets/snippets/example.ts"`));
-  assert.match(
-    figures[0],
-    /<pre class="shiki shiki-themes github-light-default github-dark-default"/,
-  );
+  assert.match(figures[0], /<pre class="shiki shiki-themes github-light-default github-dark-default"/);
   assert.match(figures[0], /--shiki-dark:/);
   assert.doesNotMatch(figures[0], /#region|#endregion/);
   assert.equal(

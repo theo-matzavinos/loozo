@@ -271,497 +271,138 @@ export class NativeContent implements OrigamiPopoverContentOptions {
     { provide: ErrorHandler, useExisting: FixtureErrorHandler },
   ],
   template: `
-    <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">
-      Attach popover behavior
-    </button>
+    <button type="button" data-testid="attach-fixture" (click)="attached.set(true)">Attach popover behavior</button>
     <output data-testid="fixture-attached">{{ attached() }}</output>
     <h2>Native presentation variants</h2>
     <button type="button" data-testid="native-outside">Outside focus target</button>
-    <button
-      type="button"
-      data-testid="native-transform"
-      (click)="consumerTransform.set('translateX(7px)')"
-    >
-      Change consumer transform
-    </button>
+    <button type="button" data-testid="native-transform" (click)="consumerTransform.set('translateX(7px)')">Change consumer transform</button>
     <button type="button" data-testid="after-native">After content in authored order</button>
-    <section
-      nativePopover
-      #root="nativePopover"
-      name="parent"
-      (unusedOpenChange)="unusedOutputs.update(increment)"
-    >
+    <section nativePopover #root="nativePopover" name="parent" (unusedOpenChange)="unusedOutputs.update(increment)">
       <div class="controls">
-        <label
-          >Callback action
-          <select data-testid="native-action" (change)="setAction($event, root.settings)">
-            <option value="none">None</option>
-            <option value="cancel">Cancel opening</option>
-            <option value="close-focus">Close on autofocus</option>
-            <option value="reopen-focus">Close/reopen on autofocus</option>
-            <option value="style-focus">Update consumer bindings during preparation</option>
-            <option value="destroy-focus">Destroy on autofocus</option>
-            <option value="reopen-hide">Reopen during hide</option>
-            <option value="replace-hide">Unmount content during hide</option>
-            <option value="close-before-reveal">Close before reveal</option>
-          </select></label
-        >
-        <label
-          >Motion
-          <select data-testid="native-motion" (change)="select($event, motion)">
-            <option value="finite">Finite</option>
-            <option value="none">None</option>
-            <option value="zero">Zero</option>
-            <option value="infinite">Infinite</option>
-            <option value="mixed">Finite and infinite</option>
-            <option value="directional">Directional (keyed on data-side)</option>
-          </select></label
-        >
-        <label
-          >Anchor writing mode
-          <select data-testid="writing-mode" (change)="select($event, writingMode)">
-            <option value="horizontal-tb">Horizontal</option>
-            <option value="vertical-rl">Vertical right to left</option>
-            <option value="vertical-lr">Vertical left to right</option>
-            <option value="sideways-lr">Sideways (unsupported by Popover)</option>
-          </select></label
-        >
-        <label
-          >Anchor direction
-          <select data-testid="anchor-direction" (change)="select($event, direction)">
-            <option value="ltr">LTR</option>
-            <option value="rtl">RTL</option>
-          </select></label
-        >
-        <label
-          >Content direction
-          <select data-testid="content-direction" (change)="select($event, contentDirection)">
-            <option value="rtl">RTL</option>
-            <option value="ltr">LTR</option>
-          </select></label
-        >
-        <button type="button" data-testid="native-anchor-rtl" (click)="anchorDirection.set('rtl')">
-          Bind RTL on the separate anchor only
-        </button>
-        <button
-          type="button"
-          data-testid="native-other-flip-anchor"
-          (click)="flipAnchorOnOtherOpening.set(true)"
-        >
-          Unrelated opening makes the separate anchor RTL
-        </button>
-        <label
-          >Logical side
-          <select data-testid="native-side" (change)="setSide($event, root.settings)">
-            <option value="block-end">Block end</option>
-            <option value="block-start">Block start</option>
-            <option value="inline-end">Inline end</option>
-            <option value="inline-start">Inline start</option>
-          </select></label
-        >
-        <label
-          >Alignment
-          <select data-testid="native-align" (change)="setAlign($event, root.settings)">
-            <option value="start">Start</option>
-            <option value="center">Center</option>
-            <option value="end">End</option>
-          </select></label
-        >
-        <button
-          type="button"
-          data-testid="native-autofocus-toggle"
-          (click)="autofocus.set(!autofocus())"
-        >
-          Use consumer autofocus
-        </button>
-        <button
-          type="button"
-          data-testid="native-protect"
-          (click)="root.settings.dismissible.set(!root.settings.dismissible())"
-        >
-          Protect root
-        </button>
-        <button type="button" data-testid="native-open" (click)="root.settings.open.set(true)">
-          Request open from Options
-        </button>
-        <button type="button" data-testid="native-close" (click)="root.settings.open.set(false)">
-          Request close from Options
-        </button>
-        <button
-          type="button"
-          data-testid="native-trigger-mount"
-          (click)="root.settings.triggerMounted.set(!root.settings.triggerMounted())"
-        >
-          Mount trigger
-        </button>
-        <button
-          type="button"
-          data-testid="native-anchor-mount"
-          (click)="root.settings.anchorMounted.set(!root.settings.anchorMounted())"
-        >
-          Mount anchor
-        </button>
-        <button
-          type="button"
-          data-testid="native-content-mount"
-          (click)="root.settings.contentMounted.set(!root.settings.contentMounted())"
-        >
-          Mount content
-        </button>
-        <button
-          type="button"
-          data-testid="native-owner-mount"
-          (click)="root.settings.mounted.set(!root.settings.mounted())"
-        >
-          Mount owner's parts
-        </button>
-        <button
-          type="button"
-          data-testid="native-disabled"
-          (click)="root.settings.disabled.set(!root.settings.disabled())"
-        >
-          Disable trigger
-        </button>
-        <button
-          type="button"
-          data-testid="native-trigger-disabled"
-          (click)="triggerDisabled.set(!triggerDisabled())"
-        >
-          Disable the trigger itself
-        </button>
-        <button
-          type="button"
-          data-testid="native-trigger-focusable"
-          (click)="triggerFocusable.set(!triggerFocusable())"
-        >
-          Keep the disabled trigger focusable
-        </button>
-        <button
-          type="button"
-          data-testid="native-trigger-inert"
-          (click)="triggerInert.set(!triggerInert())"
-        >
-          Make trigger inert
-        </button>
-        <button type="button" data-testid="native-co-locate" (click)="coLocated.set(!coLocated())">
-          Co-locate anchor and trigger
-        </button>
-        <button
-          type="button"
-          data-testid="native-latch-configuration"
-          (click)="latchPositionFailure(root.settings, 'configuration')"
-        >
-          Open without ResizeObserver; a later WRITE changes the gap
-        </button>
-        <button
-          type="button"
-          data-testid="native-latch-intent"
-          (click)="latchPositionFailure(root.settings, 'intent')"
-        >
-          Open without ResizeObserver; a later WRITE closes and reopens
-        </button>
-        <button
-          type="button"
-          data-testid="native-supersede-position"
-          (click)="supersedePosition(root.settings)"
-        >
-          Change the gap, then the separate anchor's writing mode in the same task
-        </button>
-        <button
-          type="button"
-          data-testid="native-reentry-setter"
-          (click)="root.settings.reenterSetter.set(true)"
-        >
-          Reopen from actual Options setter
-        </button>
-        <label
-          >Layout
-          <select data-testid="native-layout" (change)="setLayout($event)">
-            <option value="center">Centered</option>
-            <option value="bottom">Near bottom</option>
-            <option value="right">Near right</option>
-            <option value="corner">Bottom right corner</option>
-            <option value="oversized">Oversized content</option>
-            <option value="top">Near top</option>
-            <option value="left">Near left</option>
-            <option value="narrow-start">Wide content, Anchor near the alignment-axis start</option>
-            <option value="narrow-end">Wide content, Anchor near the alignment-axis end</option>
-            <option value="partly-offscreen">
-              Wide content, Anchor partly past the alignment-axis start
-            </option>
-            <option value="offscreen">
-              Wide content, Anchor fully past the alignment-axis start
-            </option>
-            <option value="beside-near-bottom">
-              Anchor near the bottom, natural Content height
-            </option>
-          </select></label
-        >
-        <button type="button" data-testid="native-capped" (click)="capped.set(!capped())">
-          Cap Content's height at --og-available-height
-        </button>
-        <button type="button" data-testid="native-filler" (click)="filler.set(!filler())">
-          Add a physically tall descendant
-        </button>
-        <button type="button" data-testid="native-oversized-height" (click)="height.set(2000)">
-          Give Content an explicit 2000 px height
-        </button>
-        <button
-          type="button"
-          data-testid="native-reverse-other-side"
-          (click)="reverseOtherSide(root.settings)"
-        >
-          Request the opposite block side and open in one handler
-        </button>
-        <label
-          >Pointer policy
-          <select data-testid="pointer-policy" (change)="select($event, pointerPolicy)">
-            <option value="normal">Normal</option>
-            <option value="prevent">Prevent down</option>
-            <option value="capture">Acquire pointer capture</option>
-            <option value="mount-child">Mount an open child Popover</option>
-          </select></label
-        >
+        <label>Callback action <select data-testid="native-action" (change)="setAction($event, root.settings)">
+          <option value="none">None</option><option value="cancel">Cancel opening</option>
+          <option value="close-focus">Close on autofocus</option><option value="reopen-focus">Close/reopen on autofocus</option>
+          <option value="style-focus">Update consumer bindings during preparation</option>
+          <option value="destroy-focus">Destroy on autofocus</option><option value="reopen-hide">Reopen during hide</option>
+          <option value="replace-hide">Unmount content during hide</option><option value="close-before-reveal">Close before reveal</option>
+        </select></label>
+        <label>Motion <select data-testid="native-motion" (change)="select($event, motion)">
+          <option value="finite">Finite</option><option value="none">None</option><option value="zero">Zero</option>
+          <option value="infinite">Infinite</option><option value="mixed">Finite and infinite</option>
+          <option value="directional">Directional (keyed on data-side)</option>
+        </select></label>
+        <label>Anchor writing mode <select data-testid="writing-mode" (change)="select($event, writingMode)">
+          <option value="horizontal-tb">Horizontal</option><option value="vertical-rl">Vertical right to left</option><option value="vertical-lr">Vertical left to right</option>
+          <option value="sideways-lr">Sideways (unsupported by Popover)</option>
+        </select></label>
+        <label>Anchor direction <select data-testid="anchor-direction" (change)="select($event, direction)"><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
+        <label>Content direction <select data-testid="content-direction" (change)="select($event, contentDirection)"><option value="rtl">RTL</option><option value="ltr">LTR</option></select></label>
+        <button type="button" data-testid="native-anchor-rtl" (click)="anchorDirection.set('rtl')">Bind RTL on the separate anchor only</button>
+        <button type="button" data-testid="native-other-flip-anchor" (click)="flipAnchorOnOtherOpening.set(true)">Unrelated opening makes the separate anchor RTL</button>
+        <label>Logical side <select data-testid="native-side" (change)="setSide($event, root.settings)">
+          <option value="block-end">Block end</option><option value="block-start">Block start</option><option value="inline-end">Inline end</option><option value="inline-start">Inline start</option>
+        </select></label>
+        <label>Alignment <select data-testid="native-align" (change)="setAlign($event, root.settings)"><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></label>
+        <button type="button" data-testid="native-autofocus-toggle" (click)="autofocus.set(!autofocus())">Use consumer autofocus</button>
+        <button type="button" data-testid="native-protect" (click)="root.settings.dismissible.set(!root.settings.dismissible())">Protect root</button>
+        <button type="button" data-testid="native-open" (click)="root.settings.open.set(true)">Request open from Options</button>
+        <button type="button" data-testid="native-close" (click)="root.settings.open.set(false)">Request close from Options</button>
+        <button type="button" data-testid="native-trigger-mount" (click)="root.settings.triggerMounted.set(!root.settings.triggerMounted())">Mount trigger</button>
+        <button type="button" data-testid="native-anchor-mount" (click)="root.settings.anchorMounted.set(!root.settings.anchorMounted())">Mount anchor</button>
+        <button type="button" data-testid="native-content-mount" (click)="root.settings.contentMounted.set(!root.settings.contentMounted())">Mount content</button>
+        <button type="button" data-testid="native-owner-mount" (click)="root.settings.mounted.set(!root.settings.mounted())">Mount owner's parts</button>
+        <button type="button" data-testid="native-disabled" (click)="root.settings.disabled.set(!root.settings.disabled())">Disable trigger</button>
+        <button type="button" data-testid="native-trigger-disabled" (click)="triggerDisabled.set(!triggerDisabled())">Disable the trigger itself</button>
+        <button type="button" data-testid="native-trigger-focusable" (click)="triggerFocusable.set(!triggerFocusable())">Keep the disabled trigger focusable</button>
+        <button type="button" data-testid="native-trigger-inert" (click)="triggerInert.set(!triggerInert())">Make trigger inert</button>
+        <button type="button" data-testid="native-co-locate" (click)="coLocated.set(!coLocated())">Co-locate anchor and trigger</button>
+        <button type="button" data-testid="native-latch-configuration" (click)="latchPositionFailure(root.settings, 'configuration')">Open without ResizeObserver; a later WRITE changes the gap</button>
+        <button type="button" data-testid="native-latch-intent" (click)="latchPositionFailure(root.settings, 'intent')">Open without ResizeObserver; a later WRITE closes and reopens</button>
+        <button type="button" data-testid="native-supersede-position" (click)="supersedePosition(root.settings)">Change the gap, then the separate anchor's writing mode in the same task</button>
+        <button type="button" data-testid="native-reentry-setter" (click)="root.settings.reenterSetter.set(true)">Reopen from actual Options setter</button>
+        <label>Layout <select data-testid="native-layout" (change)="setLayout($event)">
+          <option value="center">Centered</option><option value="bottom">Near bottom</option><option value="right">Near right</option>
+          <option value="corner">Bottom right corner</option><option value="oversized">Oversized content</option>
+          <option value="top">Near top</option><option value="left">Near left</option>
+          <option value="narrow-start">Wide content, Anchor near the alignment-axis start</option>
+          <option value="narrow-end">Wide content, Anchor near the alignment-axis end</option>
+          <option value="partly-offscreen">Wide content, Anchor partly past the alignment-axis start</option>
+          <option value="offscreen">Wide content, Anchor fully past the alignment-axis start</option>
+          <option value="beside-near-bottom">Anchor near the bottom, natural Content height</option>
+        </select></label>
+        <button type="button" data-testid="native-capped" (click)="capped.set(!capped())">Cap Content's height at --og-available-height</button>
+        <button type="button" data-testid="native-filler" (click)="filler.set(!filler())">Add a physically tall descendant</button>
+        <button type="button" data-testid="native-oversized-height" (click)="height.set(2000)">Give Content an explicit 2000 px height</button>
+        <button type="button" data-testid="native-reverse-other-side" (click)="reverseOtherSide(root.settings)">Request the opposite block side and open in one handler</button>
+        <label>Pointer policy <select data-testid="pointer-policy" (change)="select($event, pointerPolicy)">
+          <option value="normal">Normal</option><option value="prevent">Prevent down</option><option value="capture">Acquire pointer capture</option>
+          <option value="mount-child">Mount an open child Popover</option>
+        </select></label>
       </div>
-      <button type="button" data-testid="pointer-outside" (pointerdown)="pointerDown($event)">
-        Outside pointer target
-      </button>
+      <button type="button" data-testid="pointer-outside" (pointerdown)="pointerDown($event)">Outside pointer target</button>
       <div class="gesture-controls">
-        <button
-          type="button"
-          draggable="true"
-          data-testid="native-drag-source"
-          (dragstart)="dragStart($event)"
-        >
-          Native drag source: cancel acquired pointer
-        </button>
-        <div
-          data-testid="native-drag-target"
-          (dragover)="$event.preventDefault()"
-          (drop)="$event.preventDefault()"
-        >
-          Native drop target
-        </div>
+        <button type="button" draggable="true" data-testid="native-drag-source" (dragstart)="dragStart($event)">Native drag source: cancel acquired pointer</button>
+        <div data-testid="native-drag-target" (dragover)="$event.preventDefault()" (drop)="$event.preventDefault()">Native drop target</div>
       </div>
       @if (root.settings.mounted()) {
-        <div
-          class="scroll-one"
-          [style.left.px]="left()"
-          [style.top.px]="top()"
-          data-testid="native-scroll-one"
-        >
+        <div class="scroll-one" [style.left.px]="left()" [style.top.px]="top()" data-testid="native-scroll-one">
           <div class="scroll-two" data-testid="native-scroll-two">
-            <div
-              class="anchor-region"
-              [style.writing-mode]="writingMode()"
-              [style.direction]="direction()"
-            >
+            <div class="anchor-region" [style.writing-mode]="writingMode()" [style.direction]="direction()">
               @if (root.settings.triggerMounted()) {
                 @if (coLocated()) {
-                  <button
-                    ogPopoverTrigger
-                    ogPopoverAnchor
-                    id="co-located-trigger"
-                    [inert]="triggerInert()"
-                    [disabled]="triggerDisabled()"
-                    [focusableWhenDisabled]="triggerFocusable()"
-                    data-testid="native-trigger"
-                  >
-                    Native co-located trigger
-                  </button>
+                  <button ogPopoverTrigger ogPopoverAnchor id="co-located-trigger" [inert]="triggerInert()" [disabled]="triggerDisabled()" [focusableWhenDisabled]="triggerFocusable()" data-testid="native-trigger">Native co-located trigger</button>
                 } @else {
-                  <button
-                    ogPopoverTrigger
-                    id="native-trigger-id"
-                    [inert]="triggerInert()"
-                    [disabled]="triggerDisabled()"
-                    [focusableWhenDisabled]="triggerFocusable()"
-                    data-testid="native-trigger"
-                  >
-                    Native trigger
-                  </button>
+                  <button ogPopoverTrigger id="native-trigger-id" [inert]="triggerInert()" [disabled]="triggerDisabled()" [focusableWhenDisabled]="triggerFocusable()" data-testid="native-trigger">Native trigger</button>
                 }
               }
               @if (!coLocated() && root.settings.anchorMounted()) {
-                <span
-                  ogPopoverAnchor
-                  id="native-anchor-id"
-                  data-testid="native-anchor"
-                  [style.direction]="anchorDirection()"
-                  >Separate anchor</span
-                >
+                <span ogPopoverAnchor id="native-anchor-id" data-testid="native-anchor" [style.direction]="anchorDirection()">Separate anchor</span>
               }
               @if (root.settings.contentMounted()) {
-                <section
-                  nativeContent
-                  #content="nativeContent"
-                  id="native-content-id"
-                  class="surface motion"
+                <section nativeContent #content="nativeContent" id="native-content-id" class="surface motion"
                   [class.capped]="capped()"
-                  data-testid="native-content"
-                  [attr.data-phase]="content.presence.phase()"
-                  [attr.data-retained]="content.state.open()"
-                  [attr.data-motion]="motion()"
-                  [style.direction]="contentDirection()"
-                  [style.width.px]="width()"
-                  [style.height.px]="height()"
-                  [style.opacity]="consumerOpacity()"
-                  [style.pointer-events]="consumerPointer()"
-                  [style.transform]="consumerTransform()"
-                  style="z-index: 42;"
-                  (beforetoggle)="root.settings.beforeToggle($event)"
-                  (toggle)="root.settings.record('toggle')"
-                >
+                  data-testid="native-content" [attr.data-phase]="content.presence.phase()"
+                  [attr.data-retained]="content.state.open()" [attr.data-motion]="motion()"
+                  [style.direction]="contentDirection()" [style.width.px]="width()" [style.height.px]="height()"
+                  [style.opacity]="consumerOpacity()" [style.pointer-events]="consumerPointer()"
+                  [style.transform]="consumerTransform()" style="z-index: 42;"
+                  (beforetoggle)="root.settings.beforeToggle($event)" (toggle)="root.settings.record('toggle')">
                   @if (content.state.open()) {
                     @if (autofocus()) {
-                      <input
-                        autofocus
-                        data-testid="native-autofocus"
-                        aria-label="Consumer autofocus"
-                        (focus)="root.settings.autofocus()"
-                      />
+                      <input autofocus data-testid="native-autofocus" aria-label="Consumer autofocus" (focus)="root.settings.autofocus()" />
                     }
                     <button type="button" data-testid="native-first">First content control</button>
-                    <button
-                      type="button"
-                      data-testid="native-inside-close"
-                      (click)="root.settings.open.set(false)"
-                    >
-                      Close from inside
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="native-inside-reentry"
-                      (click)="root.settings.reenterSetter.set(true)"
-                    >
-                      Reopen from setter
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="native-inside-hide-reopen"
-                      (click)="root.settings.action.set('reopen-hide')"
-                    >
-                      Reopen during native hide
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="native-inside-layout"
-                      (click)="
-                        root.settings.side.set('inline-end');
-                        root.settings.align.set('end');
-                        root.settings.gap.set(12)
-                      "
-                    >
-                      Change placement
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="native-inside-size"
-                      (click)="width.set(220); height.set(180)"
-                    >
-                      Resize content
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="native-inside-style"
-                      (click)="
-                        consumerOpacity.set('.75');
-                        consumerPointer.set('auto');
-                        liveText.set('updated')
-                      "
-                    >
-                      Update consumer styles/binding
-                    </button>
+                    <button type="button" data-testid="native-inside-close" (click)="root.settings.open.set(false)">Close from inside</button>
+                    <button type="button" data-testid="native-inside-reentry" (click)="root.settings.reenterSetter.set(true)">Reopen from setter</button>
+                    <button type="button" data-testid="native-inside-hide-reopen" (click)="root.settings.action.set('reopen-hide')">Reopen during native hide</button>
+                    <button type="button" data-testid="native-inside-layout" (click)="root.settings.side.set('inline-end'); root.settings.align.set('end'); root.settings.gap.set(12)">Change placement</button>
+                    <button type="button" data-testid="native-inside-size" (click)="width.set(220); height.set(180)">Resize content</button>
+                    <button type="button" data-testid="native-inside-style" (click)="consumerOpacity.set('.75'); consumerPointer.set('auto'); liveText.set('updated')">Update consumer styles/binding</button>
                     <p data-testid="native-live-text">{{ liveText() }}</p>
                   }
                   @if (filler()) {
                     <div class="filler" data-testid="native-filler-box" aria-hidden="true"></div>
                   }
                   <!-- Logical child lifetime is independent of the parent's ordinary gated children. -->
-                  <section
-                    nativePopover
-                    #child="nativePopover"
-                    name="child"
-                    data-testid="native-child-owner"
-                  >
-                    <button
-                      ogPopoverTrigger
-                      ogPopoverAnchor
-                      id="native-child-trigger"
-                      data-testid="native-child-trigger"
-                    >
-                      Child trigger
-                    </button>
-                    <section
-                      nativeContent
-                      #childContent="nativeContent"
-                      id="native-child-content"
-                      class="child-surface motion"
-                      [attr.data-motion]="motion()"
-                      data-testid="native-child-content"
-                      [attr.data-retained]="childContent.state.open()"
-                    >
-                      @if (childContent.state.open()) {
-                        <button type="button" data-testid="native-child-action">
-                          Child action
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="native-child-protect"
-                          (click)="child.settings.dismissible.set(!child.settings.dismissible())"
-                        >
-                          Toggle child protection
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="native-child-suppress-parent"
-                          (click)="root.settings.open.set(false)"
-                        >
-                          Suppress parent without clearing child intent
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="native-child-reenter"
-                          (click)="child.settings.reenterSetter.set(true)"
-                        >
-                          Child setter reentry
-                        </button>
-                        <button
-                          type="button"
-                          data-testid="native-child-protect-parent-on-close"
-                          (click)="child.settings.protectAncestorOnClose.set(true)"
-                        >
-                          Child close setter protects parent
-                        </button>
-                      }
-                    </section>
-                    <output data-testid="native-child-intent">{{ child.state.open() }}</output>
-                  </section>
-                  @if (pressChildMounted()) {
-                    <section
-                      ogPopover
-                      [open]="pressChildOpen()"
-                      (openChange)="pressChildChange($event)"
-                    >
-                      <button
-                        ogPopoverTrigger
-                        ogPopoverAnchor
-                        id="native-press-child-trigger"
-                        data-testid="native-press-child-trigger"
-                      >
-                        Press child trigger
-                      </button>
-                      <section
-                        ogPopoverContent
-                        id="native-press-child-content"
-                        class="child-surface"
-                        data-testid="native-press-child-content"
-                      >
-                        Mounted during an outside press
+                    <section nativePopover #child="nativePopover" name="child" data-testid="native-child-owner">
+                      <button ogPopoverTrigger ogPopoverAnchor id="native-child-trigger" data-testid="native-child-trigger">Child trigger</button>
+                      <section nativeContent #childContent="nativeContent" id="native-child-content" class="child-surface motion"
+                        [attr.data-motion]="motion()" data-testid="native-child-content" [attr.data-retained]="childContent.state.open()">
+                        @if (childContent.state.open()) {
+                          <button type="button" data-testid="native-child-action">Child action</button>
+                          <button type="button" data-testid="native-child-protect" (click)="child.settings.dismissible.set(!child.settings.dismissible())">Toggle child protection</button>
+                          <button type="button" data-testid="native-child-suppress-parent" (click)="root.settings.open.set(false)">Suppress parent without clearing child intent</button>
+                          <button type="button" data-testid="native-child-reenter" (click)="child.settings.reenterSetter.set(true)">Child setter reentry</button>
+                          <button type="button" data-testid="native-child-protect-parent-on-close" (click)="child.settings.protectAncestorOnClose.set(true)">Child close setter protects parent</button>
+                        }
                       </section>
-                      <output data-testid="native-press-child-intent">{{
-                        pressChildOpen()
-                      }}</output>
+                      <output data-testid="native-child-intent">{{ child.state.open() }}</output>
+                    </section>
+                  @if (pressChildMounted()) {
+                    <section ogPopover [open]="pressChildOpen()" (openChange)="pressChildChange($event)">
+                      <button ogPopoverTrigger ogPopoverAnchor id="native-press-child-trigger" data-testid="native-press-child-trigger">Press child trigger</button>
+                      <section ogPopoverContent id="native-press-child-content" class="child-surface" data-testid="native-press-child-content">Mounted during an outside press</section>
+                      <output data-testid="native-press-child-intent">{{ pressChildOpen() }}</output>
                     </section>
                   }
                 </section>
@@ -776,77 +417,42 @@ export class NativeContent implements OrigamiPopoverContentOptions {
       <output data-testid="native-openings">{{ root.settings.openings() }}</output>
       <output data-testid="native-closings">{{ root.settings.closings() }}</output>
       <output data-testid="native-autofocus-count">{{ root.settings.autofocuses() }}</output>
-      <output data-testid="native-callbacks">{{ root.settings.callbacks().join("|") }}</output>
-      <output data-testid="native-setter-observations">{{
-        root.settings.setterObservations().join("|")
-      }}</output>
+      <output data-testid="native-callbacks">{{ root.settings.callbacks().join('|') }}</output>
+      <output data-testid="native-setter-observations">{{ root.settings.setterObservations().join('|') }}</output>
     </section>
     <section nativePopover #other="nativePopover" name="other">
-      <button
-        ogPopoverTrigger
-        ogPopoverAnchor
-        id="native-other-trigger"
-        data-testid="native-other-trigger"
-      >
-        Unrelated root
-      </button>
-      <section
-        nativeContent
-        #otherContent="nativeContent"
-        id="native-other-content"
-        class="child-surface"
-        data-testid="native-other-content"
-        (beforetoggle)="otherBeforeToggle($event)"
-      >
-        @if (otherContent.state.open()) {
-          <button type="button" data-testid="native-other-action">Unrelated action</button>
-        }
+      <button ogPopoverTrigger ogPopoverAnchor id="native-other-trigger" data-testid="native-other-trigger">Unrelated root</button>
+      <section nativeContent #otherContent="nativeContent" id="native-other-content" class="child-surface" data-testid="native-other-content"
+        (beforetoggle)="otherBeforeToggle($event)">
+        @if (otherContent.state.open()) { <button type="button" data-testid="native-other-action">Unrelated action</button> }
       </section>
-      <button type="button" data-testid="native-other-open" (click)="other.settings.open.set(true)">
-        Authoritative unrelated open
-      </button>
+      <button type="button" data-testid="native-other-open" (click)="other.settings.open.set(true)">Authoritative unrelated open</button>
       <output data-testid="native-other-intent">{{ other.state.open() }}</output>
     </section>
-    <output data-testid="native-journal">{{ journal.writes().join("|") }}</output>
+    <output data-testid="native-journal">{{ journal.writes().join('|') }}</output>
     <output data-testid="native-unused-outputs">{{ unusedOutputs() }}</output>
     <acceptance-lifecycle-cases />
-    <button type="button" data-testid="presentation-mount" (click)="presentationMounted.set(true)">
-      Mount presentation case
-    </button>
+    <button type="button" data-testid="presentation-mount" (click)="presentationMounted.set(true)">Mount presentation case</button>
     @if (presentationMounted()) {
       <acceptance-popover-presentation />
     }
-    <button
-      type="button"
-      data-testid="owner-lifetime-enable"
-      (click)="ownerLifetimeMounted.set(true)"
-    >
-      Mount native owner lifetime case
-    </button>
+    <button type="button" data-testid="owner-lifetime-enable" (click)="ownerLifetimeMounted.set(true)">Mount native owner lifetime case</button>
     @if (ownerLifetimeMounted()) {
       <acceptance-native-owner-lifetime />
     }
-    <button type="button" data-testid="late-pointer-enable" (click)="latePointerMounted.set(true)">
-      Mount late pointer case
-    </button>
+    <button type="button" data-testid="late-pointer-enable" (click)="latePointerMounted.set(true)">Mount late pointer case</button>
     @if (latePointerMounted()) {
       <acceptance-late-pointer />
     }
-    <button type="button" data-testid="shadow-mount" (click)="shadowMounted.set(true)">
-      Mount shadow root case
-    </button>
+    <button type="button" data-testid="shadow-mount" (click)="shadowMounted.set(true)">Mount shadow root case</button>
     @if (shadowMounted()) {
       <acceptance-popover-shadow />
     }
-    <button type="button" data-testid="named-form-mount" (click)="namedFormMounted.set(true)">
-      Mount named form case
-    </button>
+    <button type="button" data-testid="named-form-mount" (click)="namedFormMounted.set(true)">Mount named form case</button>
     @if (namedFormMounted()) {
       <acceptance-popover-named-form />
     }
-    <button type="button" data-testid="timing-mount" (click)="timingMounted.set(true)">
-      Mount restore timing case
-    </button>
+    <button type="button" data-testid="timing-mount" (click)="timingMounted.set(true)">Mount restore timing case</button>
     @if (timingMounted()) {
       <acceptance-popover-restore-timing />
     }

@@ -231,11 +231,7 @@ function cellMarks(state: OrigamiOtpFieldState): string {
       <output data-testid="direct-focused">{{ direct.state.focused() }}</output>
       <output data-testid="direct-submits">{{ directSubmits().join(",") }}</output>
       @for (written of writes; track written) {
-        <button
-          type="button"
-          [attr.data-testid]="'direct-write-' + written"
-          (click)="write(written)"
-        >
+        <button type="button" [attr.data-testid]="'direct-write-' + written" (click)="write(written)">
           Write "{{ written }}"
         </button>
       }
@@ -332,15 +328,14 @@ function cellMarks(state: OrigamiOtpFieldState): string {
               [class.caret]="cell.caret"
               [class.selected]="cell.selected"
               [attr.data-testid]="'pin-cell-' + cell.index"
-            >
-              @if (pinField.state.mask()) {
+              >@if (pinField.state.mask()) {
                 @if (cell.filled) {
                   •
                 }
               } @else {
                 {{ cell.char }}
-              }
-            </span>
+              }</span
+            >
           }
         </div>
       </div>
@@ -356,9 +351,7 @@ function cellMarks(state: OrigamiOtpFieldState): string {
       <button
         type="button"
         data-testid="bound-autocomplete"
-        (click)="
-          autocomplete.set(autocomplete() === 'current-password' ? 'off' : 'current-password')
-        "
+        (click)="autocomplete.set(autocomplete() === 'current-password' ? 'off' : 'current-password')"
       >
         Toggle the bound autocomplete
       </button>
@@ -396,11 +389,7 @@ function cellMarks(state: OrigamiOtpFieldState): string {
       >
         Focus the composed control
       </button>
-      <button
-        type="button"
-        data-testid="composed-lock"
-        (click)="composedLocked.set(!composedLocked())"
-      >
+      <button type="button" data-testid="composed-lock" (click)="composedLocked.set(!composedLocked())">
         Toggle the composed field disabled
       </button>
 
