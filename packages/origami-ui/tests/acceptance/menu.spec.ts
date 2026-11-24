@@ -4616,6 +4616,65 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
   expect(verticalCapped.content.bottom).toBeLessThanOrEqual(verticalCapped.viewport.height + 1);
   expect(verticalCapped.content.left).toBeGreaterThanOrEqual(-1);
   expect(verticalCapped.content.right).toBeLessThanOrEqual(verticalCapped.viewport.width + 1);
+
+  // A square tied to its cap, with a minimum above both inline caps, in a viewport as tall as the
+  // square, so every block candidate overflows along its alignment axis and flip ranks them all:
+  // neither inline side fits, and with Nested near the left only block-start, on the right, has
+  // room for the block-sized box. The block side is chosen at that box, not at the minimum size
+  // the room check's inline cap left, which would fit on the left.
+  const squareWidth = 250;
+  // Left of Nested, room for the 120 px minimum square but not the 250 px one it grows to.
+  const leftRoom = 190;
+
+  await page.setViewportSize({ width: 844, height: squareWidth });
+  await verticalTrigger.evaluate((node: HTMLElement) => {
+    node.closest<HTMLElement>(".narrow-vertical")!.style.direction = "ltr";
+    node.style.top = "20px";
+    node.style.left = "400px";
+  });
+  await nestedContent.evaluate((node: HTMLElement) => {
+    node.style.blockSize = "auto";
+    node.style.inlineSize = "auto";
+    node.style.height = "300px";
+    node.style.minHeight = "120px";
+    node.style.aspectRatio = "1";
+  });
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const shiftBy =
+    leftRoom + 4 - (await nested.evaluate((node) => node.getBoundingClientRect().left));
+
+  await verticalTrigger.evaluate((node: HTMLElement, shiftBy) => {
+    node.style.left = `${400 + shiftBy}px`;
+  }, shiftBy);
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const nestedRight = await nested.evaluate((node) => node.getBoundingClientRect().right);
+
+  await page.setViewportSize({
+    width: Math.ceil(nestedRight + 4 + squareWidth + 20),
+    height: squareWidth,
+  });
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const square = await geometry(page, "block-start", "start", 4, nestedHosts);
+
+  await info.attach("MN57-vertical-square", {
+    body: JSON.stringify(square, null, 2),
+    contentType: "application/json",
+  });
+  // Preconditions: the left block room fits the minimum square but not the full one, the right
+  // one fits the full one, and neither inline side fits even the minimum.
+  expect(square.anchor.left - 4).toBeLessThan(squareWidth);
+  expect(square.anchor.left - 4).toBeGreaterThanOrEqual(130);
+  expect(square.anchor.top - 4).toBeLessThan(120);
+  expect(square.viewport.height - square.anchor.bottom - 4).toBeLessThan(120);
+  expect(square.viewport.width - square.anchor.right - 4).toBeGreaterThanOrEqual(squareWidth);
+  expect(square.content.width).toBeGreaterThanOrEqual(squareWidth - 1);
+  await expect(nestedContent).toHaveAttribute("data-side", "block-start");
+  expect(square.content.left).toBeGreaterThanOrEqual(-1);
+  expect(square.content.right).toBeLessThanOrEqual(square.viewport.width + 1);
+  expect(Math.abs(square.content.left - (square.anchor.right + 4))).toBeLessThanOrEqual(1);
   await step(page, "Escape", nested);
   await step(page, "Escape", verticalTrigger);
 });

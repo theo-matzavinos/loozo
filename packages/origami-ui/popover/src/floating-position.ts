@@ -261,11 +261,16 @@ export function positionContent(
     current = inlineSideFits(reference, content, requested, second, configuration.gap, []);
   }
 
+  // Whether the sizing pass ran, leaving Content at an inline side's size.
+  let sized = false;
+
   return current
     .then((fitsNow) => {
       if (!fitsNow) {
         return false;
       }
+
+      sized = true;
 
       return inlineSideFits(reference, content, requested, second, configuration.gap, sizing);
     })
@@ -274,7 +279,16 @@ export function positionContent(
         return place(requested);
       }
 
-      return place(candidatesFor("block-end"));
+      const block = candidatesFor("block-end");
+
+      if (!sized) {
+        return place(block);
+      }
+
+      // `flip` would choose a block side with the inline size the sizing pass left: a first
+      // block calculation writes a block side's size, so the second chooses with it, as an
+      // authored block `side` does from the previous calculation's size.
+      return place(block).then(() => place(block));
     });
 }
 
