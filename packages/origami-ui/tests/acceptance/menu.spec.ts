@@ -1,7 +1,16 @@
 import { test, expect } from "./contract-test.js";
-import type { Locator, Page } from "playwright/test";
+import type { Locator, Page, TestInfo } from "playwright/test";
 import { fixture } from "./observation.js";
-import { expectPreferred, geometry, placedSide, settled } from "./geometry.js";
+import {
+  candidates,
+  expectPreferred,
+  geometry,
+  logicalSide,
+  placedSide,
+  selected,
+  settled,
+  shifted,
+} from "./geometry.js";
 
 // MN means the Menu section. Cases run against the `menu` fixture; MN8's replay runs in
 // hydration.spec.ts.
@@ -2949,6 +2958,61 @@ test.describe("touch", () => {
       "inbox@edit-trigger@false/false/false/false/false/false",
     );
   });
+
+  test("MN55: at a phone width, a tap opens a submenu below its sub-trigger, inside the viewport, a second tap keeps it open and a tap on its item selects it; a row it covers is reached by tapping outside, reopening and tapping the row", async ({
+    page,
+  }, info) => {
+    await fixture(page, "menu", info);
+    await mountNarrow(page, 390, 844);
+
+    const parts = narrowParts(page);
+
+    await parts.trigger.tap();
+    await expectOpen(parts.trigger, parts.content);
+    await parts.move.tap();
+    await expectOpen(parts.move, parts.moveContent);
+    await expectBelow(page, "narrow-move", "narrow-move-content", 4, info);
+    await parts.move.tap();
+    await frames(page);
+    await expectOpen(parts.move, parts.moveContent);
+    await parts.item("archive").tap();
+    await expectClosed(parts.trigger, parts.content);
+    await expectClosed(parts.move, parts.moveContent);
+    await expect(parts.selected).toHaveText("archive@narrow-trigger");
+
+    // Rename is under the open submenu: its center is the submenu's.
+    await parts.trigger.tap();
+    await parts.move.tap();
+    await expectOpen(parts.move, parts.moveContent);
+    await settled(page, "narrow-move", "narrow-move-content");
+
+    const rename = await center(parts.item("rename"));
+    const covered = await page.evaluate(
+      ({ x, y }) =>
+        document
+          .querySelector('[data-testid="narrow-move-content"]')!
+          .contains(document.elementFromPoint(x, y)),
+      rename,
+    );
+
+    expect(covered).toBe(true);
+
+    // Recovery: an outside tap closes the tree; reopened, Rename is exposed and its tap selects it.
+    const outside = { x: 2, y: 2 };
+
+    expect(
+      await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName, outside),
+    ).toMatch(/^(HTML|BODY)$/);
+    await page.touchscreen.tap(outside.x, outside.y);
+    await expectClosed(parts.trigger, parts.content);
+    await expectClosed(parts.move, parts.moveContent);
+    await parts.trigger.tap();
+    await expectOpen(parts.trigger, parts.content);
+    expect(await hit(page, rename)).toBe("narrow-rename");
+    await parts.item("rename").tap();
+    await expectClosed(parts.trigger, parts.content);
+    await expect(parts.selected).toHaveText("archive@narrow-trigger,rename@narrow-trigger");
+  });
 });
 
 test("MN42: in a Dialog, the first Escape closes only the submenu, the next only the menu, then the Dialog; activating an item in the submenu closes the menu tree and keeps the Dialog open", async ({
@@ -3713,4 +3777,1087 @@ test("MN53: a submenu taller than the viewport near the block end is capped by -
     await page.keyboard.press("Escape");
     await expectClosed(trigger, content);
   }
+});
+
+/** Resizes the viewport and mounts the Narrow Menus, whose Triggers are fixed. */
+async function mountNarrow(page: Page, width: number, height: number): Promise<void> {
+  await page.setViewportSize({ width, height });
+
+  const mount = page.getByTestId("narrow-mount");
+
+  await mount.evaluate((node) => (node as HTMLElement).click());
+  await expect(page.getByTestId("narrow-trigger")).toBeVisible();
+}
+
+/** A Content's own inline custom property in CSS pixels, never an inherited one; NaN when unset. */
+async function ownPixels(page: Page, testId: string, property: string): Promise<number> {
+  return page
+    .getByTestId(testId)
+    .evaluate((node, property) => parseFloat(node.style.getPropertyValue(property)), property);
+}
+
+/**
+ * A stand-in for the border-box inline size `content` takes while it still inherits `parent`'s
+ * own `--og-anchor-width`: a hidden max-content copy of it, with its classes and items and that
+ * width, measured and removed in one evaluation.
+ */
+async function inheritedWidth(page: Page, parent: string, content: string): Promise<number> {
+  const anchorWidth = await ownPixels(page, parent, "--og-anchor-width");
+
+  expect(Number.isFinite(anchorWidth) && anchorWidth > 0).toBe(true);
+
+  return page.getByTestId(content).evaluate((node, anchorWidth) => {
+    const copy = node.cloneNode(true) as HTMLElement;
+
+    copy.removeAttribute("popover");
+    copy.removeAttribute("id");
+    copy.removeAttribute("style");
+    copy.style.setProperty("--og-anchor-width", `${anchorWidth}px`);
+    copy.style.position = "fixed";
+    copy.style.visibility = "hidden";
+    copy.style.display = "flex";
+    copy.style.flexDirection = "column";
+    copy.style.inlineSize = "max-content";
+    node.parentElement!.append(copy);
+
+    const width = copy.getBoundingClientRect().width;
+
+    copy.remove();
+
+    return width;
+  }, anchorWidth);
+}
+
+/** The room beside `anchor` on its left and right, to the viewport's client edges. */
+async function inlineRooms(page: Page, anchor: string): Promise<{ start: number; end: number }> {
+  return page.getByTestId(anchor).evaluate((node) => {
+    const box = node.getBoundingClientRect();
+
+    return { start: box.left, end: document.documentElement.clientWidth - box.right };
+  });
+}
+
+/** The `data-testid` of the nearest element at a viewport point that has one. */
+async function hit(page: Page, point: { x: number; y: number }): Promise<string | null> {
+  return page.evaluate(
+    ({ x, y }) =>
+      document.elementFromPoint(x, y)?.closest("[data-testid]")?.getAttribute("data-testid") ??
+      null,
+    point,
+  );
+}
+
+/**
+ * For an opened submenu whose `side` is inline: neither inline side's main edge fits, by the
+ * independent oracle, and it sits `gap` below its sub-trigger at `block-end`, inline-start edges
+ * aligned, inside the viewport, with the sub-trigger's center still the sub-trigger and its own
+ * `--og-available-height` the room below it.
+ */
+async function expectBelow(
+  page: Page,
+  anchor: string,
+  content: string,
+  gap: number,
+  info: TestInfo,
+): Promise<void> {
+  const hosts = { anchor, content };
+
+  await settled(page, anchor, content);
+
+  const inline = await geometry(page, "inline-end", "start", gap, hosts);
+
+  for (const candidate of inline.expected) {
+    expect(candidate.mainOverflow).toBeGreaterThan(0);
+  }
+
+  await expect(page.getByTestId(content)).toHaveAttribute("data-side", "block-end");
+
+  const result = await geometry(page, "block-end", "start", gap, hosts);
+  const box = result.content;
+
+  await info.attach(`${content}-below`, {
+    body: JSON.stringify(result, null, 2),
+    contentType: "application/json",
+  });
+  expect(box.left).toBeGreaterThanOrEqual(-1);
+  expect(box.top).toBeGreaterThanOrEqual(-1);
+  expect(box.right).toBeLessThanOrEqual(result.viewport.width + 1);
+  expect(box.bottom).toBeLessThanOrEqual(result.viewport.height + 1);
+  expect(Math.abs(box.top - (result.anchor.bottom + gap))).toBeLessThanOrEqual(1);
+
+  if (result.direction === "rtl") {
+    expect(Math.abs(box.right - result.anchor.right)).toBeLessThanOrEqual(1);
+  } else {
+    expect(Math.abs(box.left - result.anchor.left)).toBeLessThanOrEqual(1);
+  }
+
+  expect(placedSide(result.anchor, box, gap, result)).toBe("block-end");
+  expect(
+    await hit(page, {
+      x: result.anchor.left + result.anchor.width / 2,
+      y: result.anchor.top + result.anchor.height / 2,
+    }),
+  ).toBe(anchor);
+  expect(
+    Math.abs(
+      (await ownPixels(page, content, "--og-available-height")) -
+        (result.viewport.height - box.top),
+    ),
+  ).toBeLessThanOrEqual(1);
+}
+
+/** Whether an independent candidate fits on both axes. */
+function fits(candidate: { mainOverflow: number; crossOverflow: number }): boolean {
+  return candidate.mainOverflow <= 0 && candidate.crossOverflow <= 0;
+}
+
+function narrowParts(page: Page) {
+  return {
+    trigger: page.getByTestId("narrow-trigger"),
+    content: page.getByTestId("narrow-content"),
+    item: (name: string) => page.getByTestId(`narrow-${name}`),
+    move: page.getByTestId("narrow-move"),
+    moveContent: page.getByTestId("narrow-move-content"),
+    more: page.getByTestId("narrow-more"),
+    moreContent: page.getByTestId("narrow-more-content"),
+    copy: page.getByTestId("narrow-copy"),
+    copyContent: page.getByTestId("narrow-copy-content"),
+    send: page.getByTestId("narrow-send"),
+    sendContent: page.getByTestId("narrow-send-content"),
+    openWith: page.getByTestId("narrow-open-with"),
+    openWithContent: page.getByTestId("narrow-open-with-content"),
+    nearBottom: page.getByTestId("narrow-near-bottom"),
+    state: page.getByTestId("narrow-state"),
+    selected: page.getByTestId("narrow-selected"),
+  };
+}
+
+/** Presses `key`, then waits until `next` holds focus. */
+async function step(page: Page, key: string, next: Locator): Promise<void> {
+  await page.keyboard.press(key);
+  await expect(next).toBeFocused();
+}
+
+/** Sets Narrow's Trigger `top` through the fixture's script action. */
+async function narrowTop(page: Page, top: number): Promise<void> {
+  const button = narrowParts(page).nearBottom;
+
+  await button.evaluate((node, top) => {
+    (node as HTMLElement).dataset["top"] = String(top);
+    (node as HTMLElement).click();
+  }, top);
+  await expect(narrowParts(page).trigger).toHaveCSS("top", `${top}px`);
+}
+
+test("MN54: at a phone width, a submenu that fits beside its sub-trigger on neither side opens below it, inside the viewport, at block-end, one level deep and two, in right to left too; keys follow the tree, the mouse still opens it, selects in it and switches to the exposed band of a row it covers, and the safe corridor keeps it open across an exposed row on the way to it", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await page.clock.install();
+  await mountNarrow(page, 390, 844);
+
+  const parts = narrowParts(page);
+
+  // Keys through two levels.
+  await parts.trigger.focus();
+  await step(page, "Enter", parts.item("undo"));
+  await expectOpen(parts.trigger, parts.content);
+  await expect(parts.content).toHaveAttribute("data-side", "block-end");
+  await step(page, "ArrowDown", parts.move);
+
+  // Every `data-side` value committed, rebuilt from each record's old value, so two writes
+  // delivered together still count: the submenu inherits root Content's narrower
+  // --og-anchor-width until the room check writes its own. Paint timing isn't observed.
+  await parts.moveContent.evaluate((node) => {
+    const previous: string[] = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        previous.push(record.oldValue ?? "none");
+      }
+    });
+
+    observer.observe(node, {
+      attributes: true,
+      attributeFilter: ["data-side"],
+      attributeOldValue: true,
+    });
+    (window as unknown as { narrowSides: () => string[] }).narrowSides = () => {
+      const values = [...previous, ...observer.takeRecords().map((r) => r.oldValue ?? "none")];
+
+      values.push(node.getAttribute("data-side") ?? "none");
+
+      return values.filter((value, index) => index === 0 || value !== values[index - 1]);
+    };
+  });
+  await step(page, "ArrowRight", parts.item("inbox"));
+  await expectOpen(parts.move, parts.moveContent);
+  await expectBelow(page, "narrow-move", "narrow-move-content", 4, info);
+  // A1's precondition: at the width it inherits before its own write (root Content's
+  // --og-anchor-width), Move to's submenu would fit beside it; only its own width misses both sides.
+  const inherited = await inheritedWidth(page, "narrow-content", "narrow-move-content");
+  const rooms = await inlineRooms(page, "narrow-move");
+
+  expect(inherited + 4).toBeLessThanOrEqual(Math.max(rooms.start, rooms.end));
+  expect(
+    await page.evaluate(() => (window as unknown as { narrowSides: () => string[] }).narrowSides()),
+  ).toEqual(["none", "block-end"]);
+
+  for (const name of ["archive", "drafts", "sent"]) {
+    await step(page, "ArrowDown", parts.item(name));
+  }
+
+  await step(page, "ArrowDown", parts.more);
+  await step(page, "ArrowRight", parts.item("trash"));
+  await expectOpen(parts.more, parts.moreContent);
+  await expectBelow(page, "narrow-more", "narrow-more-content", 4, info);
+  await step(page, "ArrowLeft", parts.more);
+  await expectClosed(parts.more, parts.moreContent);
+  await step(page, "ArrowLeft", parts.move);
+  await expectClosed(parts.move, parts.moveContent);
+  await step(page, "Escape", parts.trigger);
+  await expectClosed(parts.trigger, parts.content);
+
+  // The mouse opens it and selects in it.
+  await parts.trigger.click();
+  await expectOpen(parts.trigger, parts.content);
+  await parts.move.hover();
+  await expectOpen(parts.move, parts.moveContent);
+  await expectBelow(page, "narrow-move", "narrow-move-content", 4, info);
+  await parts.item("archive").click();
+  await expectClosed(parts.trigger, parts.content);
+  await expectClosed(parts.move, parts.moveContent);
+  await expect(parts.trigger).toBeFocused();
+  await expect(parts.selected).toHaveText("archive@narrow-trigger");
+
+  // Resting on the exposed band of Rename, which the submenu covers, switches to it.
+  await parts.trigger.click();
+  await parts.move.hover();
+  await expectOpen(parts.move, parts.moveContent);
+  await settled(page, "narrow-move", "narrow-move-content");
+
+  const rename = await parts.item("rename").boundingBox();
+  const covering = await parts.moveContent.boundingBox();
+
+  if (rename === null || covering === null) {
+    throw new Error("No box");
+  }
+
+  const band = { x: rename.x + rename.width / 2, y: rename.y + (covering.y - rename.y) / 2 };
+
+  expect(covering.y - rename.y).toBeGreaterThan(0);
+  expect(covering.y).toBeLessThan(rename.y + rename.height);
+  expect(await hit(page, band)).toBe("narrow-rename");
+  expect(await hit(page, { x: band.x, y: rename.y + rename.height / 2 })).not.toBe("narrow-rename");
+  await watchPointer(page);
+  await paused(page, async () => {
+    await page.mouse.move(band.x, band.y);
+    await page.clock.runFor(99);
+    await expect(parts.move).toBeFocused();
+    await page.clock.runFor(1);
+    await expect(parts.item("rename")).toBeFocused();
+  });
+  await expectClosed(parts.move, parts.moveContent);
+
+  // The corridor: from Copy to straight toward its submenu, 1 px every 20 ms, across Share's
+  // exposed band, keeps it open and focuses no item of the root.
+  await parts.copy.hover();
+  await expectOpen(parts.copy, parts.copyContent);
+  await expectBelow(page, "narrow-copy", "narrow-copy-content", 16, info);
+
+  const share = await parts.item("share").boundingBox();
+  const copyContent = await parts.copyContent.boundingBox();
+  const from = await center(parts.copy);
+
+  if (share === null || copyContent === null) {
+    throw new Error("No box");
+  }
+
+  // Share is directly below Copy to, and 16 px of it are exposed above the submenu.
+  expect(Math.abs(copyContent.y - share.y - 16)).toBeLessThanOrEqual(1);
+  expect(await hit(page, { x: from.x, y: share.y + 8 })).toBe("narrow-share");
+  await watchPointer(page);
+  await paused(page, async () => {
+    for (let y = Math.round(from.y) + 1; y <= copyContent.y + 8; y++) {
+      await page.mouse.move(from.x, y);
+      await page.clock.runFor(20);
+    }
+
+    await page.clock.runFor(250);
+  });
+
+  const dwell = await page.evaluate(() => {
+    const first = window.menuMoves ?? {};
+    const last = window.menuLastMoves ?? {};
+
+    return (last["narrow-share"] ?? Number.NaN) - (first["narrow-share"] ?? Number.NaN);
+  });
+
+  expect(dwell).toBeGreaterThanOrEqual(120);
+  await expectOpen(parts.copy, parts.copyContent);
+
+  const focused = await focusedSince(page);
+
+  for (const id of focused) {
+    expect(["narrow-desktop", "narrow-downloads"]).toContain(id);
+  }
+
+  await expect(parts.state).toHaveText("true false false true false false");
+
+  // Its converse: resting on Share's band without moving switches to it.
+  await parts.copy.hover();
+  await expect(parts.copy).toBeFocused();
+  await paused(page, async () => {
+    await page.mouse.move(from.x, share.y + 8);
+    await page.clock.runFor(99);
+    await expect(parts.copy).toBeFocused();
+    await page.clock.runFor(1);
+    await expect(parts.item("share")).toBeFocused();
+  });
+  await expectClosed(parts.copy, parts.copyContent);
+  await step(page, "Escape", parts.trigger);
+  await expectClosed(parts.trigger, parts.content);
+  await page.mouse.move(2, 2);
+
+  // Right to left mirrors it.
+  const rtlTrigger = page.getByTestId("narrow-rtl-trigger");
+  const align = page.getByTestId("narrow-rtl-align");
+  const alignContent = page.getByTestId("narrow-rtl-align-content");
+
+  await rtlTrigger.focus();
+  await step(page, "Enter", page.getByTestId("narrow-rtl-bold"));
+  await step(page, "ArrowDown", align);
+  await step(page, "ArrowLeft", page.getByTestId("narrow-rtl-right"));
+  await expectOpen(align, alignContent);
+  await expectBelow(page, "narrow-rtl-align", "narrow-rtl-align-content", 4, info);
+  await step(page, "ArrowRight", align);
+  await expectClosed(align, alignContent);
+  await step(page, "Escape", rtlTrigger);
+});
+
+test("MN56: a submenu keeps its beside placement while one inline side fits, from the first width where it does, and falls back 1 px narrower; near the bottom it falls back above, and at a desktop width it keeps the alignment flip; an authored block side and root Content with an inline side position as before", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await mountNarrow(page, 390, 844);
+
+  const parts = narrowParts(page);
+  const moveHosts = { anchor: "narrow-move", content: "narrow-move-content" };
+
+  // Measure Move to's row and submenu at 390 px.
+  await parts.trigger.focus();
+  await step(page, "Enter", parts.item("undo"));
+  await step(page, "ArrowDown", parts.move);
+  await step(page, "ArrowRight", parts.item("inbox"));
+  await expectBelow(page, "narrow-move", "narrow-move-content", 4, info);
+
+  const narrow = await geometry(page, "inline-end", "start", 4, moveHosts);
+  const scrollbar = await page.evaluate(
+    () => window.innerWidth - document.documentElement.clientWidth,
+  );
+
+  await step(page, "Escape", parts.move);
+  await step(page, "Escape", parts.trigger);
+  await expectClosed(parts.trigger, parts.content);
+
+  // The first clipping width where inline-end's main edge fits, with the gap, and 1 px narrower.
+  const boundary = narrow.anchor.right + 4 + narrow.content.width;
+
+  expect(Number.isInteger(boundary)).toBe(true);
+
+  for (const width of [boundary, boundary - 1]) {
+    await page.setViewportSize({ width: width + scrollbar, height: 844 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.clientWidth)).toBe(width);
+    await parts.trigger.focus();
+    await step(page, "Enter", parts.item("undo"));
+    await step(page, "ArrowDown", parts.move);
+    await step(page, "ArrowRight", parts.item("inbox"));
+    await expectOpen(parts.move, parts.moveContent);
+    await settled(page, "narrow-move", "narrow-move-content");
+
+    const result = await geometry(page, "inline-end", "start", 4, moveHosts);
+
+    await info.attach(`MN56-move-${width}`, {
+      body: JSON.stringify(result, null, 2),
+      contentType: "application/json",
+    });
+
+    if (width === boundary) {
+      expect(result.expected[0].mainOverflow).toBe(0);
+      expect(fits(result.expected[0])).toBe(true);
+      await expect(parts.moveContent).toHaveAttribute("data-side", "inline-end");
+      expect(Math.abs(result.content.left - result.expected[0].x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(result.content.top - result.expected[0].y)).toBeLessThanOrEqual(1);
+    } else {
+      expect(result.expected[0].mainOverflow).toBe(1);
+      await expectBelow(page, "narrow-move", "narrow-move-content", 4, info);
+    }
+
+    await step(page, "Escape", parts.move);
+    await step(page, "Escape", parts.trigger);
+    await expectClosed(parts.trigger, parts.content);
+  }
+
+  // Near the bottom: root Content still fits below its Trigger, with 8 px to spare.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await parts.trigger.focus();
+  await step(page, "Enter", parts.item("undo"));
+
+  const trigger = await parts.trigger.boundingBox();
+  const root = await parts.content.boundingBox();
+  const clientHeight = await page.evaluate(() => document.documentElement.clientHeight);
+
+  if (trigger === null || root === null) {
+    throw new Error("No box");
+  }
+
+  await step(page, "Escape", parts.trigger);
+  await expectClosed(parts.trigger, parts.content);
+
+  const nearBottom = Math.floor(clientHeight - 8 - root.height - trigger.height);
+  const sendHosts = { anchor: "narrow-send", content: "narrow-send-content" };
+
+  await narrowTop(page, nearBottom);
+
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await parts.trigger.focus();
+    await step(page, "Enter", parts.item("undo"));
+    await expect(parts.content).toHaveAttribute("data-side", "block-end");
+    await step(page, "End", parts.openWith);
+    await step(page, "ArrowUp", parts.send);
+    await step(page, "ArrowRight", parts.item("phone"));
+    await expectOpen(parts.send, parts.sendContent);
+    await settled(page, "narrow-send", "narrow-send-content");
+
+    const below = await geometry(page, "block-end", "start", 4, sendHosts);
+    const beside = await geometry(page, "inline-end", "start", 4, sendHosts);
+    const box = below.content;
+
+    await info.attach(`MN56-send-${width}`, {
+      body: JSON.stringify({ below, beside }, null, 2),
+      contentType: "application/json",
+    });
+
+    if (width === 390) {
+      // Below has less room than the submenu needs; above has more.
+      expect(below.viewport.height - (below.anchor.bottom + 4)).toBeLessThan(box.height);
+      expect(below.anchor.top - 4).toBeGreaterThan(box.height);
+
+      for (const candidate of beside.expected) {
+        expect(candidate.mainOverflow).toBeGreaterThan(0);
+      }
+
+      await expect(parts.sendContent).toHaveAttribute("data-side", "block-start");
+      expect(Math.abs(box.bottom - (below.anchor.top - 4))).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.left - below.anchor.left)).toBeLessThanOrEqual(1);
+      expect(box.top).toBeGreaterThanOrEqual(-1);
+      expect(box.right).toBeLessThanOrEqual(below.viewport.width + 1);
+      expect(
+        await hit(page, {
+          x: below.anchor.left + below.anchor.width / 2,
+          y: below.anchor.top + below.anchor.height / 2,
+        }),
+      ).toBe("narrow-send");
+      expect(
+        Math.abs(
+          (await ownPixels(page, "narrow-send-content", "--og-available-height")) -
+            (below.anchor.top - 4),
+        ),
+      ).toBeLessThanOrEqual(1);
+    } else {
+      // Start-aligned beside overflows on the alignment axis, the other side's main edge misses
+      // and end-aligned beside fits: the alignment flip.
+      expect(beside.expected[0].mainOverflow).toBeLessThanOrEqual(0);
+      expect(beside.expected[0].crossOverflow).toBeGreaterThan(0);
+      expect(beside.expected[1].mainOverflow).toBeGreaterThan(0);
+      expect(fits(beside.expected[2])).toBe(true);
+      await expect(parts.sendContent).toHaveAttribute("data-side", "inline-end");
+      expect(Math.abs(box.left - beside.expected[2].x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.top - beside.expected[2].y)).toBeLessThanOrEqual(1);
+    }
+
+    await step(page, "Escape", parts.send);
+    await step(page, "Escape", parts.trigger);
+    await expectClosed(parts.trigger, parts.content);
+  }
+
+  // At 390 px and the regular top: an authored block-start side with both block sides fitting.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await narrowTop(page, 120);
+  await parts.trigger.focus();
+  await step(page, "Enter", parts.item("undo"));
+  await step(page, "End", parts.openWith);
+  await step(page, "ArrowRight", parts.item("editor"));
+  await expectOpen(parts.openWith, parts.openWithContent);
+  await settled(page, "narrow-open-with", "narrow-open-with-content");
+
+  const openWithHosts = { anchor: "narrow-open-with", content: "narrow-open-with-content" };
+  const authored = await geometry(page, "block-start", "start", 0, openWithHosts);
+  const openWithBeside = await geometry(page, "inline-end", "start", 0, openWithHosts);
+
+  await info.attach("MN56-open-with", {
+    body: JSON.stringify({ authored, openWithBeside }, null, 2),
+    contentType: "application/json",
+  });
+
+  for (const candidate of openWithBeside.expected) {
+    expect(candidate.mainOverflow).toBeGreaterThan(0);
+  }
+
+  expect(fits(authored.expected[0])).toBe(true);
+  expect(fits(authored.expected[1])).toBe(true);
+  await expect(parts.openWithContent).toHaveAttribute("data-side", "block-start");
+  expect(Math.abs(authored.content.left - authored.expected[0].x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(authored.content.top - authored.expected[0].y)).toBeLessThanOrEqual(1);
+  await step(page, "Escape", parts.openWith);
+  await step(page, "Escape", parts.trigger);
+
+  // Root Content with an inline side that fits on neither: section 10's inline best fit.
+  const rootTrigger = page.getByTestId("narrow-root-inline-trigger");
+  const rootContent = page.getByTestId("narrow-root-inline-content");
+  const rootHosts = { anchor: "narrow-root-inline-trigger", content: "narrow-root-inline-content" };
+
+  await rootTrigger.focus();
+  await step(page, "Enter", page.getByTestId("narrow-root-inline-alpha"));
+  await expectOpen(rootTrigger, rootContent);
+  await settled(page, "narrow-root-inline-trigger", "narrow-root-inline-content");
+
+  const rootResult = await geometry(page, "inline-end", "start", 0, rootHosts);
+  const chosen = selected(rootResult.expected);
+  const position = shifted(chosen, rootResult.anchor, rootResult.content, rootResult.viewport);
+
+  await info.attach("MN56-root-inline", {
+    body: JSON.stringify(rootResult, null, 2),
+    contentType: "application/json",
+  });
+
+  for (const candidate of rootResult.expected) {
+    expect(candidate.mainOverflow).toBeGreaterThan(0);
+  }
+
+  await expect(rootContent).toHaveAttribute(
+    "data-side",
+    logicalSide(rootResult.writingMode, rootResult.direction, chosen.side),
+  );
+  expect(["inline-start", "inline-end"]).toContain(
+    placedSide(rootResult.anchor, rootResult.content, 0, rootResult),
+  );
+  expect(Math.abs(rootResult.content.left - position.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(rootResult.content.top - position.y)).toBeLessThanOrEqual(1);
+  // Beside, the available height is the viewport's full height.
+  expect(
+    Math.abs(
+      (await ownPixels(page, "narrow-root-inline-content", "--og-available-height")) -
+        rootResult.viewport.height,
+    ),
+  ).toBeLessThanOrEqual(1);
+  await step(page, "Escape", rootTrigger);
+});
+
+test("MN57: with neither inline side fitting, a submenu taller than both block rooms opens on the block side with more room, capped by its own --og-available-height and scrolling inside, where best fit over every side would clip it beside; in vertical-rl right to left it opens at block-end, aligned to its sub-trigger's inline start, with the viewport's full height", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await mountNarrow(page, 390, 400);
+
+  const trigger = page.getByTestId("narrow-short-trigger");
+  const content = page.getByTestId("narrow-short-content");
+  const folders = page.getByTestId("narrow-short-folders");
+  const sub = page.getByTestId("narrow-short-folders-content");
+  const hosts = { anchor: "narrow-short-folders", content: "narrow-short-folders-content" };
+
+  await trigger.focus();
+  await step(page, "Enter", folders);
+  await expectOpen(trigger, content);
+  await settled(page, "narrow-short-trigger", "narrow-short-content");
+
+  const anchor = await folders.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+
+  expect(anchor).toEqual({ left: 130, right: 260, top: 200, bottom: 230, width: 130, height: 30 });
+
+  // While it's prepared: rendered for a measurement, under the cap it inherits from root Content.
+  const first = await sub.evaluate((node) => {
+    const before = node.style.cssText;
+
+    node.style.display = "flex";
+    node.style.flexDirection = "column";
+
+    const rect = node.getBoundingClientRect();
+    const cap = getComputedStyle(node).maxHeight;
+
+    node.style.cssText = before;
+
+    return { width: rect.width, height: rect.height, cap };
+  });
+
+  expect(first).toEqual({ width: 140, height: 320, cap: "350px" });
+
+  // Best fit over every candidate would pick an inline one, clipped on its main edge.
+  const viewport = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    height: document.documentElement.clientHeight,
+  }));
+  const measuredFirst = {
+    left: 0,
+    top: 0,
+    right: first.width,
+    bottom: first.height,
+    width: first.width,
+    height: first.height,
+  };
+  const inlineFirst = candidates(
+    anchor,
+    measuredFirst,
+    viewport,
+    "horizontal-tb",
+    "ltr",
+    "inline-end",
+    "start",
+    4,
+  );
+  const blockFirst = candidates(
+    anchor,
+    measuredFirst,
+    viewport,
+    "horizontal-tb",
+    "ltr",
+    "block-end",
+    "start",
+    4,
+  );
+  let bestInline = inlineFirst[0];
+  let bestBlock = blockFirst[0];
+
+  for (const candidate of inlineFirst) {
+    expect(candidate.mainOverflow).toBeGreaterThan(0);
+
+    if (candidate.score < bestInline.score) {
+      bestInline = candidate;
+    }
+  }
+
+  for (const candidate of blockFirst) {
+    expect(candidate.mainOverflow).toBeGreaterThan(0);
+
+    if (candidate.score < bestBlock.score) {
+      bestBlock = candidate;
+    }
+  }
+
+  expect(bestInline.score).toBeLessThan(bestBlock.score);
+
+  const scrollY = await page.evaluate(() => window.scrollY);
+
+  await step(page, "ArrowRight", page.getByTestId("narrow-short-folder-1"));
+  await expectOpen(folders, sub);
+  await settled(page, "narrow-short-folders", "narrow-short-folders-content");
+  await expect(sub).toHaveAttribute("data-side", "block-start");
+
+  const capped = await geometry(page, "block-start", "start", 4, hosts);
+
+  await info.attach("MN57-short", {
+    body: JSON.stringify({ first, inlineFirst, blockFirst, capped }, null, 2),
+    contentType: "application/json",
+  });
+  // The room from the gap to the viewport's top: Folders' top minus 4.
+  expect(
+    Math.abs(
+      (await ownPixels(page, "narrow-short-folders-content", "--og-available-height")) - 196,
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(capped.content.height).toBeLessThanOrEqual(196);
+  expect(Math.abs(capped.content.bottom - 196)).toBeLessThanOrEqual(1);
+  expect(capped.content.top).toBeGreaterThanOrEqual(-1);
+  expect(capped.content.right).toBeLessThanOrEqual(capped.viewport.width + 1);
+  expect(Math.abs(capped.content.left - 130)).toBeLessThanOrEqual(1);
+
+  // End reaches the last row by scrolling the submenu, not the page.
+  await step(page, "End", page.getByTestId("narrow-short-folder-10"));
+
+  const scrolled = await sub.evaluate((node) => {
+    const last = node.querySelector('[data-testid="narrow-short-folder-10"]')!;
+    const box = node.getBoundingClientRect();
+    const row = last.getBoundingClientRect();
+
+    return {
+      scrollTop: node.scrollTop,
+      visible: row.top >= box.top - 1 && row.bottom <= box.bottom + 1,
+    };
+  });
+
+  expect(scrolled.scrollTop).toBeGreaterThan(0);
+  expect(scrolled.visible).toBe(true);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+
+  // A width change that keeps both inline sides missing repositions the submenu without resizing
+  // it, so its scroll offset and the focused row stay.
+  const cap = await ownPixels(page, "narrow-short-folders-content", "--og-available-height");
+
+  // WebKit sends a mouse move at the cursor's position after a resize; keep it off every menu, so
+  // it can't focus a row by hovering.
+  await page.mouse.move(385, 395);
+
+  for (const width of [391, 390]) {
+    await page.setViewportSize({ width, height: 400 });
+    await frames(page);
+    await settled(page, "narrow-short-folders", "narrow-short-folders-content");
+
+    const resized = await sub.evaluate((node) => {
+      const last = node.querySelector('[data-testid="narrow-short-folder-10"]')!;
+      const box = node.getBoundingClientRect();
+      const row = last.getBoundingClientRect();
+
+      return {
+        scrollTop: node.scrollTop,
+        visible: row.top >= box.top - 1 && row.bottom <= box.bottom + 1,
+      };
+    });
+
+    expect(resized).toEqual(scrolled);
+    await expect(page.getByTestId("narrow-short-folder-10")).toBeFocused();
+    await expect(sub).toHaveAttribute("data-side", "block-start");
+    expect(await ownPixels(page, "narrow-short-folders-content", "--og-available-height")).toBe(
+      cap,
+    );
+  }
+
+  await step(page, "Escape", folders);
+  await step(page, "Escape", trigger);
+
+  // vertical-rl, right to left: the inline axis is vertical and starts at the bottom.
+  await page.setViewportSize({ width: 844, height: 390 });
+
+  const verticalTrigger = page.getByTestId("narrow-vertical-trigger");
+  const nested = page.getByTestId("narrow-vertical-nested");
+  const nestedContent = page.getByTestId("narrow-vertical-nested-content");
+  const nestedHosts = {
+    anchor: "narrow-vertical-nested",
+    content: "narrow-vertical-nested-content",
+  };
+
+  await verticalTrigger.focus();
+  await step(page, "Enter", page.getByTestId("narrow-vertical-one"));
+  await step(page, "ArrowDown", nested);
+  await step(page, "Enter", page.getByTestId("narrow-vertical-two"));
+  await expectOpen(nested, nestedContent);
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const vertical = await geometry(page, "block-end", "start", 4, nestedHosts);
+  const verticalBeside = await geometry(page, "inline-end", "start", 4, nestedHosts);
+
+  await info.attach("MN57-vertical", {
+    body: JSON.stringify({ vertical, verticalBeside }, null, 2),
+    contentType: "application/json",
+  });
+  expect(vertical.writingMode).toBe("vertical-rl");
+  expect(vertical.direction).toBe("rtl");
+  // Nested is away from both physical y edges, and its submenu is longer along y.
+  expect(vertical.anchor.top).toBeGreaterThanOrEqual(20);
+  expect(vertical.anchor.bottom).toBeLessThanOrEqual(vertical.viewport.height - 20);
+  expect(vertical.content.height).toBeGreaterThan(vertical.anchor.height);
+
+  for (const candidate of verticalBeside.expected) {
+    expect(candidate.mainOverflow).toBeGreaterThan(0);
+  }
+
+  // Both alignments on the left would fit without shifting.
+  expect(vertical.expected[0].side).toBe("left");
+  expect(fits(vertical.expected[0])).toBe(true);
+  expect(vertical.expected[2].side).toBe("left");
+  expect(fits(vertical.expected[2])).toBe(true);
+  await expect(nestedContent).toHaveAttribute("data-side", "block-end");
+  expect(Math.abs(vertical.content.right - (vertical.anchor.left - 4))).toBeLessThanOrEqual(1);
+  expect(Math.abs(vertical.content.bottom - vertical.anchor.bottom)).toBeLessThanOrEqual(1);
+  expect(vertical.content.left).toBeGreaterThanOrEqual(-1);
+  expect(vertical.content.top).toBeGreaterThanOrEqual(-1);
+  expect(
+    Math.abs(
+      (await ownPixels(page, "narrow-vertical-nested-content", "--og-available-height")) -
+        vertical.viewport.height,
+    ),
+  ).toBeLessThanOrEqual(1);
+
+  // Capped by its own --og-available-height, it fits beside Nested at an inline side's smaller
+  // cap: in a vertical writing mode the room check sizes it there, so a resize moves it beside.
+  await nestedContent.evaluate((node: HTMLElement) => {
+    node.style.maxHeight = "var(--og-available-height)";
+    node.style.overflow = "auto";
+  });
+  await page.setViewportSize({ width: 845, height: 390 });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(nestedContent).toHaveAttribute("data-side", "inline-end");
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const verticalCapped = await geometry(page, "inline-end", "start", 4, nestedHosts);
+  const verticalCap = await ownPixels(
+    page,
+    "narrow-vertical-nested-content",
+    "--og-available-height",
+  );
+
+  await info.attach("MN57-vertical-capped", {
+    body: JSON.stringify({ capped: verticalCapped, cap: verticalCap }, null, 2),
+    contentType: "application/json",
+  });
+  expect(verticalCap).toBeLessThan(vertical.viewport.height);
+  expect(verticalCapped.content.height).toBeLessThanOrEqual(verticalCap + 1);
+  expect(verticalCapped.content.top).toBeGreaterThanOrEqual(-1);
+  expect(verticalCapped.content.bottom).toBeLessThanOrEqual(verticalCapped.viewport.height + 1);
+  expect(verticalCapped.content.left).toBeGreaterThanOrEqual(-1);
+  expect(verticalCapped.content.right).toBeLessThanOrEqual(verticalCapped.viewport.width + 1);
+
+  // A square tied to its cap, with a minimum above both inline caps, in a viewport as tall as the
+  // square, beside a 20 px Nested centred in it: at the room check's 120 px minimum both block
+  // alignments overflow, so flip ranks every candidate, and only block-start, on the right, has
+  // room for the 200 px block-sized box. The block side is chosen at that box, not at overflow
+  // measured for the minimum, which would put it on the left, clipped.
+  const squareWidth = 200;
+  const leftRoom = 166;
+  const nestedBox = () =>
+    nested.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+
+      return { left: box.left, right: box.right, top: box.top };
+    });
+
+  await page.setViewportSize({ width: 844, height: squareWidth });
+  await verticalTrigger.evaluate((node: HTMLElement) => {
+    node.closest<HTMLElement>(".narrow-vertical")!.style.direction = "ltr";
+    node.style.inlineSize = "20px";
+    node.style.top = "85px";
+    node.style.left = "400px";
+  });
+  await page.getByTestId("narrow-vertical-content").evaluate((node: HTMLElement) => {
+    node.style.inlineSize = "20px";
+    node.style.paddingBlock = "0";
+    node.style.paddingInline = "0";
+    node.style.borderWidth = "0";
+  });
+  await nested.evaluate((node: HTMLElement) => {
+    node.style.blockSize = "40px";
+    node.style.padding = "0";
+  });
+  await nestedContent.evaluate((node: HTMLElement) => {
+    node.style.blockSize = "auto";
+    node.style.inlineSize = "auto";
+    node.style.height = "300px";
+    node.style.minHeight = "120px";
+    node.style.aspectRatio = "1";
+  });
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const nestedStart = await nestedBox();
+
+  await verticalTrigger.evaluate(
+    (node: HTMLElement, shift) => {
+      node.style.left = `${400 + shift.x}px`;
+      node.style.top = `${85 + shift.y}px`;
+    },
+    { x: leftRoom + 4 - nestedStart.left, y: 90 - nestedStart.top },
+  );
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+  await page.setViewportSize({
+    width: Math.ceil((await nestedBox()).right + 4 + squareWidth + 20),
+    height: squareWidth,
+  });
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const square = await geometry(page, "block-start", "start", 4, nestedHosts);
+
+  await info.attach("MN57-vertical-square", {
+    body: JSON.stringify(square, null, 2),
+    contentType: "application/json",
+  });
+  // Preconditions: Nested is 20 px tall at y 90; neither inline room fits the 120 px minimum; at
+  // that minimum both block alignments overflow; the left block room fits the minimum but not the
+  // full square, and the right one fits the full square.
+  expect(Math.abs(square.anchor.top - 90)).toBeLessThanOrEqual(1);
+  expect(Math.abs(square.anchor.height - 20)).toBeLessThanOrEqual(1);
+  expect(square.anchor.top - 4).toBeLessThan(120);
+  expect(square.viewport.height - square.anchor.bottom - 4).toBeLessThan(120);
+  expect(square.anchor.top + 120).toBeGreaterThan(square.viewport.height);
+  expect(square.anchor.bottom - 120).toBeLessThan(0);
+  expect(square.anchor.left - 4).toBeGreaterThanOrEqual(120);
+  expect(square.anchor.left - 4).toBeLessThan(squareWidth);
+  expect(square.viewport.width - square.anchor.right - 4).toBeGreaterThanOrEqual(squareWidth);
+  expect(square.content.width).toBeGreaterThanOrEqual(squareWidth - 1);
+  await expect(nestedContent).toHaveAttribute("data-side", "block-start");
+  expect(square.content.left).toBeGreaterThanOrEqual(-1);
+  expect(square.content.right).toBeLessThanOrEqual(square.viewport.width + 1);
+  expect(Math.abs(square.content.left - (square.anchor.right + 4))).toBeLessThanOrEqual(1);
+  await step(page, "Escape", nested);
+  await step(page, "Escape", verticalTrigger);
+});
+
+test("MN58: a submenu whose width follows its height cap, too wide beside its sub-trigger under the inline cap and narrow enough under the block one, settles below it once and stays: no inline side committed, and its cap, box and size unchanged across a second of animation frames", async ({
+  page,
+}, info) => {
+  await fixture(page, "menu", info);
+  await mountNarrow(page, 540, 460);
+
+  const scrollbar = await page.evaluate(
+    () => window.innerWidth - document.documentElement.clientWidth,
+  );
+
+  await page.setViewportSize({ width: 540 + scrollbar, height: 460 });
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+      })),
+    )
+    .toEqual({ width: 540, height: 460 });
+
+  const trigger = page.getByTestId("narrow-square-trigger");
+  const content = page.getByTestId("narrow-square-content");
+  const cell = page.getByTestId("narrow-square-cell");
+  const sub = page.getByTestId("narrow-square-sub");
+
+  // From before it opens: every `data-side` value committed, rebuilt from each record's old
+  // value, and every size its ResizeObserver reports.
+  await sub.evaluate((node) => {
+    const previous: string[] = [];
+    const resizes: string[] = [];
+    const sides = new MutationObserver((records) => {
+      for (const record of records) {
+        previous.push(record.oldValue ?? "none");
+      }
+    });
+    const sizes = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        resizes.push(`${entry.contentRect.width}x${entry.contentRect.height}`);
+      }
+    });
+
+    sides.observe(node, {
+      attributes: true,
+      attributeFilter: ["data-side"],
+      attributeOldValue: true,
+    });
+    sizes.observe(node);
+    (window as unknown as { squareSides: () => string[] }).squareSides = () => {
+      const values = [...previous, ...sides.takeRecords().map((r) => r.oldValue ?? "none")];
+
+      values.push(node.getAttribute("data-side") ?? "none");
+
+      return values.filter((value, index) => index === 0 || value !== values[index - 1]);
+    };
+    (window as unknown as { squareResizes: () => string[] }).squareResizes = () => [...resizes];
+  });
+
+  await trigger.focus();
+  await step(page, "Enter", cell);
+  await expectOpen(trigger, content);
+  await settled(page, "narrow-square-trigger", "narrow-square-content");
+
+  const anchor = await cell.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+  });
+
+  expect(anchor).toEqual({ left: 250, right: 290, top: 210, bottom: 250 });
+
+  // The discriminating geometry: under the inline cap (the viewport's full height) the submenu is
+  // 300 px wide and misses both 250 px rooms with the gap; under the block cap (206 px of room
+  // below or above) it is 206 px wide and would fit either.
+  const widths = await sub.evaluate((node) => {
+    const widthUnder = (cap: number) => {
+      const copy = node.cloneNode(true) as HTMLElement;
+
+      copy.removeAttribute("popover");
+      copy.removeAttribute("id");
+      copy.removeAttribute("style");
+      copy.style.setProperty("--og-available-height", `${cap}px`);
+      copy.style.position = "fixed";
+      copy.style.visibility = "hidden";
+      copy.style.display = "flex";
+      copy.style.flexDirection = "column";
+      node.parentElement!.append(copy);
+
+      const width = copy.getBoundingClientRect().width;
+
+      copy.remove();
+
+      return width;
+    };
+
+    return { inline: widthUnder(460), block: widthUnder(206) };
+  });
+  const rooms = await inlineRooms(page, "narrow-square-cell");
+
+  expect(widths).toEqual({ inline: 300, block: 206 });
+  expect(rooms).toEqual({ start: 250, end: 250 });
+
+  await step(page, "ArrowRight", page.getByTestId("narrow-square-red"));
+  await expectOpen(cell, sub);
+  await settled(page, "narrow-square-cell", "narrow-square-sub");
+
+  // A second of animation frames, at least 30: any later calculation that moved or resized it shows.
+  const observed = await sub.evaluate(async (node) => {
+    const resizes = (window as unknown as { squareResizes: () => string[] }).squareResizes;
+    const sample = () => {
+      const rect = node.getBoundingClientRect();
+
+      return [
+        node.getAttribute("data-side"),
+        node.style.getPropertyValue("--og-available-height"),
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+      ].join(" ");
+    };
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const resizesBefore = resizes().length;
+    const samples = [sample()];
+    const start = performance.now();
+
+    while (performance.now() - start < 1000 || samples.length < 30) {
+      await frame();
+      samples.push(sample());
+    }
+
+    return { samples, resizesBefore, resizesAfter: resizes().length, resizes: resizes() };
+  });
+  const sides = await page.evaluate(() =>
+    (window as unknown as { squareSides: () => string[] }).squareSides(),
+  );
+  const placed = await geometry(page, "block-end", "start", 4, {
+    anchor: "narrow-square-cell",
+    content: "narrow-square-sub",
+  });
+
+  await info.attach("MN58-square", {
+    body: JSON.stringify({ widths, rooms, sides, window: observed, placed }, null, 2),
+    contentType: "application/json",
+  });
+  expect(sides).toEqual(["none", "block-end"]);
+  expect(new Set(observed.samples).size).toBe(1);
+  expect(observed.resizesAfter).toBe(observed.resizesBefore);
+
+  // Below Cell, start edges aligned, 206 px square, inside the viewport.
+  expect(Math.abs(placed.content.top - 254)).toBeLessThanOrEqual(1);
+  expect(Math.abs(placed.content.left - 250)).toBeLessThanOrEqual(1);
+  expect(Math.abs(placed.content.width - 206)).toBeLessThanOrEqual(1);
+  expect(Math.abs(placed.content.height - 206)).toBeLessThanOrEqual(1);
+  expect(placed.content.bottom).toBeLessThanOrEqual(461);
+  expect(placed.content.right).toBeLessThanOrEqual(541);
+  expect(
+    Math.abs((await ownPixels(page, "narrow-square-sub", "--og-available-height")) - 206),
+  ).toBeLessThanOrEqual(1);
+  await step(page, "Escape", cell);
+  await step(page, "Escape", trigger);
 });

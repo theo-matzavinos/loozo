@@ -42,13 +42,13 @@
     "bundle.origami.raw": 15500
   },
   "popover": {
-    "bundle.initial.raw": 172800,
-    "bundle.initial.gzip": 57100,
-    "bundle.initial.brotli": 51100,
-    "bundle.added.raw": 80300,
-    "bundle.added.gzip": 26300,
-    "bundle.added.brotli": 23300,
-    "bundle.origami.raw": 31000
+    "bundle.initial.raw": 173600,
+    "bundle.initial.gzip": 57400,
+    "bundle.initial.brotli": 51400,
+    "bundle.added.raw": 81200,
+    "bundle.added.gzip": 26600,
+    "bundle.added.brotli": 23600,
+    "bundle.origami.raw": 31800
   },
   "toggle": {
     "bundle.initial.raw": 121800,
@@ -105,13 +105,13 @@
     "bundle.origami.raw": 1000
   },
   "tooltip": {
-    "bundle.initial.raw": 173800,
-    "bundle.initial.gzip": 57000,
-    "bundle.initial.brotli": 51000,
-    "bundle.added.raw": 81300,
-    "bundle.added.gzip": 26300,
-    "bundle.added.brotli": 23200,
-    "bundle.origami.raw": 36400
+    "bundle.initial.raw": 174700,
+    "bundle.initial.gzip": 57300,
+    "bundle.initial.brotli": 51300,
+    "bundle.added.raw": 82200,
+    "bundle.added.gzip": 26500,
+    "bundle.added.brotli": 23500,
+    "bundle.origami.raw": 37300
   },
   "field": {
     "bundle.initial.raw": 192800,
@@ -150,13 +150,13 @@
     "bundle.origami.raw": 27200
   },
   "select": {
-    "bundle.initial.raw": 201300,
-    "bundle.initial.gzip": 65400,
-    "bundle.initial.brotli": 58200,
-    "bundle.added.raw": 108900,
-    "bundle.added.gzip": 34600,
-    "bundle.added.brotli": 30400,
-    "bundle.origami.raw": 47700
+    "bundle.initial.raw": 202200,
+    "bundle.initial.gzip": 65600,
+    "bundle.initial.brotli": 58500,
+    "bundle.added.raw": 109700,
+    "bundle.added.gzip": 34900,
+    "bundle.added.brotli": 30700,
+    "bundle.origami.raw": 48600
   },
   "calendar": {
     "bundle.initial.raw": 163100,
@@ -177,31 +177,31 @@
     "bundle.origami.raw": 22300
   },
   "date-picker": {
-    "bundle.initial.raw": 240000,
-    "bundle.initial.gzip": 77000,
-    "bundle.initial.brotli": 68100,
-    "bundle.added.raw": 147500,
-    "bundle.added.gzip": 46300,
-    "bundle.added.brotli": 40300,
-    "bundle.origami.raw": 81700
+    "bundle.initial.raw": 240800,
+    "bundle.initial.gzip": 77300,
+    "bundle.initial.brotli": 68400,
+    "bundle.added.raw": 148400,
+    "bundle.added.gzip": 46600,
+    "bundle.added.brotli": 40600,
+    "bundle.origami.raw": 82600
   },
   "menu": {
-    "bundle.initial.raw": 194100,
-    "bundle.initial.gzip": 63000,
-    "bundle.initial.brotli": 56100,
-    "bundle.added.raw": 101600,
-    "bundle.added.gzip": 32300,
-    "bundle.added.brotli": 28300,
-    "bundle.origami.raw": 49800
+    "bundle.initial.raw": 195000,
+    "bundle.initial.gzip": 63300,
+    "bundle.initial.brotli": 56400,
+    "bundle.added.raw": 102600,
+    "bundle.added.gzip": 32600,
+    "bundle.added.brotli": 28600,
+    "bundle.origami.raw": 50700
   },
   "combobox": {
-    "bundle.initial.raw": 201500,
-    "bundle.initial.gzip": 65300,
-    "bundle.initial.brotli": 58200,
-    "bundle.added.raw": 109000,
-    "bundle.added.gzip": 34600,
-    "bundle.added.brotli": 30400,
-    "bundle.origami.raw": 47800
+    "bundle.initial.raw": 202400,
+    "bundle.initial.gzip": 65600,
+    "bundle.initial.brotli": 58500,
+    "bundle.added.raw": 109900,
+    "bundle.added.gzip": 34800,
+    "bundle.added.brotli": 30700,
+    "bundle.origami.raw": 48700
   },
   "toast": {
     "bundle.initial.raw": 136100,
@@ -276,13 +276,13 @@
     "bundle.origami.raw": 700
   },
   "all": {
-    "bundle.initial.raw": 506600,
-    "bundle.initial.gzip": 144600,
-    "bundle.initial.brotli": 120300,
-    "bundle.added.raw": 414200,
-    "bundle.added.gzip": 113900,
-    "bundle.added.brotli": 92500,
-    "bundle.origami.raw": 253800,
+    "bundle.initial.raw": 507400,
+    "bundle.initial.gzip": 144800,
+    "bundle.initial.brotli": 120600,
+    "bundle.added.raw": 415000,
+    "bundle.added.gzip": 114100,
+    "bundle.added.brotli": 92900,
+    "bundle.origami.raw": 254600,
     "build.ms": 3000,
     "typecheck.ngcMs": 1600,
     "typecheck.instantiations": 5500

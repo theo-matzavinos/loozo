@@ -113,6 +113,8 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
   readonly #participating = signal(false);
   readonly #ready = signal(false);
   readonly #pulse = signal(0);
+  // Set once by nested Menu Content's construction; false for every other presentation.
+  readonly #blockFallback = signal(false);
   #destroyed = false;
   #presentationEpoch = 0;
   #seenIntent: ɵOrigamiIntent | null = null;
@@ -148,7 +150,13 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
       throw new RangeError(`${this.#host.label} gap must be finite and nonnegative (CSS pixels).`);
     }
 
-    return { id: options.id(), side: options.side(), align: options.align(), gap };
+    return {
+      id: options.id(),
+      side: options.side(),
+      align: options.align(),
+      gap,
+      blockFallback: this.#blockFallback(),
+    };
   });
 
   constructor(host: ɵOrigamiFloatingHost) {
@@ -195,6 +203,15 @@ export class ɵOrigamiFloating implements ɵOrigamiPresentation, ɵOrigamiPresen
     this.#interactionClose = true;
     write();
     this.synchronize();
+  }
+
+  /**
+   * Opts this presentation into the block fallback: with an inline `side`, when the main edge of
+   * neither inline side fits, it positions as `block-end`. Nested Menu Content calls it at
+   * construction.
+   */
+  useBlockFallback(): void {
+    this.#blockFallback.set(true);
   }
 
   /** Stacking order of the current activation, -1 without one. */

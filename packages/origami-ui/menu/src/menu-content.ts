@@ -91,10 +91,12 @@ function defaultSide(): OrigamiPopoverSide {
  * from the Trigger's place in the page; Escape closes it and focuses the Trigger. The mouse
  * moving over an item focuses it, so style `:focus` as the highlight.
  *
- * Inside an `ogMenuSub` it is that submenu: named by and placed beside its sub-trigger
- * (`side` defaults to `inline-end`), ArrowLeft, or ArrowRight in right to left, and Escape close
- * it and focus the sub-trigger, and Tab and Shift+Tab close the whole tree from the root's
- * Trigger.
+ * Inside an `ogMenuSub` it is that submenu: named by its sub-trigger and placed beside it
+ * (`side` defaults to `inline-end`). While its `side` is inline and the main edge of neither
+ * inline side fits, it's placed from block-end among block candidates instead: below, else above
+ * it in a horizontal writing mode. A block `side` is placed from that side as Popover Content is.
+ * ArrowLeft, or ArrowRight in right to left, and Escape close it and focus the sub-trigger, and
+ * Tab and Shift+Tab close the whole tree from the root's Trigger.
  *
  * Like Popover Content, it exposes `--og-anchor-width` and `--og-available-height` for consumer
  * sizing and `data-side` for directional styling, retains its children through Presence's exit and exposes that retention as
@@ -155,6 +157,12 @@ export class OrigamiMenuContent implements OrigamiMenuContentOptions {
     }
 
     this.#floating = presentation;
+
+    // A submenu with an inline side opens below or above its sub-trigger when neither side fits.
+    if (this.#menu.parent !== null) {
+      presentation.useBlockFallback();
+    }
+
     this.#context.attach(this.#element);
 
     // After the reveal, so the item is shown when it takes focus; again as items register.

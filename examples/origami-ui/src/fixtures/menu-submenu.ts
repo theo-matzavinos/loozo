@@ -28,7 +28,10 @@ import {
 // and Share with a checkbox item, and a disabled one; Format reads right to left; Tools is in a
 // Dialog; Files has a submenu placed below its sub-trigger and one that arrives open; Panels has
 // two submenus whose effects run in the reverse of their document order; Mail has a submenu in an
-// open shadow root inside its Content and a sibling submenu outside it.
+// open shadow root inside its Content and a sibling submenu outside it. MN54–MN58: the Narrow
+// Menus, mounted on demand with fixed positions, are sized like fold's, so a submenu covers the
+// rows it overlaps: Narrow (left to right), Narrow RTL, Narrow root inline, Narrow vertical
+// (vertical-rl, right to left), Narrow short and, for MN58, Narrow square.
 // Controls the tests use as script actions are buttons.
 
 function increment(value: number): number {
@@ -376,6 +379,301 @@ export class MenuSubmenuShadow {
       <output data-testid="long-state">{{ longOpen() }} {{ longSubOpen() }}</output>
     </section>
 
+    <!-- MN54–MN58: fixed Menus for phone-width viewports. -->
+    <section>
+      <h2>Narrow</h2>
+      <button
+        type="button"
+        data-testid="narrow-mount"
+        (click)="narrowMounted.set(!narrowMounted())"
+      >
+        Mount the narrow Menus
+      </button>
+      <button
+        #nearBottom
+        type="button"
+        data-testid="narrow-near-bottom"
+        (click)="narrowNearBottom(nearBottom.dataset['top'])"
+      >
+        Move Narrow's Trigger to its data-top
+      </button>
+      @if (narrowMounted()) {
+        <div ogMenu [(open)]="narrowOpen">
+          <button
+            ogMenuTrigger
+            class="narrow-trigger"
+            data-testid="narrow-trigger"
+            style="left: 130px"
+            [style.top.px]="narrowTop()"
+          >
+            Narrow
+          </button>
+          <div ogMenuContent data-testid="narrow-content" class="narrow narrow-root">
+            <button ogMenuItem data-testid="narrow-undo" (select)="narrowRecord('undo')">
+              Undo
+            </button>
+            <div ogMenuSub [(open)]="narrowMoveOpen">
+              <button ogMenuSubTrigger data-testid="narrow-move">Move to</button>
+              <div
+                ogMenuContent
+                [gap]="4"
+                data-testid="narrow-move-content"
+                class="narrow narrow-sub"
+              >
+                <button ogMenuItem data-testid="narrow-inbox" (select)="narrowRecord('inbox')">
+                  Inbox
+                </button>
+                <button ogMenuItem data-testid="narrow-archive" (select)="narrowRecord('archive')">
+                  Archive
+                </button>
+                <button ogMenuItem data-testid="narrow-drafts" (select)="narrowRecord('drafts')">
+                  Drafts
+                </button>
+                <button ogMenuItem data-testid="narrow-sent" (select)="narrowRecord('sent')">
+                  Sent
+                </button>
+                <div ogMenuSub [(open)]="narrowMoreOpen">
+                  <button ogMenuSubTrigger data-testid="narrow-more">More</button>
+                  <div
+                    ogMenuContent
+                    [gap]="4"
+                    data-testid="narrow-more-content"
+                    class="narrow narrow-sub"
+                  >
+                    <button ogMenuItem data-testid="narrow-trash" (select)="narrowRecord('trash')">
+                      Trash
+                    </button>
+                    <button ogMenuItem data-testid="narrow-spam" (select)="narrowRecord('spam')">
+                      Spam
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button ogMenuItem data-testid="narrow-rename" (select)="narrowRecord('rename')">
+              Rename
+            </button>
+            <button ogMenuItem data-testid="narrow-delete" (select)="narrowRecord('delete')">
+              Delete
+            </button>
+            <div ogMenuSub [(open)]="narrowCopyOpen">
+              <button ogMenuSubTrigger data-testid="narrow-copy">Copy to</button>
+              <div
+                ogMenuContent
+                side="inline-start"
+                [gap]="16"
+                data-testid="narrow-copy-content"
+                class="narrow narrow-sub"
+              >
+                <button ogMenuItem data-testid="narrow-desktop" (select)="narrowRecord('desktop')">
+                  Desktop
+                </button>
+                <button
+                  ogMenuItem
+                  data-testid="narrow-downloads"
+                  (select)="narrowRecord('downloads')"
+                >
+                  Downloads
+                </button>
+              </div>
+            </div>
+            <button ogMenuItem data-testid="narrow-share" (select)="narrowRecord('share')">
+              Share
+            </button>
+            <div ogMenuSub [(open)]="narrowSendOpen">
+              <button ogMenuSubTrigger data-testid="narrow-send">Send to</button>
+              <div
+                ogMenuContent
+                [gap]="4"
+                data-testid="narrow-send-content"
+                class="narrow narrow-sub"
+              >
+                <button ogMenuItem data-testid="narrow-phone" (select)="narrowRecord('phone')">
+                  Phone
+                </button>
+                <button ogMenuItem data-testid="narrow-laptop" (select)="narrowRecord('laptop')">
+                  Laptop
+                </button>
+                <button ogMenuItem data-testid="narrow-tablet" (select)="narrowRecord('tablet')">
+                  Tablet
+                </button>
+              </div>
+            </div>
+            <div ogMenuSub [(open)]="narrowOpenWithOpen">
+              <button ogMenuSubTrigger data-testid="narrow-open-with">Open with</button>
+              <div
+                ogMenuContent
+                side="block-start"
+                data-testid="narrow-open-with-content"
+                class="narrow narrow-sub"
+              >
+                <button ogMenuItem data-testid="narrow-editor" (select)="narrowRecord('editor')">
+                  Editor
+                </button>
+                <button ogMenuItem data-testid="narrow-viewer" (select)="narrowRecord('viewer')">
+                  Viewer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div dir="rtl">
+          <div ogMenu [(open)]="narrowRtlOpen">
+            <button
+              ogMenuTrigger
+              class="narrow-trigger"
+              data-testid="narrow-rtl-trigger"
+              style="right: 130px; top: 60px"
+            >
+              Narrow RTL
+            </button>
+            <div ogMenuContent data-testid="narrow-rtl-content" class="narrow narrow-root">
+              <button ogMenuItem data-testid="narrow-rtl-bold">Bold</button>
+              <div ogMenuSub [(open)]="narrowAlignOpen">
+                <button ogMenuSubTrigger data-testid="narrow-rtl-align">Align</button>
+                <div
+                  ogMenuContent
+                  [gap]="4"
+                  data-testid="narrow-rtl-align-content"
+                  class="narrow narrow-sub"
+                >
+                  <button ogMenuItem data-testid="narrow-rtl-right">Right</button>
+                  <button ogMenuItem data-testid="narrow-rtl-center">Center</button>
+                </div>
+              </div>
+              <button ogMenuItem data-testid="narrow-rtl-italic">Italic</button>
+            </div>
+          </div>
+        </div>
+
+        <div ogMenu [(open)]="narrowRootInlineOpen">
+          <button
+            ogMenuTrigger
+            class="narrow-trigger"
+            data-testid="narrow-root-inline-trigger"
+            style="left: 130px; top: 600px"
+          >
+            Root inline
+          </button>
+          <div
+            ogMenuContent
+            side="inline-end"
+            data-testid="narrow-root-inline-content"
+            class="narrow narrow-root"
+          >
+            <button ogMenuItem data-testid="narrow-root-inline-alpha">Alpha</button>
+            <button ogMenuItem data-testid="narrow-root-inline-beta">Beta</button>
+          </div>
+        </div>
+
+        <div class="narrow-vertical">
+          <div ogMenu [(open)]="narrowVerticalOpen">
+            <button
+              ogMenuTrigger
+              class="narrow-trigger narrow-vertical-trigger"
+              data-testid="narrow-vertical-trigger"
+            >
+              Vertical
+            </button>
+            <div
+              ogMenuContent
+              data-testid="narrow-vertical-content"
+              class="narrow narrow-vertical-root"
+            >
+              <button ogMenuItem data-testid="narrow-vertical-one">One</button>
+              <div ogMenuSub [(open)]="narrowNestedOpen">
+                <button ogMenuSubTrigger data-testid="narrow-vertical-nested">Nested</button>
+                <div
+                  ogMenuContent
+                  [gap]="4"
+                  data-testid="narrow-vertical-nested-content"
+                  class="narrow narrow-vertical-sub"
+                >
+                  <button ogMenuItem data-testid="narrow-vertical-two">Two</button>
+                  <button ogMenuItem data-testid="narrow-vertical-three">Three</button>
+                  <button ogMenuItem data-testid="narrow-vertical-four">Four</button>
+                </div>
+              </div>
+              <button ogMenuItem data-testid="narrow-vertical-five">Five</button>
+            </div>
+          </div>
+        </div>
+
+        <div ogMenu [(open)]="narrowShortOpen">
+          <button
+            ogMenuTrigger
+            class="narrow-trigger narrow-short-trigger"
+            data-testid="narrow-short-trigger"
+          >
+            Short
+          </button>
+          <div
+            ogMenuContent
+            data-testid="narrow-short-content"
+            class="narrow-short narrow-short-root"
+          >
+            <div ogMenuSub [(open)]="narrowFoldersOpen">
+              <button
+                ogMenuSubTrigger
+                class="narrow-short-folders"
+                data-testid="narrow-short-folders"
+              >
+                Folders
+              </button>
+              <div
+                ogMenuContent
+                [gap]="4"
+                data-testid="narrow-short-folders-content"
+                class="narrow-short narrow-short-sub"
+              >
+                @for (folder of narrowFolders; track folder) {
+                  <button ogMenuItem [attr.data-testid]="'narrow-short-folder-' + folder">
+                    Folder {{ folder }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div ogMenu [(open)]="narrowSquareOpen">
+          <button
+            ogMenuTrigger
+            class="narrow-trigger narrow-square-trigger"
+            data-testid="narrow-square-trigger"
+          >
+            Square
+          </button>
+          <div
+            ogMenuContent
+            data-testid="narrow-square-content"
+            class="narrow-short narrow-square-root"
+          >
+            <div ogMenuSub [(open)]="narrowSquareSubOpen">
+              <button ogMenuSubTrigger class="narrow-square-cell" data-testid="narrow-square-cell">
+                Cell
+              </button>
+              <div
+                ogMenuContent
+                [gap]="4"
+                data-testid="narrow-square-sub"
+                class="narrow-short narrow-square-sub"
+              >
+                <button ogMenuItem data-testid="narrow-square-red">Red</button>
+                <button ogMenuItem data-testid="narrow-square-blue">Blue</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+      <output data-testid="narrow-state"
+        >{{ narrowOpen() }} {{ narrowMoveOpen() }} {{ narrowMoreOpen() }} {{ narrowCopyOpen() }}
+        {{ narrowSendOpen() }} {{ narrowOpenWithOpen() }}</output
+      >
+      <output data-testid="narrow-selected">{{ narrowSelections().join(",") }}</output>
+    </section>
+
     <section>
       <h2>Tools in a dialog</h2>
       <div ogDialog [(open)]="toolsDialogOpen">
@@ -441,6 +739,120 @@ export class MenuSubmenuShadow {
       max-height: var(--og-available-height);
       overflow: auto;
     }
+    .narrow-trigger {
+      position: fixed;
+      margin: 0;
+    }
+    .narrow {
+      box-sizing: border-box;
+      margin: 0;
+      color: inherit;
+      background: #222222;
+      border: 1px solid #555555;
+      padding: 4px;
+    }
+    .narrow:popover-open {
+      display: flex;
+      flex-direction: column;
+    }
+    .narrow [role^="menuitem"] {
+      inline-size: 100%;
+      text-align: start;
+      padding-block: 4px;
+    }
+    .narrow [role^="menuitem"]:focus,
+    .narrow-short [role^="menuitem"]:focus {
+      background: #444466;
+      outline: none;
+    }
+    .narrow-root {
+      inline-size: 240px;
+    }
+    /* Fold's sizing: a submenu at least as wide as its sub-trigger. */
+    .narrow-sub {
+      min-inline-size: var(--og-anchor-width);
+    }
+    .narrow-vertical {
+      writing-mode: vertical-rl;
+      direction: rtl;
+    }
+    .narrow-vertical-trigger {
+      left: 700px;
+      top: 95px;
+      inline-size: 200px;
+    }
+    .narrow-vertical-root {
+      inline-size: 200px;
+    }
+    /* Longer than Nested along the inline (physical vertical) axis. */
+    .narrow-vertical-sub {
+      inline-size: 260px;
+    }
+    /* Exact boxes: no padding or borders, so the submenu measures 140 × 320 before its cap. */
+    .narrow-short-trigger {
+      left: 130px;
+      top: 20px;
+      block-size: 30px;
+      padding: 0;
+      border: 0;
+    }
+    .narrow-short {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      color: inherit;
+      background: #222222;
+    }
+    .narrow-short:popover-open {
+      display: flex;
+      flex-direction: column;
+    }
+    .narrow-short [role^="menuitem"] {
+      flex: none;
+      box-sizing: border-box;
+      inline-size: 100%;
+      block-size: 32px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      text-align: start;
+    }
+    .narrow-short-root {
+      inline-size: 130px;
+      padding-block-start: 150px;
+    }
+    .narrow-short .narrow-short-folders {
+      block-size: 30px;
+    }
+    .narrow-short-sub {
+      inline-size: 140px;
+      max-height: var(--og-available-height);
+      overflow: auto;
+    }
+    /* MN58: Cell spans x 250–290 and y 210–250; its submenu's width follows its capped height. */
+    .narrow-square-trigger {
+      left: 250px;
+      top: 20px;
+      inline-size: 40px;
+      block-size: 30px;
+      padding: 0;
+      border: 0;
+    }
+    .narrow-square-root {
+      inline-size: 40px;
+      padding-block-start: 160px;
+    }
+    .narrow-short .narrow-square-cell {
+      block-size: 40px;
+    }
+    .narrow-square-sub {
+      inline-size: auto;
+      height: 300px;
+      aspect-ratio: 1;
+      max-height: var(--og-available-height);
+      overflow: auto;
+    }
   `,
 })
 export class MenuSubmenu {
@@ -466,6 +878,38 @@ export class MenuSubmenu {
   readonly selections = signal<readonly string[]>([]);
   /** `name:open` for each `openChange` of Edit and its submenus, in the order they ran. */
   readonly changes = signal<readonly string[]>([]);
+
+  readonly narrowMounted = signal(false);
+  readonly narrowTop = signal(120);
+  readonly narrowOpen = signal(false);
+  readonly narrowMoveOpen = signal(false);
+  readonly narrowMoreOpen = signal(false);
+  readonly narrowCopyOpen = signal(false);
+  readonly narrowSendOpen = signal(false);
+  readonly narrowOpenWithOpen = signal(false);
+  readonly narrowRtlOpen = signal(false);
+  readonly narrowAlignOpen = signal(false);
+  readonly narrowRootInlineOpen = signal(false);
+  readonly narrowVerticalOpen = signal(false);
+  readonly narrowNestedOpen = signal(false);
+  readonly narrowShortOpen = signal(false);
+  readonly narrowFoldersOpen = signal(false);
+  readonly narrowSquareOpen = signal(false);
+  readonly narrowSquareSubOpen = signal(false);
+  readonly narrowFolders = Array.from({ length: 10 }, (_, index) => index + 1);
+  /** `name@testid`: each Narrow `(select)` and what was focused while it ran. */
+  readonly narrowSelections = signal<readonly string[]>([]);
+
+  /** Moves Narrow's Trigger to `top` CSS pixels from the viewport's top. */
+  protected narrowNearBottom(top: string | undefined): void {
+    this.narrowTop.set(Number(top));
+  }
+
+  protected narrowRecord(name: string): void {
+    const focused = this.#document.activeElement?.getAttribute("data-testid") ?? "none";
+
+    this.narrowSelections.update((entries) => [...entries, `${name}@${focused}`]);
+  }
 
   longNearInlineEnd(): void {
     this.longLeft.set(document.documentElement.clientWidth - 160);
