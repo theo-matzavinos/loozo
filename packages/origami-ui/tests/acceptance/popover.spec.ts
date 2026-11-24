@@ -16,7 +16,7 @@ import {
   settled,
   shifted,
 } from "./geometry.js";
-import { pauseExitOnStart } from "./animations.js";
+import { pauseExitOnStart, retainedExit } from "./animations.js";
 
 interface PresentationFrame {
   opacity: string;
@@ -3696,46 +3696,63 @@ for (const motion of ["finite", "none", "zero", "infinite", "mixed"]) {
       (motion === "finite" || motion === "mixed") &&
       info.project.metadata.motion === "no-preference";
 
-    if (retained) {
-      await pauseExitOnStart(page.getByTestId("native-content"));
-    }
-
-    await page.getByTestId("native-inside-close").click();
-    await expect(page.getByTestId("native-trigger")).toHaveAttribute("aria-expanded", "false");
+    const content = page.getByTestId("native-content");
+    const close = () => page.getByTestId("native-inside-close").click();
+    const expanded = page.getByTestId("native-trigger");
 
     if (retained) {
-      await expect(page.getByTestId("native-content")).toHaveAttribute("data-phase", "closing");
-      expect(
-        await page.getByTestId("native-content").evaluate((node) => node.matches(":popover-open")),
-      ).toBe(true);
-      expect(
-        await page
-          .getByTestId("native-content")
-          .evaluate((node) => node instanceof HTMLElement && node.inert),
-      ).toBe(true);
-      await page.getByTestId("native-scroll-two").evaluate((node) => {
-        node.scrollTop += 15;
+      await retainedExit(content, {
+        act: close,
+        observe: async ({ finiteAnimations }) => {
+          expect(finiteAnimations).toBe(1);
+          await expect(expanded).toHaveAttribute("aria-expanded", "false");
+          await expect(content).toHaveAttribute("data-phase", "closing");
+          expect(await content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+          expect(await content.evaluate((node) => node instanceof HTMLElement && node.inert)).toBe(
+            true,
+          );
+          const placed = await content.evaluate((node) => node.style.top);
+          const scrolled = await page.getByTestId("native-scroll-two").evaluate((node) => {
+            const before = node.scrollTop;
+            node.scrollTop += 15;
+
+            return node.scrollTop - before;
+          });
+          expect(scrolled).toBe(15);
+
+          // The scroll is processed once Popover places the exit again, or once it hides it.
+          await expect
+            .poll(() =>
+              content.evaluate(
+                (node, top) => node.style.top !== top || !node.matches(":popover-open"),
+                placed,
+              ),
+            )
+            .toBe(true);
+
+          // The scroll didn't end the exit: still closing, native-open and never hidden.
+          await expect(content).toHaveAttribute("data-phase", "closing");
+          expect(await content.evaluate((node) => node.matches(":popover-open"))).toBe(true);
+          const hides = await page.getByTestId("native-closings").textContent();
+          expect(hides).toBe("0");
+
+          const reads = await page.evaluate(() =>
+            window.acceptanceObservation.discoveries.filter(
+              (item) => item.testid === "native-content" && item.leaving,
+            ),
+          );
+
+          expect(reads.length).toBeGreaterThan(0);
+
+          for (const read of reads) {
+            expect(read.inert).toBe(true);
+            expect(read.native).toBe(true);
+          }
+        },
       });
-
-      const reads = await page.evaluate(() =>
-        window.acceptanceObservation.discoveries.filter(
-          (item) => item.testid === "native-content" && item.leaving,
-        ),
-      );
-
-      expect(reads.length).toBeGreaterThan(0);
-
-      for (const read of reads) {
-        expect(read.inert).toBe(true);
-        expect(read.native).toBe(true);
-      }
-
-      // Resume the exit: native hide follows its completion.
-      await page.getByTestId("native-content").evaluate((node) => {
-        for (const animation of node.getAnimations()) {
-          animation.play();
-        }
-      });
+    } else {
+      await close();
+      await expect(expanded).toHaveAttribute("aria-expanded", "false");
     }
 
     await closed(page);
