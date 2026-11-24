@@ -43,6 +43,8 @@ export interface ParamCodec<Value> {
 
 declare const searchFallback: unique symbol;
 declare const searchArray: unique symbol;
+declare const searchRetained: unique symbol;
+declare const searchRemembered: unique symbol;
 
 /**
  * A search-only codec whose key reads a fallback value when it is missing,
@@ -58,8 +60,43 @@ export type FallbackCodec<Value> = ParamCodec<Value> & {
 export type ArrayCodec<Value> = ParamCodec<Value> & {
   readonly [searchArray]: true;
 };
-/** Codecs that may only wrap a plain codec: not a fallback or array codec. */
-type PlainCodec = { readonly [searchFallback]?: never; readonly [searchArray]?: never };
+/** The search brands a codec carries. */
+type SearchBrand =
+  | typeof searchFallback
+  | typeof searchArray
+  | typeof searchRetained
+  | typeof searchRemembered;
+/**
+ * A wrapper of `Codec`: a codec of its value type with its search brands, and none of its
+ * other members, which a wrapper doesn't copy.
+ */
+type CodecWrapper<Codec> = ParamCodec<CodecValue<Codec>> &
+  Pick<Codec, Extract<keyof Codec, SearchBrand>>;
+/**
+ * A search-only codec whose key `link` and `navigate` carry over from the current URL when
+ * the caller omits it; reads and URL creation are the wrapped codec's.
+ */
+export type RetainedCodec<Codec> = CodecWrapper<Codec> & {
+  readonly [searchRetained]: true;
+};
+/**
+ * A search-only codec whose key's last committed value is stored under an id and written
+ * back into the URL when a navigation enters the key's owner without it; reads and URL
+ * creation are the wrapped codec's.
+ */
+export type RememberedCodec<Codec> = CodecWrapper<Codec> & {
+  readonly [searchRemembered]: true;
+};
+/** A codec `retained` may wrap: one that isn't retained already. */
+type UnretainedCodec = { readonly [searchRetained]?: never };
+/** A codec `remembered` may wrap: one that isn't remembered already. */
+type UnrememberedCodec = { readonly [searchRemembered]?: never };
+/** Codecs that may only wrap a plain codec: not a fallback, array, retained or remembered codec. */
+type PlainCodec = UnretainedCodec &
+  UnrememberedCodec & {
+    readonly [searchFallback]?: never;
+    readonly [searchArray]?: never;
+  };
 export type PathCodec = ParamCodec<any> & PlainCodec;
 export type CodecValue<Codec> = Codec extends ParamCodec<infer Value> ? Value : never;
 export type HasFallback<Codec> = Codec extends { readonly [searchFallback]: true } ? true : false;
@@ -81,12 +118,28 @@ const fallbacks = new WeakMap<object, { readonly value: unknown }>();
 
 const arrays = new WeakSet<object>();
 
+const retainedCodecs = new WeakSet<object>();
+
+const rememberedIds = new WeakMap<object, string>();
+
+// Letters, digits, ".", "_" and "-": a valid cookie name and storage key without encoding.
+const storageIdPattern = /^[A-Za-z0-9._-]+$/;
+
 export function codecFallback(codec: object): { readonly value: unknown } | undefined {
   return fallbacks.get(codec);
 }
 
 export function isArrayCodec(codec: object): boolean {
   return arrays.has(codec);
+}
+
+export function isRetained(codec: object): boolean {
+  return retainedCodecs.has(codec);
+}
+
+/** The storage id a `remembered` codec was marked with, or undefined. */
+export function rememberedId(codec: object): string | undefined {
+  return rememberedIds.get(codec);
 }
 
 export function validateCodec(codec: unknown): asserts codec is ParamCodec<any> {
@@ -235,7 +288,8 @@ export function enumParam<const Values extends readonly string[]>(
  * replacements may still omit it. The fallback is returned as is: it is neither
  * parsed nor copied. Present values delegate to the wrapped codec unchanged.
  * Fallback codecs are search-only: a path param can't use one, and neither
- * `withFallback` nor `arrayParam` can wrap one.
+ * `withFallback` nor `arrayParam` can wrap one. Wrap the result in `retained` or
+ * `remembered` to retain or remember the key, never the other way around.
  *
  * @example
  * ```ts
@@ -248,7 +302,7 @@ export function enumParam<const Values extends readonly string[]>(
  * @param fallback - The value read when the key is missing, repeated or invalid.
  * @returns A search-only codec that reads the fallback in place of an absent value.
  * @throws TypeError if the codec lacks callable parse/stringify methods, already
- * has a fallback or is an `arrayParam` codec.
+ * has a fallback, or is an `arrayParam` or retained codec.
  */
 export function withFallback<Value>(
   codec: ParamCodec<Value> & SyncValue<NoInfer<Value>> & PlainCodec,
@@ -262,6 +316,14 @@ export function withFallback<Value>(
 
   if (arrays.has(codec)) {
     throw new TypeError("withFallback cannot wrap an arrayParam codec");
+  }
+
+  if (retainedCodecs.has(codec)) {
+    throw new TypeError("withFallback cannot wrap a retained codec");
+  }
+
+  if (rememberedIds.has(codec)) {
+    throw new TypeError("withFallback cannot wrap a remembered codec");
   }
 
   const wrapper: ParamCodec<Value> = {
@@ -289,7 +351,7 @@ export function withFallback<Value>(
  * pair per element in array order; `[]` and `undefined` leave the key out, so an
  * empty list and a missing key share one URL. Array codecs are search-only (a path
  * uses a terminal `$name[]` instead) and take no fallback: `withFallback` can't wrap
- * one, and `arrayParam` can't wrap a fallback or another array codec.
+ * one, and `arrayParam` can't wrap a fallback, a retained, a remembered or another array codec.
  *
  * @example
  * ```ts
@@ -301,7 +363,7 @@ export function withFallback<Value>(
  * @param codec - The codec for each value.
  * @returns A search-only codec whose key reads `readonly Value[]`.
  * @throws TypeError if the codec lacks callable parse/stringify methods, has a
- * fallback or is already an array codec.
+ * fallback, is retained or remembered, or is already an array codec.
  */
 export function arrayParam<Value>(
   codec: ParamCodec<Value> & SyncValue<NoInfer<Value>> & PlainCodec,
@@ -316,6 +378,14 @@ export function arrayParam<Value>(
     throw new TypeError("arrayParam cannot wrap another arrayParam codec");
   }
 
+  if (retainedCodecs.has(codec)) {
+    throw new TypeError("arrayParam cannot wrap a retained codec");
+  }
+
+  if (rememberedIds.has(codec)) {
+    throw new TypeError("arrayParam cannot wrap a remembered codec");
+  }
+
   const wrapper: ParamCodec<Value> = {
     parse(raw) {
       return codec.parse(raw);
@@ -328,4 +398,140 @@ export function arrayParam<Value>(
   arrays.add(wrapper);
 
   return wrapper as ArrayCodec<Value>;
+}
+
+/**
+ * Marks a search key as retained: `link` and `navigate` carry its current value into every
+ * destination that inherits the key when the caller omits it.
+ *
+ * @remarks
+ * Wrap the codec of a key a declaration owns. When a handle's `link` or `navigate` targets a
+ * destination that inherits the key, the current URL is inside the key's owner and the
+ * caller's `search` record has no own entry for it, the current URL's value is copied: a
+ * present valid value, parsed with this codec, never a fallback. An explicit `undefined`
+ * drops the key. Which handle calls doesn't matter. `createUrl`, `localeUrls` and redirects
+ * never retain. Reads, fallbacks, arrays and URL creation are the wrapped codec's.
+ * Retained codecs are search-only and outermost, in either order with `remembered`: a path
+ * param can't use one, and neither `withFallback` nor `arrayParam` can wrap one.
+ *
+ * @example
+ * ```ts
+ * search: { workspace: retained(stringParam), page: retained(withFallback(numberParam, 1)) }
+ * // On /orders?workspace=acme, route.link({ to: order, params: { id: 7 } }) is
+ * // /orders/7?workspace=acme; search: { workspace: undefined } drops it.
+ * ```
+ *
+ * @typeParam Codec - The wrapped codec, with its fallback, array or remembered behavior.
+ * @param codec - The key's codec.
+ * @returns A search-only codec that reads and writes like `codec` and retains the key.
+ * @throws TypeError if the codec lacks callable parse/stringify methods or is already retained.
+ */
+export function retained<Codec extends ParamCodec<any>>(
+  codec: Codec & UnretainedCodec,
+): RetainedCodec<Codec> {
+  validateCodec(codec);
+
+  if (retainedCodecs.has(codec)) {
+    throw new TypeError("retained cannot wrap a codec that is already retained");
+  }
+
+  const wrapper: ParamCodec<unknown> = {
+    parse(raw) {
+      return codec.parse(raw);
+    },
+    stringify(value) {
+      return codec.stringify(value);
+    },
+  };
+
+  inherit(codec, wrapper);
+  retainedCodecs.add(wrapper);
+
+  return wrapper as RetainedCodec<Codec>;
+}
+
+/**
+ * Marks a search key as remembered: its last committed value is stored under `id`, and a
+ * navigation that enters the key's owner without it is redirected to the same URL with the
+ * stored value.
+ *
+ * @remarks
+ * Wrap the codec of a key a declaration owns, and install `provideSearchStorage()` from
+ * `routes.generated.ts`. Every commit while the owner is active stores the URL's present
+ * valid value, or forgets it when the key is absent, invalid or equal to its fallback. A
+ * navigation entering the owner from outside it, first load included, that lacks the key is
+ * redirected to its URL plus the stored value after every guard accepted the original URL and
+ * before any resolver or title runs. Inside the owner, a missing key means cleared. The id
+ * names the stored value: the same id is the same value wherever it's used, and a new id
+ * (`"orders.pageSize.v2"`) starts afresh. Two keys of one route and its ancestors can't share
+ * an id. Reads, fallbacks, arrays, retention and URL creation are the wrapped codec's.
+ * Remembered codecs are search-only and outermost, in either order with `retained`: a path
+ * param can't use one, and neither `withFallback` nor `arrayParam` can wrap one.
+ *
+ * @example
+ * ```ts
+ * search: { pageSize: remembered(withFallback(numberParam, 20), "orders.pageSize") }
+ * // After /orders?pageSize=50 commits, entering /orders from elsewhere opens /orders?pageSize=50.
+ * ```
+ *
+ * @typeParam Codec - The wrapped codec, with its fallback, array or retained behavior.
+ * @param codec - The key's codec.
+ * @param id - The storage id: letters, digits, `.`, `_` and `-`, so it's a valid cookie name
+ * and storage key as is.
+ * @returns A search-only codec that reads and writes like `codec` and remembers the key.
+ * @throws TypeError if the codec lacks callable parse/stringify methods or is already
+ * remembered, or the id is empty or has other characters.
+ */
+export function remembered<Codec extends ParamCodec<any>>(
+  codec: Codec & UnrememberedCodec,
+  id: string,
+): RememberedCodec<Codec> {
+  validateCodec(codec);
+
+  if (rememberedIds.has(codec)) {
+    throw new TypeError("remembered cannot wrap a codec that is already remembered");
+  }
+
+  if (typeof id !== "string" || !storageIdPattern.test(id)) {
+    throw new TypeError(
+      `Remembered search id must match /^[A-Za-z0-9._-]+$/: ${JSON.stringify(id)}`,
+    );
+  }
+
+  const wrapper: ParamCodec<unknown> = {
+    parse(raw) {
+      return codec.parse(raw);
+    },
+    stringify(value) {
+      return codec.stringify(value);
+    },
+  };
+
+  inherit(codec, wrapper);
+  rememberedIds.set(wrapper, id);
+
+  return wrapper as RememberedCodec<Codec>;
+}
+
+// A marking wrapper answers for the codec it wraps: the same fallback, array reads and marks.
+function inherit(codec: object, wrapper: object): void {
+  const fallback = fallbacks.get(codec);
+
+  if (fallback) {
+    fallbacks.set(wrapper, fallback);
+  }
+
+  if (arrays.has(codec)) {
+    arrays.add(wrapper);
+  }
+
+  if (retainedCodecs.has(codec)) {
+    retainedCodecs.add(wrapper);
+  }
+
+  const id = rememberedIds.get(codec);
+
+  if (id !== undefined) {
+    rememberedIds.set(wrapper, id);
+  }
 }

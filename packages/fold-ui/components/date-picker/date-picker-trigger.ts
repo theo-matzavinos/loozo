@@ -1,20 +1,22 @@
 import { Component, computed, inject, input } from "@angular/core";
 import { OrigamiDateFieldInput } from "@loozo/origami-ui/date-field";
-import { OrigamiDatePickerState, OrigamiDatePickerTrigger } from "@loozo/origami-ui/date-picker";
+import { OrigamiDatePickerTrigger } from "@loozo/origami-ui/date-picker";
 import { LucideCalendar } from "@lucide/angular";
 import { cn } from "../cn";
+import { DatePickerRoot } from "./date-picker-root";
 
 /**
- * The button that opens a DatePicker's popup. Its shape follows where you write it, read once
- * when it's created:
+ * The button that opens a DatePicker's popup. Write it inside a fold picker root: DatePicker,
+ * DatePickerMultiple, DatePickerRange, MonthPicker or DateTimePicker. Its shape follows where you
+ * write it, read once when it's created:
  *
  * - inside a DateFieldInput (field shape): a 28px ghost square with a calendar icon at the box's
  *   end. Write no text; its `aria-label` is its only name and the popup's, so name the field in
  *   it: "Choose due date".
  * - alone (button shape): Select's trigger with a trailing calendar icon, showing the text you
  *   write, such as the date through `DatePipe`. It's the Field's control, labelled by the Field's
- *   label. fold marks it `data-placeholder` while the value is null and `data-readonly` while the
- *   picker is readonly, however readonly was set.
+ *   label. fold marks it `data-placeholder` while the value is empty (null, or no days) and
+ *   `data-readonly` while the picker is readonly, however readonly was set.
  */
 @Component({
   selector: "button[fold__DatePickerTrigger]",
@@ -41,19 +43,25 @@ export class DatePickerTrigger {
   /** Inside a DateFieldInput: Origami's own rule, read once at construction. */
   protected readonly fieldShape = inject(OrigamiDateFieldInput, { optional: true }) !== null;
 
-  readonly #picker = inject(OrigamiDatePickerState);
+  readonly #root = inject(DatePickerRoot);
 
   // Presence attributes, "" or absent, never "false". The field shape shows both through its
   // segments, so it has neither.
   protected readonly placeholder = computed(() => {
-    if (!this.fieldShape && this.#picker.value() === null) {
+    if (this.fieldShape) {
+      return null;
+    }
+
+    const value = this.#root.state.value();
+
+    if (value === null || (Array.isArray(value) && value.length === 0)) {
       return "";
     }
 
     return null;
   });
   protected readonly readonlyMarker = computed(() => {
-    if (!this.fieldShape && this.#picker.readonly()) {
+    if (!this.fieldShape && this.#root.state.readonly()) {
       return "";
     }
 

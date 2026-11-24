@@ -32,6 +32,11 @@
               "outputPath": "dist/todos",
               "fileReplacements": [{ "replace": "src/main.ts", "with": "src/main.verification.ts" }]
             },
+            "verification-development": {
+              "outputPath": "dist/todos-development",
+              "optimization": false,
+              "fileReplacements": [{ "replace": "src/main.ts", "with": "src/main.verification.ts" }]
+            },
             "prerender": {
               "outputPath": "dist/prerender",
               "fileReplacements": [

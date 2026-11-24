@@ -630,6 +630,71 @@ test("CB7: keys reveal the active option in a capped list of 111 by scrolling th
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
 });
 
+test("CB7: under a half scale and a fractional height, opening and page moves keep the active option inside the painted list", async ({
+  page,
+}, info) => {
+  await fixture(page, "combobox", info);
+
+  const input = page.getByTestId("long-input");
+  const content = page.getByTestId("long-content");
+  const option = (item: number) => page.getByTestId(`long-${item}`);
+
+  // The fraction makes `offsetHeight` round: a scale read from it clips an option far down.
+  await page.addStyleTag({
+    content:
+      '[data-testid="long-content"] { scale: 0.5; transform-origin: top left; max-block-size: 90.3px !important; }',
+  });
+
+  /** How far the option's painted box lies outside the list's painted padding box, in px. */
+  const miss = (item: number) =>
+    page.evaluate(
+      ([list, target]) => {
+        const box = document.querySelector<HTMLElement>(`[data-testid="${list}"]`);
+        const node = document.querySelector<HTMLElement>(`[data-testid="${target}"]`);
+
+        if (box === null || node === null) {
+          return Infinity;
+        }
+
+        const style = getComputedStyle(box);
+        const outer = box.getBoundingClientRect();
+        const top = outer.top + parseFloat(style.borderTopWidth) * 0.5;
+        const bottom = outer.bottom - parseFloat(style.borderBottomWidth) * 0.5;
+        const inner = node.getBoundingClientRect();
+
+        return Math.max(0, top - inner.top, inner.bottom - bottom);
+      },
+      ["long-content", `long-${item}`],
+    );
+
+  await input.scrollIntoViewIfNeeded();
+
+  const scrollY = await page.evaluate(() => window.scrollY);
+
+  await input.evaluate((node) => node.focus({ preventScroll: true }));
+  await page.keyboard.press("ArrowDown");
+  await expectOpen(input, content);
+  await expectActive(input, option(80), content);
+  await expect.poll(() => miss(80)).toBeLessThanOrEqual(1);
+
+  for (let step = 0; step < 8; step += 1) {
+    await page.keyboard.press("PageUp");
+  }
+
+  await expectActive(input, option(1), content);
+  await expect.poll(() => miss(1)).toBeLessThanOrEqual(1);
+
+  for (let step = 0; step < 11; step += 1) {
+    await page.keyboard.press("PageDown");
+  }
+
+  await expectActive(input, option(111), content);
+  await expect.poll(() => miss(111)).toBeLessThanOrEqual(1);
+  expect(await content.evaluate((node) => getComputedStyle(node).scale)).toBe("0.5");
+  expect(await content.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+});
+
 test("CB8: server-search results never highlight by themselves; Enter with nothing highlighted does nothing; an active option that unmounts stops being active; a rich option chooses its label", async ({
   page,
 }, info) => {

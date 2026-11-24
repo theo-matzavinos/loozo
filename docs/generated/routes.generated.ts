@@ -61,3 +61,4 @@ export function injectActiveRoute(): Signal<ActiveRoute | undefined> {
   return injectGeneratedActiveRoute<RouteTypes>();
 }
 export { provideActiveRouteHydration } from '@loozo/angular-router/_generated';
+export { currentSearchRestore, provideSearchStorage } from '@loozo/angular-router/_generated';

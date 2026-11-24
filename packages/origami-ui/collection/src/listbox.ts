@@ -35,6 +35,9 @@ function scrolls(element: HTMLElement): boolean {
   );
 }
 
+/** Below this, a difference in layout pixels is rect arithmetic noise, not geometry. */
+const NOISE = 1e-3;
+
 /** Scrolls the option's nearest scrolling box inside `content`, else `content`, to show it. */
 function scroll(option: HTMLElement, content: HTMLElement): void {
   let box = option.parentElement;
@@ -47,16 +50,75 @@ function scroll(option: HTMLElement, content: HTMLElement): void {
     return;
   }
 
+  // Rects are painted pixels, which include any ancestor's scale, such as an entrance animation;
+  // client metrics and `scrollTop` are layout pixels. The box's sizes only estimate the scale, as
+  // engines round them differently, so an instant scroll to the estimate measures it: how far the
+  // option moved on screen per layout pixel scrolled. The landing is then placed again from the
+  // geometry before that scroll and written only where it differs, so an estimate that overshoots
+  // is pulled back too. Both writes are instant whatever the box's `scroll-behavior`, so the
+  // option is shown once they run, and land in one task, so they raise one scroll event.
   const bounds = box.getBoundingClientRect();
-  const top = bounds.top + box.clientTop;
-  const bottom = top + box.clientHeight;
   const rect = option.getBoundingClientRect();
+  const current = box.scrollTop;
+  const estimate = landing(box, bounds, rect, current, bounds.height / box.offsetHeight);
 
-  if (rect.top < top) {
-    box.scrollTop -= top - rect.top;
-  } else if (rect.bottom > bottom) {
-    box.scrollTop += rect.bottom - bottom;
+  if (estimate === current) {
+    return;
   }
+
+  box.scrollTo({ top: estimate, behavior: "instant" });
+
+  const landed = box.scrollTop;
+  const moved = landed - current;
+
+  // Nothing moved: the box is at its limit.
+  if (moved === 0) {
+    return;
+  }
+
+  const shift = rect.top - option.getBoundingClientRect().top;
+  const exact = landing(box, bounds, rect, current, shift / moved);
+
+  if (exact !== landed) {
+    box.scrollTo({ top: exact, behavior: "instant" });
+  }
+}
+
+/**
+ * The whole `scrollTop` that shows an option painted at `rect` while `box`, painted at `bounds`,
+ * was at `current`, given `scale` painted pixels per layout pixel: `current` when the option was
+ * shown or the scale isn't positive.
+ */
+function landing(
+  box: HTMLElement,
+  bounds: DOMRect,
+  rect: DOMRect,
+  current: number,
+  scale: number,
+): number {
+  if (!(Number.isFinite(scale) && scale > 0)) {
+    return current;
+  }
+
+  // The painted edges, less the scaled insets: the client metrics are rounded, which a large
+  // scale would magnify. The bottom inset is the border plus any classic horizontal scrollbar.
+  const start = bounds.top + box.clientTop * scale;
+  const end = bounds.bottom - (box.offsetHeight - box.clientTop - box.clientHeight) * scale;
+  // How far the option's top and bottom edges lay outside the scrollport, in layout pixels.
+  const above = (start - rect.top) / scale;
+  const below = (rect.bottom - end) / scale;
+
+  if (above <= NOISE && below <= NOISE) {
+    return current;
+  }
+
+  // Rounded outward, toward showing the option, as WebKit truncates a fractional `scrollTop`. An
+  // option that no whole offset fits aligns its top edge, so a repeated key lands where it did.
+  const bottom = Math.ceil(current + below - NOISE);
+
+  return below > NOISE && above + bottom - current <= NOISE
+    ? bottom
+    : Math.floor(current - above + NOISE);
 }
 
 /**

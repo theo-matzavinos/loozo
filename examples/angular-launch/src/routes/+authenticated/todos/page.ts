@@ -1,13 +1,40 @@
 import { Component, computed, signal } from "@angular/core";
+import { RouterLink } from "@angular/router";
 import { injectMutation, injectQuery, type QueryClient } from "@tanstack/angular-query";
+import { pageSizes } from "../../../todo-page-size";
 import { injectRoute, type Remote } from "./route.generated";
 
 type Todo = Awaited<ReturnType<Remote["todos"]["list"]>>["todos"][number];
 
 @Component({
   selector: "launch-todos",
+  imports: [RouterLink],
   template: `
     <h1>Personal todos</h1>
+    @let search = route.search();
+    <p id="view">
+      {{ route.data().filter.label }} · {{ search.pageSize }} per page · {{ search.density }}
+    </p>
+    <nav class="view-links" aria-label="Filter">
+      @for (filter of filters; track filter.name) {
+        <a [routerLink]="filterLink(filter.name)" [attr.aria-current]="currentFilter(filter.name)">
+          {{ filter.label }}
+        </a>
+      }
+    </nav>
+    <nav class="view-links" aria-label="Page size">
+      @for (size of pageSizes; track size) {
+        <a
+          [routerLink]="route.link({ search: { pageSize: size } })"
+          [attr.aria-current]="search.pageSize === size ? 'page' : null"
+        >
+          {{ size }} per page
+        </a>
+      }
+      <a [routerLink]="densityLink()">{{
+        search.density === "compact" ? "Comfortable" : "Compact"
+      }}</a>
+    </nav>
     @let model = todos.data();
     @if (model) {
       <p id="identity">{{ model.user }} · request {{ model.requestId }}</p>
@@ -30,8 +57,8 @@ type Todo = Awaited<ReturnType<Remote["todos"]["list"]>>["todos"][number];
       </div>
     </form>
     @if (model) {
-      <ul id="todo-list">
-        @for (todo of model.todos; track todo.id) {
+      <ul id="todo-list" [class.compact]="search.density === 'compact'">
+        @for (todo of shown(); track todo.id) {
           <li [attr.data-todo-id]="todo.id">
             <span>{{ todo.title }}</span>
             @if (todo.completed) {
@@ -72,10 +99,40 @@ type Todo = Awaited<ReturnType<Remote["todos"]["list"]>>["todos"][number];
   `,
 })
 export default class Todos {
-  readonly #route = injectRoute();
-  readonly todos = injectQuery(() => this.#route.queries.todos.list.queryOptions());
+  readonly route = injectRoute();
+  readonly pageSizes = pageSizes;
+  readonly filters = [
+    { name: "all", label: "All" },
+    { name: "open", label: "Open" },
+    { name: "completed", label: "Completed" },
+  ];
+  readonly todos = injectQuery(() => this.route.queries.todos.list.queryOptions());
+  // The list as the filter and page size choose, from what the query has.
+  readonly shown = computed(() => {
+    const todos = this.todos.data()?.todos ?? [];
+    const { filter, pageSize } = this.route.search();
+    const result: Todo[] = [];
+
+    for (const todo of todos) {
+      if (result.length === pageSize) {
+        break;
+      }
+
+      if (filter === "open" && todo.completed) {
+        continue;
+      }
+
+      if (filter === "completed" && !todo.completed) {
+        continue;
+      }
+
+      result.push(todo);
+    }
+
+    return result;
+  });
   readonly #add = injectMutation(() =>
-    this.#route.queries.todos.add.mutationOptions({
+    this.route.queries.todos.add.mutationOptions({
       onSuccess: () => {
         this.title.set("");
       },
@@ -85,10 +142,10 @@ export default class Todos {
   // fails. config.ts reads the list again after the last pending write. The shared scope sends
   // the writes to the server one at a time, in order.
   readonly #complete = injectMutation(() =>
-    this.#route.queries.todos.complete.mutationOptions({
+    this.route.queries.todos.complete.mutationOptions({
       scope: { id: "todos" },
       onMutate: async ({ id }, { client }) => {
-        const key = this.#route.queries.todos.list.key();
+        const key = this.route.queries.todos.list.key();
 
         await client.cancelQueries({ queryKey: key });
 
@@ -102,7 +159,7 @@ export default class Todos {
       },
       onError: (error, { id }, result, { client }) => {
         // The server says it's gone: show that instead of the row as it was.
-        if (this.#route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+        if (this.route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
           this.#updateTodos(client, (todos) => todos.filter((todo) => todo.id !== id));
 
           return;
@@ -117,10 +174,10 @@ export default class Todos {
     }),
   );
   readonly #remove = injectMutation(() =>
-    this.#route.queries.todos.remove.mutationOptions({
+    this.route.queries.todos.remove.mutationOptions({
       scope: { id: "todos" },
       onMutate: async ({ id }, { client }) => {
-        const key = this.#route.queries.todos.list.key();
+        const key = this.route.queries.todos.list.key();
 
         await client.cancelQueries({ queryKey: key });
 
@@ -137,7 +194,7 @@ export default class Todos {
       },
       onError: (error, _input, result, { client }) => {
         // Already gone: nothing to put back.
-        if (this.#route.remote.todos.remove.isError(error) && error.code === "NOT_FOUND") {
+        if (this.route.remote.todos.remove.isError(error) && error.code === "NOT_FOUND") {
           return;
         }
 
@@ -163,6 +220,31 @@ export default class Todos {
   readonly title = signal("");
   readonly status = signal("ready");
 
+  // "All" is the fallback, so its link leaves the filter out of the URL.
+  filterLink(name: string) {
+    if (name === "all") {
+      return this.route.link({ search: { filter: undefined } });
+    }
+
+    return this.route.link({ search: { filter: name } });
+  }
+
+  currentFilter(name: string): "page" | null {
+    if (this.route.data().filter.name === name) {
+      return "page";
+    }
+
+    return null;
+  }
+
+  densityLink() {
+    if (this.route.search().density === "compact") {
+      return this.route.link({ search: { density: undefined } });
+    }
+
+    return this.route.link({ search: { density: "compact" } });
+  }
+
   editTitle(event: Event): void {
     if (event.target instanceof HTMLInputElement) {
       this.title.set(event.target.value);
@@ -182,7 +264,7 @@ export default class Todos {
       await this.#add.mutateAsync({ title: this.title() });
       this.status.set("Todo added");
     } catch (error) {
-      if (this.#route.remote.todos.add.isError(error) && error.code === "INVALID_INPUT") {
+      if (this.route.remote.todos.add.isError(error) && error.code === "INVALID_INPUT") {
         this.status.set("Enter a title with 1–200 characters.");
       } else {
         this.status.set("Could not add todo. Refresh to check before retrying.");
@@ -197,7 +279,7 @@ export default class Todos {
       await this.#complete.mutateAsync({ id });
       this.status.set("Todo completed");
     } catch (error) {
-      if (this.#route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
+      if (this.route.remote.todos.complete.isError(error) && error.code === "NOT_FOUND") {
         this.status.set("This todo no longer exists.");
       } else {
         this.status.set("Could not complete todo. Try again.");
@@ -214,7 +296,7 @@ export default class Todos {
       await this.#remove.mutateAsync({ id });
       this.status.set("Todo deleted");
     } catch (error) {
-      if (this.#route.remote.todos.remove.isError(error) && error.code === "NOT_FOUND") {
+      if (this.route.remote.todos.remove.isError(error) && error.code === "NOT_FOUND") {
         this.status.set("This todo no longer exists.");
       } else {
         this.status.set("Could not delete todo. Try again.");
@@ -240,7 +322,7 @@ export default class Todos {
 
   // Changes the cached list's todos; does nothing while the list hasn't loaded.
   #updateTodos(client: QueryClient, update: (todos: readonly Todo[]) => Todo[]): void {
-    client.setQueryData(this.#route.queries.todos.list.key(), (list) => {
+    client.setQueryData(this.route.queries.todos.list.key(), (list) => {
       if (list === undefined) {
         return list;
       }

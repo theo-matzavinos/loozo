@@ -144,6 +144,67 @@ export function createUrl(target: unknown, values: unknown): `/${string}` {
 }
 
 /**
+ * `url`, which `createUrl` made for `target`, with `extra`'s search values added, each
+ * stringified as `createUrl` does and placed where `createUrl` would put it, so the caller's
+ * values are neither read nor stringified again.
+ *
+ * @param extra - Values for search keys `url` omits, of the types their codecs parse to; an
+ * array key's value is an array.
+ *
+ * @internal
+ */
+export function withSearch(
+  target: unknown,
+  url: `/${string}`,
+  extra: Readonly<Record<string, unknown>>,
+): `/${string}` {
+  const { url: metadata } = urlOf(target);
+  // Path, query and fragment text are encoded, so `?` and `#` only ever delimit them.
+  const hash = url.indexOf("#");
+  const fragment = hash === -1 ? "" : url.slice(hash);
+  const rest = hash === -1 ? url : url.slice(0, hash);
+  const mark = rest.indexOf("?");
+  const path = mark === -1 ? rest : rest.slice(0, mark);
+  const parts = mark === -1 ? [] : rest.slice(mark + 1).split("&");
+  const keys = Object.keys(extra).sort();
+  const query: string[] = [];
+  let next = 0;
+
+  function add(key: string): void {
+    const codec = metadata.search[key];
+    const value = extra[key];
+
+    for (const element of isArrayCodec(codec) ? (value as readonly unknown[]) : [value]) {
+      query.push(`${encode(key)}=${stringify(codec, element, false)}`);
+    }
+  }
+
+  // `url`'s pairs are in createUrl's key order, and `extra`'s keys are absent from them: merge.
+  // An encoded name holds no `=`, and decodes, since createUrl encoded it.
+  for (const part of parts) {
+    const key = decodeURIComponent(part.slice(0, part.indexOf("=")));
+
+    while (next < keys.length && keys[next] < key) {
+      add(keys[next++]);
+    }
+
+    query.push(part);
+  }
+
+  while (next < keys.length) {
+    add(keys[next++]);
+  }
+
+  let result = path;
+
+  if (query.length > 0) {
+    result = `${result}?${query.join("&")}`;
+  }
+
+  return `${result}${fragment}` as `/${string}`;
+}
+
+/**
  * `createUrl` over URL facts: checks `values` against `metadata` and serializes them, with
  * every rule, message and encoding `createUrl` documents. `localeUrls` serializes a locale's
  * copy of a destination's facts with it.

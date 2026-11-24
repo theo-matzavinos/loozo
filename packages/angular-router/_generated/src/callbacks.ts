@@ -38,6 +38,12 @@ import {
   type Job,
 } from "./inputs.js";
 import { resolverStamp } from "./record.js";
+import { rememberedKeys } from "./remembered.js";
+import { restoreGate } from "./restore.js";
+
+// The gate's own resolve entry, on records under a remembered key: module-private, so no
+// authored key collides with it, and never stamped, so handles and seeds don't read it.
+const restoreKey = Symbol("@loozo/angular-router restore");
 
 export type Callbacks = Pick<
   Route,
@@ -171,18 +177,40 @@ export function callbacks(
       >
     | undefined;
 
+  // A primary record's resolvers and dynamic title restore remembered keys before their
+  // callback: whichever one Angular calls first in the resolve phase, after every guard.
+  // A named-outlet record never resolves before the primary owner, so it isn't gated.
+  const gated = metadata.branch === undefined;
+
   if (resolvers) {
     const resolve: Record<PropertyKey, ResolveFn<unknown>> = Object.create(null);
     const keys = Reflect.ownKeys(resolvers);
 
     for (const key of keys) {
-      resolve[key] = (snapshot, state) =>
-        resolvers[key](callbackInputs(route, snapshot), snapshot, state);
+      resolve[key] = (snapshot, state) => {
+        if (gated) {
+          const restore = restoreGate(state);
+
+          if (restore !== true) {
+            return restore;
+          }
+        }
+
+        return resolvers[key](callbackInputs(route, snapshot), snapshot, state);
+      };
     }
 
     result.resolve = resolve;
     // Beside the native map, never on it: Angular runs every own key of that map, symbols too.
     Object.assign(result, resolverStamp(keys));
+  }
+
+  // Angular schedules every record of an entered owner's subtree, so the gate always runs on
+  // an entering navigation, even where no resolver or title is authored.
+  if (gated && rememberedKeys(own).length > 0) {
+    const gate: ResolveFn<unknown> = (_snapshot, state) => restoreGate(state);
+
+    result.resolve = { ...result.resolve, [restoreKey]: gate };
   }
 
   const title = config.title as
@@ -192,7 +220,17 @@ export function callbacks(
 
   // Angular runs a title callback as a resolver, so it's adapted like one.
   if (typeof title === "function") {
-    result.title = (snapshot, state) => title(callbackInputs(route, snapshot), snapshot, state);
+    result.title = (snapshot, state) => {
+      if (gated) {
+        const restore = restoreGate(state);
+
+        if (restore !== true) {
+          return restore;
+        }
+      }
+
+      return title(callbackInputs(route, snapshot), snapshot, state);
+    };
   } else if (title !== undefined) {
     result.title = title;
   }

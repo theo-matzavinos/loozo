@@ -430,6 +430,7 @@ describe("add", () => {
     const cases = {
       accordion: ["accordion", "cn", "disclosure"],
       avatar: ["avatar", "cn"],
+      badge: ["badge", "cn"],
       calendar: ["button", "calendar", "cn"],
       checkbox: ["checkbox", "cn"],
       collapsible: ["button", "cn", "collapsible", "disclosure"],
@@ -438,12 +439,15 @@ describe("add", () => {
       "date-picker": ["button", "calendar", "cn", "date-field", "date-picker", "popup"],
       dialog: ["button", "cn", "dialog", "scroll-area"],
       disclosure: ["disclosure"],
+      empty: ["cn", "empty"],
       field: ["cn", "field"],
       "file-field": ["button", "cn", "file-field"],
       input: ["cn", "input"],
       menu: ["button", "cn", "menu", "popup", "scroll-area"],
+      meter: ["cn", "meter"],
       "number-field": ["cn", "number-field"],
       "otp-field": ["cn", "otp-field"],
+      page: ["cn", "page"],
       popover: ["button", "cn", "popover", "popup", "scroll-area"],
       popup: ["popup"],
       progress: ["cn", "progress"],
@@ -453,9 +457,13 @@ describe("add", () => {
       sheet: ["button", "cn", "scroll-area", "sheet"],
       slider: ["cn", "slider"],
       switch: ["cn", "switch"],
+      table: ["cn", "scroll-area", "table"],
       tabs: ["cn", "tabs"],
       textarea: ["cn", "input", "textarea"],
       toast: ["button", "cn", "popup", "toast"],
+      toggle: ["button", "cn", "toggle"],
+      "toggle-group": ["button", "cn", "toggle", "toggle-group"],
+      toolbar: ["button", "cn", "toggle", "toggle-group", "toolbar"],
       tooltip: ["cn", "popup", "tooltip"],
     };
 
@@ -627,6 +635,33 @@ describe("add", () => {
     );
   });
 
+  test("renames Toggle's, ToggleGroup's and Toolbar's parts with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["toggle", "toggle-group", "toolbar"] },
+      await setUp(runner),
+    );
+
+    assert.match(readText(tree, "src/ui/toggle/toggle.ts"), /selector: "button\[zzToggle\]"/);
+    assert.match(
+      readText(tree, "src/ui/toggle-group/toggle-group-single.ts"),
+      /selector: "\[zzToggleGroupSingle\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/toggle-group/toggle-group-item.ts"),
+      /selector: "button\[zzToggleGroupItem\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/toolbar/toolbar-separator.ts"),
+      /selector: "\[zzToolbarSeparator\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/toolbar/toolbar-menu-trigger.ts"),
+      /selector: "button\[zzToolbarMenuTrigger\]"/,
+    );
+  });
+
   test("renames ScrollArea's, Avatar's and Progress's parts and exportAs with the prefix", async () => {
     const { runner } = createRunner();
     const tree = await runner.runSchematic(
@@ -645,6 +680,45 @@ describe("add", () => {
       /selector: "\[zzAvatarFallback\]"/,
     );
     assert.match(readText(tree, "src/ui/progress/progress.ts"), /exportAs: "zzProgress"/);
+  });
+
+  test("renames Meter's and MeterRing's selectors and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["meter"] }, await setUp(runner));
+    const meter = readText(tree, "src/ui/meter/meter.ts");
+    const ring = readText(tree, "src/ui/meter/meter-ring.ts");
+
+    assert.match(meter, /selector: "\[zzMeter\]"/);
+    assert.match(meter, /exportAs: "zzMeter"/);
+    assert.match(ring, /selector: "\[zzMeterRing\]"/);
+    assert.match(ring, /exportAs: "zzMeterRing"/);
+  });
+
+  test("renames Table's, Badge's, Page's and Empty's parts with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic(
+      "add",
+      { names: ["table", "badge", "page", "empty"] },
+      await setUp(runner),
+    );
+    const frame = readText(tree, "src/ui/table/table-frame.ts");
+
+    assert.match(readText(tree, "src/ui/table/table.ts"), /selector: "table\[zzTable\]"/);
+    assert.match(
+      readText(tree, "src/ui/table/table-column-header.ts"),
+      /selector: "th\[zzTableColumnHeader\]"/,
+    );
+    assert.match(readText(tree, "src/ui/table/table-cell.ts"), /selector: "td\[zzTableCell\]"/);
+    assert.match(
+      readText(tree, "src/ui/table/table-sort-button.ts"),
+      /selector: "button\[zzTableSortButton\]"/,
+    );
+    assert.match(readText(tree, "src/ui/table/table-pager.ts"), /selector: "nav\[zzTablePager\]"/);
+    assert.match(frame, /select="\[zzTablePager\]"/);
+    assert.match(frame, /zzScrollArea/);
+    assert.match(readText(tree, "src/ui/badge/badge.ts"), /selector: "\[zzBadge\]"/);
+    assert.match(readText(tree, "src/ui/page/page-title.ts"), /selector: "\[zzPageTitle\]"/);
+    assert.match(readText(tree, "src/ui/empty/empty.ts"), /selector: "\[zzEmpty\]"/);
   });
 
   test("renames Calendar's roots, exportAs and internal parts with the prefix", async () => {
@@ -677,6 +751,23 @@ describe("add", () => {
     assert.match(
       readText(tree, "src/ui/date-picker/date-picker-trigger.ts"),
       /selector: "button\[zzDatePickerTrigger\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-multiple.ts"),
+      /selector: "\[zzDatePickerMultiple\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-range.ts"),
+      /selector: "\[zzDatePickerRange\]"/,
+    );
+    assert.match(readText(tree, "src/ui/date-picker/month-picker.ts"), /exportAs: "zzMonthPicker"/);
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-time-picker.ts"),
+      /selector: "\[zzDateTimePicker\]"/,
+    );
+    assert.match(
+      readText(tree, "src/ui/date-picker/date-picker-footer.ts"),
+      /selector: "\[zzDatePickerFooter\]"/,
     );
     assert.match(readText(tree, "src/ui/date-field/date-field.ts"), /exportAs: "zzDateField"/);
     assert.match(

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { spawn, spawnSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
+import { verifyRemembered } from "./verify-remembered.mjs";
 
 const require = createRequire(
   new URL("../../packages/angular-launch/package.json", import.meta.url),
@@ -241,13 +242,17 @@ try {
     assert.ok(!markup.includes('id="list-pending"'));
     assert.ok(!markup.includes('id="list-error"'));
 
-    // The resolver's direct call stays in Angular's HTTP transfer cache; the query is
+    // The resolvers' direct calls stay in Angular's HTTP transfer cache; the query is
     // TanStack's alone, so its payload isn't in the HTML twice.
-    const entries = transfers(text);
+    const all = transfers(text);
     const queries = dehydrated(text);
+    const entries = all.filter((entry) => entry.u.endsWith("/_rpc/session/current"));
+    const filters = all.filter((entry) => entry.u.endsWith("/_rpc/todos/filter"));
 
+    assert.equal(all.length, 2);
     assert.equal(entries.length, 1);
-    assert.match(entries[0].u, /\/_rpc\/session\/current$/);
+    assert.equal(filters.length, 1);
+    assert.deepEqual(filters[0].b, { name: "all", label: "All" });
     assert.equal(entries[0].b.user, user);
     assert.equal(queries.length, 1);
     assert.deepEqual(queries[0].queryKey, ["launch", "todos", "list"]);
@@ -515,12 +520,13 @@ try {
   assert.equal(returned, true);
   await page.waitForSelector("#todo-list li");
 
-  for (let attempt = 0; attempt < 50 && requests.length - mark < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 50 && requests.length - mark < 3; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 
   assert.deepEqual(rpcPaths(requests.slice(mark)).sort(), [
     "/_rpc/session/current",
+    "/_rpc/todos/filter",
     "/_rpc/todos/list",
   ]);
   checks.push(
@@ -1445,6 +1451,27 @@ try {
     "actual browser graph excludes authored route.ts files (stages, middleware, handlers), server.generated, server/database/generation/Node; sentinel exists only server-side",
   );
 
+  // Remembered search keys, against this build and the development build, where Angular's
+  // development checks run.
+  await verifyRemembered({ base, build: "production", browser, evidence, checks });
+
+  const development = await serve(
+    new URL("./dist/todos-development/server/server.mjs", import.meta.url),
+    "server-development.log",
+  );
+
+  try {
+    await verifyRemembered({
+      base: development.base,
+      build: "development",
+      browser,
+      evidence,
+      checks,
+    });
+  } finally {
+    development.server.kill();
+  }
+
   // A public page prerenders from the anonymous build context; the RPC-free one still does.
   const prerender = spawnSync("pnpm", ["exec", "ng", "run", "todos:build:prerender"], {
     cwd: import.meta.dirname,
@@ -1557,6 +1584,27 @@ try {
   );
   checks.push(
     "prerendering a page whose injectQuery is refused for the anonymous build context fails the build through finishLaunchRendering, naming the call",
+  );
+
+  // Launch's recovery fixture, in its own development and production builds: a request-reading
+  // stage's refusal kept for the render (rendered 404, 4 NavigationStarts, one stage run), the
+  // seed and first active-route read after a handler's recovery, and a genuinely missing page.
+  const recovery = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("../../packages/angular-launch/tests/remembered.mjs", import.meta.url)),
+      join(evidence, "remembered-fixture"),
+    ],
+    { encoding: "utf8" },
+  );
+
+  await writeFile(
+    join(evidence, "remembered-fixture.log"),
+    `${recovery.stdout}\n${recovery.stderr}`,
+  );
+  assert.equal(recovery.status, 0, `${recovery.stdout}\n${recovery.stderr}`);
+  checks.push(
+    "Launch's remembered-search recovery fixture passes in its development and production builds",
   );
   await writeFile(
     join(evidence, "report.json"),

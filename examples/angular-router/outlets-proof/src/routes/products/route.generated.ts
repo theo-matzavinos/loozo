@@ -1,6 +1,13 @@
-import { defineRoute } from "@loozo/angular-router";
+import { defineRoute,  } from "@loozo/angular-router";
 
-/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination);
+// The layout is remembered per tab (session storage): a server-rendered page shows the default
+// until the browser restores it.
+/** This route's browser copy: its declaration without server-only steps, read by the generated route configuration. */ const routegen$route = routegen$routeOf(defineRoute, routegen$destination)
+
+
+
+
+;
 import { routeOf as routegen$routeOf, injectGeneratedRoute as routegen$injectGeneratedRoute, type Handle as routegen$Handle } from "@loozo/angular-router/_generated";
 import { destination as routegen$destination } from "./destination.generated.js";
 import { destination as routegen$up } from "../+home/destination.generated.js";
@@ -14,8 +21,9 @@ export { routegen$route as route };
  * Data holds the resolver results of this route and its ancestors, a nearer
  * key hiding an ancestor's; native static data and the title stay out. Title
  * is the nearest declared title in the chain, or undefined when none declares one.
- * Navigation values are explicit; links and navigations compose with the current URL,
- * keeping the named-outlet branches a navigation doesn't touch.
+ * Navigation values are explicit, except omitted retained search keys; links and
+ * navigations compose with the current URL, keeping the named-outlet branches a
+ * navigation doesn't touch.
  *
  * @returns A noncallable handle for this declaration.
  * @throws A synchronous wiring error outside an injection context or when the

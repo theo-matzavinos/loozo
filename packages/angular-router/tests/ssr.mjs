@@ -149,6 +149,153 @@ export default defineRoute("handle-only/$id", {
 ]);
 `,
 );
+// Retained search keys before the first client commit (SPEC §6 "Retained search keys"): browser-
+// only guards and resolvers hold or redirect the client's navigations by query marker. `a` acts on
+// orders (A): `guard` and `resolver` hold, `redirect` sends the navigation to other (B) with B's own
+// `workspace`; `b` holds B at its `guard` or `resolver`. `eager` selects eager URL updates. Every
+// resolver key is a string, so the server's seed stands (F11).
+await writeFile(
+  join(fixture, "src/hold.ts"),
+  `import { PLATFORM_ID, inject } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Router } from "@angular/router";
+
+type Proof = { proofHeld?: Record<string, boolean>; proofRelease?: Record<string, () => void> };
+
+/** The current navigation's marker, in the browser; null on the server. Call before any await. */
+export function marker(name: string): string | null {
+  if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+    return null;
+  }
+
+  return inject(Router).currentNavigation()?.extractedUrl.queryParamMap.get(name) ?? null;
+}
+
+/** Waits until the test calls proofRelease[name](). */
+export function hold(name: string): Promise<void> {
+  const proof = window as unknown as Proof;
+
+  proof.proofHeld = { ...proof.proofHeld, [name]: true };
+
+  return new Promise((resolve) => {
+    proof.proofRelease = { ...proof.proofRelease, [name]: resolve };
+  });
+}
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/+workspace/orders/route.ts"),
+  `import { inject } from "@angular/core";
+import { RedirectCommand, Router } from "@angular/router";
+import { defineRoute, numberParam, remembered, retained, withFallback } from "@loozo/angular-router";
+import workspace from "../route.js";
+import { hold, marker } from "../../../hold.js";
+
+export default defineRoute("orders", {
+  parent: workspace,
+  search: { pageSize: retained(remembered(withFallback(numberParam, 20), "orders.pageSize")) },
+})
+  .canActivate([
+    async () => {
+      const a = marker("a");
+
+      if (a === "redirect") {
+        return new RedirectCommand(
+          inject(Router).parseUrl("/other?workspace=beta&b=" + marker("b")),
+        );
+      }
+
+      if (a === "guard") {
+        await hold("a");
+      }
+
+      return true;
+    },
+  ])
+  .resolve({
+    label: async () => {
+      if (marker("a") === "resolver") {
+        await hold("a");
+      }
+
+      return "orders";
+    },
+    rows: ({ search }) => String(search.pageSize) + " rows",
+  });
+`,
+);
+await writeFile(
+  join(fixture, "src/routes/other/route.ts"),
+  `import { defineRoute, retained, stringParam } from "@loozo/angular-router";
+import { hold, marker } from "../../hold.js";
+
+export default defineRoute("other", { search: { workspace: retained(stringParam) } })
+  .canActivate([
+    async () => {
+      if (marker("b") === "guard") {
+        await hold("b");
+      }
+
+      return true;
+    },
+  ])
+  .resolve({
+    label: async () => {
+      if (marker("b") === "resolver") {
+        await hold("b");
+      }
+
+      return "other";
+    },
+  });
+`,
+);
+// B's page records its own and the shell's retained links in its constructor: during B's
+// activation, before the first client success.
+await writeFile(
+  join(fixture, "src/routes/other/page.ts"),
+  `import { Component, PLATFORM_ID, computed, inject } from "@angular/core";
+import { isPlatformBrowser } from "@angular/common";
+import { Router, RouterLink, RouterOutlet } from "@angular/router";
+import { injectRoute } from "./route.generated.js";
+import { destination as child } from "./child/destination.generated.js";
+import { destination as order } from "../+workspace/orders/$id/destination.generated.js";
+
+@Component({
+  imports: [RouterLink, RouterOutlet],
+  template: \`
+    <article id="other">
+      <h2>{{ route.data().label }}</h2>
+      <a id="other-child" [routerLink]="child()">Child</a>
+      <router-outlet />
+    </article>
+  \`,
+})
+export default class Other {
+  readonly route = injectRoute();
+  readonly child = computed(() => this.route.link({ to: child }));
+
+  constructor() {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return;
+    }
+
+    const router = inject(Router);
+    const proof = window as any;
+
+    proof.proofOtherConstructor = {
+      success: router.lastSuccessfulNavigation() !== null,
+      page: {
+        order: router.serializeUrl(this.route.link({ to: order, params: { id: 7 } })),
+        otherChild: router.serializeUrl(this.route.link({ to: child })),
+      },
+      shell: proof.proofApp?.retainedHrefs() ?? null,
+    };
+  }
+}
+`,
+);
+
 // Resolver values JSON can't carry unchanged give no seed; a shared reference seeds.
 await mkdir(join(fixture, "src/routes/values/$kind"), { recursive: true });
 await writeFile(
@@ -236,10 +383,16 @@ import {
   Router,
   UrlHandlingStrategy,
   provideRouter,
+  withRouterConfig,
   type UrlTree,
 } from "@angular/router";
 import { provideClientHydration, withNoHttpTransferCache } from "@angular/platform-browser";
-import { provideActiveRouteHydration, routes } from "../generated/routes.generated.js";
+import {
+  provideActiveRouteHydration,
+  provideSearchStorage,
+  routes,
+} from "../generated/routes.generated.js";
+import { cookieSearchStorage } from "./search-cookies.js";
 
 function race(): string | null {
   return new URLSearchParams(window.location.search).get("race");
@@ -249,9 +402,21 @@ function marked(name: string): boolean {
   return isPlatformBrowser(inject(PLATFORM_ID)) && new URLSearchParams(window.location.search).has(name);
 }
 
+// Read once, when the configuration evaluates: Angular takes the strategy as a static option.
+function urlUpdateStrategy(): "eager" | "deferred" {
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("eager")) {
+    return "eager";
+  }
+
+  return "deferred";
+}
+
 export const config: ApplicationConfig = {
   providers: [
-    provideRouter([{ path: "wrapped/:tenant", children: routes }, ...routes]),
+    provideRouter(
+      [{ path: "wrapped/:tenant", children: routes }, ...routes],
+      withRouterConfig({ urlUpdateStrategy: urlUpdateStrategy() }),
+    ),
     {
       provide: UrlHandlingStrategy,
       useFactory: (): UrlHandlingStrategy => {
@@ -326,6 +491,8 @@ export const config: ApplicationConfig = {
     }),
     provideClientHydration(withNoHttpTransferCache()),
     provideActiveRouteHydration(),
+    // The committed workspace layout remembers its density.
+    provideSearchStorage(cookieSearchStorage),
   ],
 };
 `,
@@ -336,18 +503,27 @@ await writeFile(
   join(fixture, "src/app.ts"),
   `import { ApplicationRef, Component, PLATFORM_ID, afterNextRender, computed, inject } from "@angular/core";
 import { isPlatformBrowser } from "@angular/common";
-import { ActivationEnd, RouteConfigLoadEnd, Router, RouterOutlet } from "@angular/router";
+import { ActivationEnd, RouteConfigLoadEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
 import { injectActiveRoute } from "../generated/routes.generated.js";
 import { destination as team } from "./routes/teams/$teamId/destination.generated.js";
 import { destination as item } from "./routes/teams/$teamId/items/$id/destination.generated.js";
+import { destination as order } from "./routes/+workspace/orders/$id/destination.generated.js";
+import { destination as otherChild } from "./routes/other/child/destination.generated.js";
 
 @Component({
   selector: "proof-app",
-  imports: [RouterOutlet],
+  imports: [RouterLink, RouterOutlet],
   template: \`
     <main>
       <h1>Router SSR proof</h1>
       <p id="active-route">{{ activeText() }}</p>
+      @if (shellLinks(); as links) {
+        <nav>
+          <a id="shell-order" [routerLink]="links.order">Order 7</a>
+          <a id="shell-other-child" [routerLink]="links.otherChild">Other child</a>
+        </nav>
+      }
+      <a id="go-b" routerLink="/other" [queryParams]="goB">Other</a>
       <router-outlet />
     </main>
   \`,
@@ -358,6 +534,22 @@ export default class App {
   readonly active = injectActiveRoute();
   // Never read by the template: adopts at the handover without a live consumer.
   readonly quiet = injectActiveRoute();
+  // Retained links from the active handle, seeded or live, to a page below +workspace and to one
+  // below other, which owns a workspace key of its own.
+  readonly shellLinks = computed(() => {
+    const route = this.active();
+
+    if (!route) {
+      return undefined;
+    }
+
+    return {
+      order: route.link({ to: order, params: { id: 7 } }),
+      otherChild: route.link({ to: otherChild }),
+    };
+  });
+  // A plain link to B, carrying the test's B marker.
+  readonly goB = { workspace: "beta", b: this.markerB() };
   readonly activeText = computed(() => {
     const route = this.active();
 
@@ -373,6 +565,28 @@ export default class App {
 
     return "other";
   });
+
+  /** The shell's retained links read now, serialized; null without an active route. */
+  retainedHrefs(): { order: string; otherChild: string } | null {
+    const route = this.active();
+
+    if (!route) {
+      return null;
+    }
+
+    return {
+      order: this.router.serializeUrl(route.link({ to: order, params: { id: 7 } })),
+      otherChild: this.router.serializeUrl(route.link({ to: otherChild })),
+    };
+  }
+
+  markerB(): string | null {
+    if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+      return null;
+    }
+
+    return new URLSearchParams(window.location.search).get("b");
+  }
 
   constructor() {
     // The client's initial navigation: when each children table resolves, each route
@@ -391,6 +605,7 @@ export default class App {
       proof.proofFirst = first;
       proof.proofQuietFirst = this.quiet();
       proof.proofFirstData = first?.data();
+      proof.proofFirstRetained = this.retainedHrefs();
 
       if (first?.is(item)) {
         proof.proofFirstLink = this.router.serializeUrl(
@@ -944,6 +1159,36 @@ function transferredSeed(body) {
   return JSON.parse(match[1])[seedKey];
 }
 
+// Each anchor's href by id, as the server rendered it.
+function hrefs(body, ids) {
+  const window = new Window();
+  const template = window.document.createElement("template");
+
+  template.innerHTML = body;
+
+  const result = {};
+
+  for (const id of ids) {
+    result[id] = template.content.querySelector("#" + id)?.getAttribute("href") ?? null;
+  }
+
+  window.close();
+
+  return result;
+}
+
+const retainedIds = [
+  "shell-order",
+  "shell-other-child",
+  "layout-order",
+  "orders-order",
+  "orders-drop",
+  "orders-login",
+  "order-back",
+  "login-orders",
+  "other-child",
+];
+
 // The seed of an item page: the team record, then the item record with its resolver data,
 // each with the primary segments it consumed, after `offset` segments of native wrappers.
 function itemSeed(url, teamId, id, score, offset = 0) {
@@ -1010,6 +1255,74 @@ try {
   await save("http-legacy.json", legacy);
   assert.equal(legacy.status, 302);
   assert.equal(legacy.headers.location, "/handle-only/7");
+
+  // Retained search keys in server-rendered hrefs (SPEC §6): the page, the +workspace layout's own
+  // handle and the shell's active handle keep workspace below +workspace; explicit undefined drops
+  // it; login and other's subtree never receive acme.
+  const retainedPages = {};
+
+  for (const path of [
+    "/orders?workspace=acme",
+    "/orders/7?workspace=acme",
+    "/login?workspace=acme",
+    "/other?workspace=beta",
+  ]) {
+    const response = await requestSsr(origin + path);
+
+    assert.equal(response.status, 200, path);
+    retainedPages[path] = {
+      hrefs: hrefs(response.body, retainedIds),
+      seed: transferredSeed(response.body),
+    };
+  }
+
+  await save("http-retained.json", retainedPages);
+
+  const missing = Object.fromEntries(retainedIds.map((id) => [id, null]));
+  const workspaceSeed = (url, routes) => ({ url, routes });
+
+  assert.deepEqual(retainedPages["/orders?workspace=acme"], {
+    hrefs: {
+      ...missing,
+      "shell-order": "/orders/7?workspace=acme",
+      "shell-other-child": "/other/child",
+      "layout-order": "/orders/7?workspace=acme",
+      "orders-order": "/orders/7?workspace=acme",
+      "orders-drop": "/orders",
+      "orders-login": "/login",
+    },
+    seed: workspaceSeed("/orders?workspace=acme", [
+      { id: "src/routes/+workspace/route.ts", from: 0, to: 0 },
+      {
+        id: "src/routes/+workspace/orders/route.ts",
+        from: 0,
+        to: 1,
+        data: { label: "orders", rows: "20 rows" },
+      },
+    ]),
+  });
+  assert.deepEqual(retainedPages["/orders/7?workspace=acme"].hrefs, {
+    ...missing,
+    "shell-order": "/orders/7?workspace=acme",
+    "shell-other-child": "/other/child",
+    "layout-order": "/orders/7?workspace=acme",
+    "orders-order": "/orders/7?workspace=acme",
+    "orders-drop": "/orders",
+    "orders-login": "/login",
+    "order-back": "/orders?workspace=acme",
+  });
+  assert.deepEqual(retainedPages["/login?workspace=acme"].hrefs, {
+    ...missing,
+    "shell-order": "/orders/7",
+    "shell-other-child": "/other/child",
+    "login-orders": "/orders",
+  });
+  assert.deepEqual(retainedPages["/other?workspace=beta"].hrefs, {
+    ...missing,
+    "shell-order": "/orders/7",
+    "shell-other-child": "/other/child?workspace=beta",
+    "other-child": "/other/child?workspace=beta",
+  });
 
   // The ordinary redirect beats the ordinary catchall page, which matches its control URL.
   const ordering = {
@@ -2038,6 +2351,252 @@ try {
     assert.deepEqual(fallbackCase.errors, [], name);
   }
 
+  // Retained search keys through hydration (SPEC §6 "Retained search keys", §7 "Hydrated pages").
+  // Each case is a fresh document; the server renders A (orders below +workspace, workspace=acme)
+  // and the browser's first navigation is held, redirected to B (other, its own workspace=beta) or
+  // superseded by a click on B, by query marker.
+  const retainedCases = {};
+
+  async function retainedVisit(name, path) {
+    const visitPage = await context.newPage();
+    const visitErrors = [];
+    let visitDocuments = 0;
+
+    videos["retained-" + name] = await visitPage.video()?.path();
+    visitPage.on("pageerror", (error) => visitErrors.push(error.message));
+    visitPage.on("console", (message) => {
+      if (message.type() === "error") {
+        visitErrors.push(message.text());
+      }
+    });
+    visitPage.on("request", (request) => {
+      if (request.isNavigationRequest() && request.frame() === visitPage.mainFrame()) {
+        visitDocuments += 1;
+      }
+    });
+    await visitPage.route("**/*", async (route) => {
+      if (new URL(route.request().url()).origin !== baseUrl) {
+        await route.abort();
+
+        return;
+      }
+
+      await route.continue();
+    });
+
+    const response = await visitPage.goto(baseUrl + path, { waitUntil: "commit" });
+    const serverHrefs = hrefs(await response.text(), ["shell-order", "shell-other-child"]);
+
+    await visitPage.waitForFunction(() => window.proofApp !== undefined);
+
+    // The shell's links read now and as rendered after the next frames, with what the browser
+    // and the router show.
+    const read = () =>
+      visitPage.evaluate(async () => {
+        const state = {
+          address: location.pathname + location.search,
+          success: window.proofApp.router.lastSuccessfulNavigation() !== null,
+          shell: window.proofApp.retainedHrefs(),
+        };
+
+        for (let frame = 0; frame < 2; frame += 1) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+
+        const href = (id) => document.querySelector("#" + id)?.getAttribute("href") ?? null;
+
+        return {
+          ...state,
+          rendered: { order: href("shell-order"), otherChild: href("shell-other-child") },
+        };
+      });
+    const first = await visitPage.evaluate(() => window.proofFirstRetained);
+    const finish = async (extra = {}) => {
+      await visitPage.screenshot({ path: join(evidence, `retained-${name}.png`) });
+      retainedCases[name] = {
+        path,
+        serverHrefs,
+        first,
+        ...extra,
+        documents: visitDocuments,
+        errors: visitErrors,
+      };
+      await visitPage.close();
+
+      return retainedCases[name];
+    };
+
+    return { page: visitPage, serverHrefs, first, read, finish };
+  }
+
+  const acmeShell = { order: "/orders/7?workspace=acme", otherChild: "/other/child" };
+  const bareShell = { order: "/orders/7", otherChild: "/other/child" };
+  const betaShell = { order: "/orders/7", otherChild: "/other/child?workspace=beta" };
+  const shellHrefs = (links) => ({
+    "shell-order": links.order,
+    "shell-other-child": links.otherChild,
+  });
+  const committed = (target) =>
+    target.waitForFunction(() => window.proofApp.router.lastSuccessfulNavigation() !== null);
+
+  // The server's hrefs, the shell's first browser read and every rendered link agree; a click
+  // keeps the workspace in one document; undefined drops it; login never has it.
+  const retainedMain = await retainedVisit("orders", "/orders?workspace=acme");
+
+  assert.deepEqual(retainedMain.serverHrefs, shellHrefs(acmeShell));
+  assert.deepEqual(retainedMain.first, acmeShell);
+  await retainedMain.page.waitForFunction(
+    () => document.documentElement.dataset.proofStable === "true",
+  );
+  await retainedMain.page.click("#orders-order");
+  await retainedMain.page.waitForFunction(
+    () => document.querySelector("#order-id")?.textContent === "7",
+  );
+
+  const retainedDetail = await retainedMain.page.evaluate(() => ({
+    address: location.pathname + location.search,
+    hrefs: Object.fromEntries(
+      ["shell-order", "layout-order", "orders-drop", "orders-login", "order-back"].map((id) => [
+        id,
+        document.querySelector("#" + id)?.getAttribute("href") ?? null,
+      ]),
+    ),
+  }));
+
+  await retainedMain.page.click("#orders-login");
+  await retainedMain.page.waitForSelector("#login-orders");
+
+  const retainedLogin = await retainedMain.page.evaluate(() => ({
+    address: location.pathname + location.search,
+    loginOrders: document.querySelector("#login-orders").getAttribute("href"),
+    shell: window.proofApp.retainedHrefs(),
+  }));
+  const retainedMainCase = await retainedMain.finish({
+    detail: retainedDetail,
+    login: retainedLogin,
+  });
+
+  assert.deepEqual(retainedDetail, {
+    address: "/orders/7?workspace=acme",
+    hrefs: {
+      "shell-order": "/orders/7?workspace=acme",
+      "layout-order": "/orders/7?workspace=acme",
+      "orders-drop": "/orders",
+      "orders-login": "/login",
+      "order-back": "/orders?workspace=acme",
+    },
+  });
+  assert.deepEqual(retainedLogin, {
+    address: "/login",
+    loginOrders: "/orders",
+    shell: bareShell,
+  });
+  assert.equal(retainedMainCase.documents, 1);
+  assert.deepEqual(retainedMainCase.errors, []);
+
+  // F10: values and owners always come from one URL before the first client commit.
+  for (const strategy of ["deferred", "eager"]) {
+    let eager = "";
+
+    if (strategy === "eager") {
+      eager = "&eager=1";
+    }
+
+    // Held A: the seed's URL is the browser's, so the seed supplies the owners.
+    for (const hold of ["guard", "resolver"]) {
+      const name = `${strategy}-hold-a-${hold}`;
+      const path = `/orders?workspace=acme&a=${hold}${eager}`;
+      const visited = await retainedVisit(name, path);
+
+      await visited.page.waitForFunction(() => window.proofHeld?.a === true);
+
+      const held = await visited.read();
+
+      await visited.page.evaluate(() => window.proofRelease.a());
+      await committed(visited.page);
+
+      const after = await visited.read();
+      const result = await visited.finish({ held, after });
+
+      assert.deepEqual(result.serverHrefs, shellHrefs(acmeShell), name);
+      assert.deepEqual(result.first, acmeShell, name);
+      assert.deepEqual(
+        held,
+        { address: path, success: false, shell: acmeShell, rendered: acmeShell },
+        name,
+      );
+      assert.deepEqual(
+        after,
+        { address: path, success: true, shell: acmeShell, rendered: acmeShell },
+        name,
+      );
+      assert.deepEqual(result.errors, [], name);
+    }
+
+    // B pending after a guard redirect or a superseding click, held at its guard or resolver.
+    for (const mode of ["redirect", "click"]) {
+      for (const hold of ["guard", "resolver"]) {
+        const name = `${strategy}-${mode}-b-${hold}`;
+        let a = "redirect";
+
+        if (mode === "click") {
+          a = "guard";
+        }
+
+        const path = `/orders?workspace=acme&a=${a}&b=${hold}${eager}`;
+        const target = `/other?workspace=beta&b=${hold}`;
+        const visited = await retainedVisit(name, path);
+
+        if (mode === "click") {
+          await visited.page.waitForFunction(() => window.proofHeld?.a === true);
+          await visited.page.click("#go-b");
+        }
+
+        await visited.page.waitForFunction(() => window.proofHeld?.b === true);
+
+        const held = await visited.read();
+
+        await visited.page.evaluate(() => window.proofRelease.b());
+        await committed(visited.page);
+
+        const constructed = await visited.page.evaluate(() => window.proofOtherConstructor);
+        const after = await visited.read();
+        const result = await visited.finish({ held, constructed, after });
+
+        assert.deepEqual(result.serverHrefs, shellHrefs(acmeShell), name);
+        assert.deepEqual(result.first, acmeShell, name);
+
+        // Deferred: the browser still shows A, the seed's URL, so A's owners keep acme. Eager:
+        // the browser shows B while neither the router state nor the seed matches it, so
+        // nothing is retained, in the rendered shell too (it follows the address bar). Never
+        // beta copied into A's link.
+        if (strategy === "deferred") {
+          assert.deepEqual(
+            held,
+            { address: path, success: false, shell: acmeShell, rendered: acmeShell },
+            name,
+          );
+        } else {
+          assert.deepEqual(
+            held,
+            { address: target, success: false, shell: bareShell, rendered: bareShell },
+            name,
+          );
+        }
+
+        // B's constructor runs before the first success, against B's installed state.
+        assert.deepEqual(constructed, { success: false, page: betaShell, shell: betaShell }, name);
+        assert.deepEqual(
+          after,
+          { address: target, success: true, shell: betaShell, rendered: betaShell },
+          name,
+        );
+        assert.deepEqual(result.errors, [], name);
+      }
+    }
+  }
+
+  await save("retained-hydration.json", retainedCases);
   await save("seed-handover.json", { main: seedHandover, devSeed, cases, videos });
   await context.close();
 } catch (error) {
@@ -2372,3 +2931,813 @@ try {
 }
 
 console.log("Sibling pathless groups SSR, hydration and route-extraction hint proof passed");
+
+// Remembered search keys under SSR (SPEC §7 "Remembered search keys", router README "Remembered
+// search keys on the server"): the committed ssr-proof app as is, with the README's cookie
+// adapter and not-found handler. The copy adds an unrelated HttpOnly cookie to every response,
+// counts the server's NavigationStart events in a response header, exposes navigation to the
+// browser test, and runs two server-only sequences on the first commit of a URL marked
+// `sequence`: `multi` commits page sizes 100 and 50 more in one render under PendingTasks, and
+// `adapter` drives the store's own cookie adapter (write, read, forget twice, read, write) and
+// reports its reads in a header. Rows run against the built production server through Node's
+// writer and against the development server, then in Chromium.
+const rememberedSsr = join(evidence, "remembered");
+const rememberedObservations = {};
+
+try {
+  await cp(join(repository, "examples/angular-router/ssr-proof"), rememberedSsr, {
+    recursive: true,
+    filter: (path) => !/(?:^|\/)(?:node_modules|dist|\.angular|out-tsc)(?:\/|$)/.test(path),
+  });
+
+  for (const name of new Set([
+    ...Object.keys(metadata.dependencies),
+    ...Object.keys(metadata.devDependencies),
+    "@loozo/angular-router",
+  ])) {
+    const leaf = join(rememberedSsr, "node_modules", name);
+    let target = join(packageDirectory, "node_modules", name);
+
+    if (name === "@loozo/angular-router") {
+      target = packageDirectory;
+    }
+
+    await mkdir(dirname(leaf), { recursive: true });
+    await symlink(target, leaf, "dir");
+  }
+
+  const committedConfig = await readFile(join(rememberedSsr, "src/app.config.ts"), "utf8");
+
+  await writeFile(
+    join(rememberedSsr, "src/app.config.ts"),
+    committedConfig
+      .replace(
+        'import type { ApplicationConfig } from "@angular/core";',
+        `import { InjectionToken, PLATFORM_ID, PendingTasks, RESPONSE_INIT, inject, provideEnvironmentInitializer, type ApplicationConfig } from "@angular/core";
+import { isPlatformServer } from "@angular/common";
+import { EventType, ROUTER_CONFIGURATION, Router } from "@angular/router";
+import { REQUEST } from "@angular/core";
+import type { SearchStorage } from "@loozo/angular-router";
+
+// The store's adapter, so the adapter sequence drives the same instance and effective map.
+const proofStorage = new InjectionToken<SearchStorage>("proof storage", {
+  providedIn: "root",
+  factory: cookieSearchStorage,
+});`,
+      )
+      .replace(
+        "    provideSearchStorage(cookieSearchStorage),\n",
+        `    provideSearchStorage(() => inject(proofStorage)),
+    // A server render of a URL marked \`eager\` updates the URL eagerly.
+    {
+      provide: ROUTER_CONFIGURATION,
+      useFactory: () => {
+        const request = inject(REQUEST, { optional: true });
+        const eager = request !== null && new URL(request.url).searchParams.has("eager");
+
+        return { urlUpdateStrategy: eager ? "eager" : "deferred" };
+      },
+    },
+    provideEnvironmentInitializer(() => {
+      const response = inject(RESPONSE_INIT, { optional: true });
+      const router = inject(Router);
+      const pending = inject(PendingTasks);
+      const storage = inject(proofStorage);
+      const server = isPlatformServer(inject(PLATFORM_ID));
+      let starts = 0;
+      let sequenced = false;
+
+      if (typeof window !== "undefined") {
+        (window as any).proofStarts = () => starts;
+        (window as any).proofGo = (url: string, extras?: object) => router.navigateByUrl(url, extras);
+      }
+
+      function header(name: string, value: string) {
+        if (response) {
+          let headers = response.headers;
+
+          if (!(headers instanceof Headers)) {
+            headers = new Headers(headers);
+            response.headers = headers;
+          }
+
+          headers.set(name, value);
+        }
+      }
+
+      router.events.subscribe((event) => {
+        if (event.type === EventType.NavigationEnd && server && !sequenced) {
+          const sequence = router.parseUrl(event.urlAfterRedirects).queryParamMap.get("sequence");
+
+          if (sequence === "multi") {
+            sequenced = true;
+
+            const done = pending.add();
+
+            void (async () => {
+              try {
+                // After this commit's delivery, so each commit is a navigation of its own.
+                await Promise.resolve();
+                await router.navigateByUrl("/orders?pageSize=100&sequence=multi");
+                await router.navigateByUrl("/orders?pageSize=50&sequence=multi");
+              } finally {
+                done();
+              }
+            })();
+          } else if (sequence === "adapter") {
+            sequenced = true;
+            storage.write("orders.pageSize", "100");
+
+            const afterWrite = storage.read("orders.pageSize") ?? null;
+
+            storage.forget("orders.pageSize");
+            storage.forget("orders.pageSize");
+
+            const afterForget = storage.read("orders.pageSize") ?? null;
+
+            storage.write("orders.pageSize", "50");
+            header("x-adapter-trace", JSON.stringify({ afterWrite, afterForget, end: storage.read("orders.pageSize") ?? null }));
+          }
+        }
+
+        if (event.type !== EventType.NavigationStart) {
+          return;
+        }
+
+        starts += 1;
+        header("x-navigation-starts", String(starts));
+      });
+
+      if (response) {
+        const headers = new Headers(response.headers);
+
+        headers.append("Set-Cookie", "session=kept; Path=/; HttpOnly; SameSite=Lax");
+        response.headers = headers;
+      }
+    }),
+`,
+      ),
+  );
+
+  const { buildFixture: buildRememberedSsr } = await import("./sibling-groups.mjs");
+
+  await buildRememberedSsr(rememberedSsr);
+
+  // One document request with a Cookie header; the response's raw status, headers and body.
+  function document(origin, url, cookie) {
+    return new Promise((done, fail) => {
+      const headers = {};
+
+      if (cookie !== undefined) {
+        headers.cookie = cookie;
+      }
+
+      const request = get(origin + url, { headers }, (response) => {
+        let body = "";
+
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.once("end", () => {
+          const searchCookies = [];
+          const otherCookies = [];
+
+          for (const value of response.headers["set-cookie"] ?? []) {
+            if (value.startsWith("search.")) {
+              searchCookies.push(value);
+            } else {
+              otherCookies.push(value.split(";")[0]);
+            }
+          }
+
+          let location = null;
+
+          // Path, query and hash of the redirect, whether Angular wrote it absolute or not.
+          if (response.headers.location !== undefined) {
+            const target = new URL(response.headers.location, origin);
+
+            location = target.pathname + target.search + target.hash;
+          }
+
+          done({
+            status: response.statusCode,
+            location,
+            vary: response.headers.vary ?? null,
+            starts: Number(response.headers["x-navigation-starts"] ?? 0),
+            searchCookies,
+            otherCookies,
+            pageSize: body.match(/<span id="page-size"[^>]*>([^<]*)<\/span>/)?.[1] ?? null,
+            rows: body.match(/<span id="rows"[^>]*>([^<]*)<\/span>/)?.[1] ?? null,
+            title: body.match(/<title>([^<]*)<\/title>/)?.[1] ?? null,
+            trace: JSON.parse(response.headers["x-adapter-trace"] ?? "null"),
+            notFound: body.includes('id="not-found"'),
+            empty: body === "",
+            body,
+          });
+        });
+      });
+
+      request.setTimeout(15000, () => request.destroy(new Error("timed out: " + url)));
+      request.once("error", fail);
+    });
+  }
+
+  const deletion = "search.orders.pageSize=; Path=/; Max-Age=0";
+  const stored = (text) =>
+    `search.orders.pageSize=${text}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
+
+  // The rows every server answers alike; `observe` records each response without its body.
+  async function serverRows(origin, label) {
+    const seen = {};
+
+    async function observe(name, url, cookie) {
+      const response = await document(origin, url, cookie);
+
+      seen[name] = { ...response, body: undefined };
+      await writeFile(join(rememberedSsr, `${label}-${name}.html`), response.body);
+
+      return response;
+    }
+
+    const first = await observe("first", "/orders", "search.orders.pageSize=50");
+
+    assert.equal(first.status, 302, label);
+    assert.equal(first.location, "/orders?pageSize=50", label);
+    assert.equal(first.empty, true, label);
+    assert.deepEqual(first.searchCookies, [], label);
+    assert.deepEqual(first.otherCookies, ["session=kept"], label);
+
+    const recovered = await observe(
+      "recovered",
+      "/orders?origin=kept",
+      "search.orders.pageSize=99",
+    );
+    const recoveredAgain = await observe("recoveredAgain", "/orders?origin=kept");
+
+    assert.equal(recovered.status, 200, label);
+    assert.equal(recovered.location, null, label);
+    assert.equal(recovered.pageSize, "20", label);
+    assert.equal(recovered.starts, 3, label);
+    assert.deepEqual(recovered.searchCookies, [deletion], label);
+    assert.deepEqual(recovered.otherCookies, ["session=kept"], label);
+    assert.equal(recoveredAgain.status, 200, label);
+    assert.equal(recoveredAgain.starts, 1, label);
+    assert.deepEqual(recoveredAgain.searchCookies, [], label);
+
+    const missing = await observe("missing", "/orders/42?origin=kept", "search.orders.pageSize=50");
+    const missingAgain = await observe("missingAgain", "/orders/42?origin=kept");
+
+    assert.equal(missing.status, 404, label);
+    assert.equal(missing.location, null, label);
+    assert.equal(missing.notFound, true, label);
+    assert.equal(missing.starts, 4, label);
+    assert.deepEqual(missing.searchCookies, [deletion], label);
+    assert.equal(missingAgain.status, 404, label);
+    assert.equal(missingAgain.starts, 2, label);
+    assert.deepEqual(missingAgain.searchCookies, [], label);
+
+    // A typed redirect into a missing order: after the retry, the not-found page answers at the
+    // requested URL, with and without a remembered value.
+    const aliased = await observe("aliased", "/old-order/42", "search.orders.pageSize=50");
+    const aliasedBare = await observe("aliasedBare", "/old-order/42");
+
+    // The same with eager URL updates, which move Location to the alias's target first.
+    const aliasedEager = await observe(
+      "aliasedEager",
+      "/old-order/42?eager=1",
+      "search.orders.pageSize=50",
+    );
+
+    for (const [response, cookies] of [
+      [aliased, [deletion]],
+      [aliasedBare, []],
+      [aliasedEager, [deletion]],
+    ]) {
+      assert.equal(response.status, 404, label);
+      assert.equal(response.location, null, label);
+      assert.equal(response.notFound, true, label);
+      assert.deepEqual(response.searchCookies, cookies, label);
+    }
+
+    // Pages that use a remembered key vary on the cookies, redirects included; others don't.
+    const plain = await observe("plain", "/login");
+
+    for (const response of [first, recovered, recoveredAgain, missing]) {
+      assert.match(response.vary ?? "", /(?:^|,\s*)Cookie(?:\s*,|$)/, label);
+    }
+
+    assert.doesNotMatch(plain.vary ?? "", /Cookie/, label);
+    assert.equal(plain.status, 200, label);
+
+    // One render commits 50, 100 and 50 again under PendingTasks: the response carries 100 then
+    // 50, in order, and the page renders the last commit.
+    const multi = await observe(
+      "multi",
+      "/orders?pageSize=50&sequence=multi",
+      "search.orders.pageSize=50",
+    );
+
+    assert.equal(multi.status, 200, label);
+    assert.equal(multi.location, null, label);
+    assert.equal(multi.pageSize, "50", label);
+    assert.equal(multi.rows, "50 rows", label);
+    assert.equal(multi.title, "Orders (50)", label);
+    assert.equal(multi.starts, 3, label);
+    assert.deepEqual(multi.searchCookies, [stored("100"), stored("50")], label);
+    assert.deepEqual(multi.otherCookies, ["session=kept"], label);
+
+    // The store's adapter in one server injector: a read sees the write before it, a second
+    // forget appends nothing, and the request's unrelated cookie is never touched.
+    const adapter = await observe(
+      "adapter",
+      "/login?sequence=adapter",
+      "search.orders.pageSize=70; other=1",
+    );
+
+    assert.equal(adapter.status, 200, label);
+    assert.deepEqual(adapter.trace, { afterWrite: "100", afterForget: null, end: "50" }, label);
+    assert.deepEqual(adapter.searchCookies, [stored("100"), deletion, stored("50")], label);
+    assert.deepEqual(adapter.otherCookies, ["session=kept"], label);
+
+    return seen;
+  }
+
+  const httpPort = await port();
+  const origin = "http://127.0.0.1:" + httpPort;
+  const server = spawn(process.execPath, [join(rememberedSsr, "dist/proof/server/server.mjs")], {
+    cwd: rememberedSsr,
+    env: { ...process.env, PORT: String(httpPort) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const closed = new Promise((done) => server.once("close", done));
+  let serverErrors = "";
+
+  server.stderr.on("data", (data) => {
+    serverErrors += data.toString();
+  });
+
+  // Serves the browser files beside the Node server, and forwards documents with their cookies,
+  // status, Location and Set-Cookie headers.
+  const front = createHttpServer(async (request, response) => {
+    const path = new URL(request.url, origin).pathname;
+
+    if (path.endsWith(".js") || path.endsWith(".css")) {
+      try {
+        const body = await readFile(join(rememberedSsr, "dist/proof/browser", path));
+        let type = "text/css";
+
+        if (path.endsWith(".js")) {
+          type = "text/javascript";
+        }
+
+        response.writeHead(200, { "content-type": type }).end(body);
+      } catch {
+        response.writeHead(404).end();
+      }
+
+      return;
+    }
+
+    get(origin + request.url, { headers: { cookie: request.headers.cookie ?? "" } }, (rendered) => {
+      response.writeHead(rendered.statusCode, rendered.headers);
+      rendered.pipe(response);
+    });
+  });
+
+  await new Promise((done) => front.listen(0, "127.0.0.1", done));
+
+  const frontOrigin = "http://127.0.0.1:" + front.address().port;
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+
+  try {
+    await ready(origin);
+    rememberedObservations.built = await serverRows(origin, "built");
+
+    const built = rememberedObservations.built;
+
+    // The remembered value's own document: 200 at 50, a seed of string-keyed data only.
+    const second = await document(origin, "/orders?pageSize=50", "search.orders.pageSize=50");
+    const seed = transferredSeed(second.body);
+
+    rememberedObservations.second = { ...second, body: undefined, seed };
+    assert.equal(second.status, 200);
+    assert.equal(second.pageSize, "50");
+    assert.deepEqual(second.searchCookies, []);
+    assert.deepEqual(seed, {
+      url: "/orders?pageSize=50",
+      routes: [
+        { id: "src/routes/+workspace/route.ts", from: 0, to: 0 },
+        {
+          id: "src/routes/+workspace/orders/route.ts",
+          from: 0,
+          to: 1,
+          data: { label: "orders", rows: "50 rows" },
+          title: "Orders (50)",
+        },
+      ],
+    });
+
+    // Stored text that doesn't read as a value: no redirect, the fallback, one deletion.
+    for (const text of ["bad%zz", "abc"]) {
+      const bad = await document(origin, "/orders", "search.orders.pageSize=" + text);
+
+      rememberedObservations[`bad ${text}`] = { ...bad, body: undefined };
+      assert.equal(bad.status, 200, text);
+      assert.equal(bad.pageSize, "20", text);
+      assert.deepEqual(bad.searchCookies, [deletion], text);
+    }
+
+    // Parallel requests never see each other's values.
+    const parallel = await Promise.all(
+      ["30", "70", "abc"].map((text) =>
+        document(origin, "/orders", "search.orders.pageSize=" + text),
+      ),
+    );
+
+    rememberedObservations.parallel = parallel.map((response) => [
+      response.status,
+      response.location,
+    ]);
+    assert.deepEqual(rememberedObservations.parallel, [
+      [302, "/orders?pageSize=30"],
+      [302, "/orders?pageSize=70"],
+      [200, null],
+    ]);
+
+    // A typed redirect into the owner is followed by the restore, in one hop.
+    const typed = await document(origin, "/old-orders", "search.orders.pageSize=50");
+
+    rememberedObservations.typed = { ...typed, body: undefined };
+    assert.equal(typed.status, 302);
+    assert.equal(typed.location, "/orders?pageSize=50");
+
+    // Two owners restored in one redirect, then not found: both values forgotten, 200.
+    const twoOwners = await document(
+      origin,
+      "/orders?origin=kept",
+      "search.orders.pageSize=99; search.workspace.density=compact",
+    );
+
+    rememberedObservations.twoOwners = { ...twoOwners, body: undefined };
+    assert.equal(twoOwners.status, 200);
+    assert.equal(twoOwners.starts, 3);
+    assert.deepEqual(twoOwners.searchCookies.sort(), [
+      deletion,
+      "search.workspace.density=; Path=/; Max-Age=0",
+    ]);
+
+    // An explicit value restores nothing: the ordinary 404, and the stored value stays.
+    const explicit = await document(origin, "/orders?pageSize=99", "search.orders.pageSize=50");
+
+    rememberedObservations.explicit = { ...explicit, body: undefined };
+    assert.equal(explicit.status, 404);
+    assert.equal(explicit.starts, 2);
+    assert.deepEqual(explicit.searchCookies, []);
+
+    // An explicit fallback commits and forgets.
+    const fallback = await document(origin, "/orders?pageSize=20", "search.orders.pageSize=50");
+
+    rememberedObservations.fallback = { ...fallback, body: undefined };
+    assert.equal(fallback.status, 200);
+    assert.deepEqual(fallback.searchCookies, [deletion]);
+    assert.ok(built.first && built.recovered && built.missing);
+
+    // Chromium: the cookie entry redirects, hydrates at 50 and never shows another value; the
+    // client neither restores nor retries.
+    async function visit(url, cookies, after) {
+      const context = await browser.newContext({ colorScheme: "dark" });
+      const page = await context.newPage();
+      const pageErrors = [];
+      const consoleErrors = [];
+
+      page.on("pageerror", (error) => pageErrors.push(String(error)));
+      page.on("console", (message) => {
+        if (message.type() === "error") {
+          consoleErrors.push(message.text());
+        }
+      });
+      await context.addCookies(
+        Object.entries(cookies).map(([name, value]) => ({ name, value, url: frontOrigin })),
+      );
+      // Every page size and not-found text the document ever shows, from parsing on.
+      await page.addInitScript(() => {
+        const shown = (window.proofShown = []);
+
+        new MutationObserver(() => {
+          const size = document.querySelector("#page-size")?.textContent ?? null;
+          const missing = document.querySelector("#not-found") !== null;
+
+          if (shown.at(-1)?.size !== size || shown.at(-1)?.missing !== missing) {
+            shown.push({ size, missing });
+          }
+        }).observe(document, { subtree: true, childList: true, characterData: true });
+      });
+      await page.goto(frontOrigin + url);
+      await page.waitForFunction(() => document.documentElement.dataset.proofStable === "true");
+
+      const extra = await after?.(page);
+      const seen = await page.evaluate(() => ({
+        url: location.pathname + location.search,
+        shown: window.proofShown,
+        starts: window.proofStarts(),
+        shellOrder: document.querySelector("#shell-order")?.getAttribute("href") ?? null,
+        cookie: document.cookie,
+      }));
+
+      await page.screenshot({
+        path: join(evidence, `remembered-${url.replace(/[^a-z0-9]+/gi, "_")}.png`),
+      });
+      await context.close();
+
+      return { ...seen, extra, pageErrors, consoleErrors };
+    }
+
+    const hydrated = await visit("/orders", { "search.orders.pageSize": "50" });
+
+    rememberedObservations.hydrated = hydrated;
+    assert.equal(hydrated.url, "/orders?pageSize=50");
+    assert.deepEqual(
+      hydrated.shown.filter((entry) => entry.size !== null),
+      [{ size: "50", missing: false }],
+    );
+    assert.equal(hydrated.starts, 1);
+    assert.equal(hydrated.shellOrder, "/orders/7?pageSize=50");
+    assert.deepEqual(hydrated.pageErrors, []);
+    assert.deepEqual(hydrated.consoleErrors, []);
+
+    const recoveredPage = await visit("/orders?origin=kept", { "search.orders.pageSize": "99" });
+
+    rememberedObservations.recoveredPage = recoveredPage;
+    assert.equal(recoveredPage.url, "/orders?origin=kept");
+    assert.deepEqual(
+      recoveredPage.shown.filter((entry) => entry.size !== null || entry.missing),
+      [{ size: "20", missing: false }],
+    );
+    assert.equal(recoveredPage.starts, 1);
+    assert.doesNotMatch(recoveredPage.cookie, /search\.orders\.pageSize/);
+    assert.deepEqual(recoveredPage.pageErrors, []);
+    assert.deepEqual(recoveredPage.consoleErrors, []);
+
+    // Client-only: from /login, a click into orders restores 99, the handler forgets it and
+    // retries; the browser's cookie is deleted.
+    const client = await visit("/login", {}, async (page) => {
+      await page
+        .context()
+        .addCookies([{ name: "search.orders.pageSize", value: "99", url: frontOrigin }]);
+      await page.click("#login-orders");
+      await page.waitForFunction(() => location.pathname === "/orders");
+      await page.waitForFunction(() => document.querySelector("#page-size")?.textContent === "20");
+
+      return page.evaluate(() => window.proofStarts());
+    });
+
+    rememberedObservations.client = client;
+    assert.equal(client.url, "/orders");
+    assert.equal(client.extra, 4);
+    assert.doesNotMatch(client.cookie, /search\.orders\.pageSize/);
+    assert.deepEqual(client.pageErrors, []);
+
+    // The browser's jar after the multi-commit render and the adapter sequence: 50, with the
+    // unrelated cookies kept.
+    async function jar(page) {
+      const result = {};
+
+      for (const cookie of await page.context().cookies()) {
+        result[cookie.name] = cookie.value;
+      }
+
+      return result;
+    }
+
+    const multiPage = await visit(
+      "/orders?pageSize=50&sequence=multi",
+      { "search.orders.pageSize": "50" },
+      jar,
+    );
+    const adapterPage = await visit(
+      "/login?sequence=adapter",
+      { "search.orders.pageSize": "70", other: "1" },
+      jar,
+    );
+
+    rememberedObservations.multiPage = multiPage;
+    rememberedObservations.adapterPage = adapterPage;
+    assert.deepEqual(multiPage.extra, { "search.orders.pageSize": "50", session: "kept" });
+    assert.deepEqual(
+      multiPage.shown.filter((entry) => entry.size !== null),
+      [{ size: "50", missing: false }],
+    );
+    assert.deepEqual(multiPage.pageErrors, []);
+    assert.deepEqual(adapterPage.extra, {
+      "search.orders.pageSize": "50",
+      other: "1",
+      session: "kept",
+    });
+    assert.deepEqual(adapterPage.pageErrors, []);
+
+    // Inside the hydrated orders page, clearing the page size shows the fallback with matching
+    // rows and title and deletes the cookie; leaving and coming back doesn't restore.
+    const flow = await visit("/orders", { "search.orders.pageSize": "50" }, async (page) => {
+      const state = () =>
+        page.evaluate(() => ({
+          url: location.pathname + location.search,
+          size: document.querySelector("#page-size")?.textContent ?? null,
+          rows: document.querySelector("#rows")?.textContent ?? null,
+          title: document.title,
+          stored: /search\.orders\.pageSize=/.test(document.cookie),
+          starts: window.proofStarts(),
+        }));
+      const restored = await state();
+
+      await page.click("#orders-clear");
+      await page.waitForFunction(
+        () => location.search === "" && document.querySelector("#page-size")?.textContent === "20",
+      );
+
+      const cleared = await state();
+
+      await page.click("#orders-login");
+      await page.waitForFunction(() => location.pathname === "/login");
+      await page.click("#login-orders");
+      await page.waitForFunction(() => document.querySelector("#page-size") !== null);
+
+      return { restored, cleared, reentered: await state() };
+    });
+
+    rememberedObservations.flow = flow;
+    assert.deepEqual(flow.extra, {
+      restored: {
+        url: "/orders?pageSize=50",
+        size: "50",
+        rows: "50 rows",
+        title: "Orders (50)",
+        stored: true,
+        starts: 1,
+      },
+      cleared: {
+        url: "/orders",
+        size: "20",
+        rows: "20 rows",
+        title: "Orders (20)",
+        stored: false,
+        starts: 2,
+      },
+      reentered: {
+        url: "/orders",
+        size: "20",
+        rows: "20 rows",
+        title: "Orders (20)",
+        stored: false,
+        starts: 4,
+      },
+    });
+    assert.deepEqual(flow.pageErrors, []);
+    assert.deepEqual(flow.consoleErrors, []);
+
+    // Client-only entries from /login with the caller's state, each twice with /login between:
+    // a missing page gets one retry, then the not-found page at its own address; two owners are
+    // both forgotten and the page shows the fallbacks with the caller's state. The second entry
+    // never restores.
+    async function clientEntries(cookies, url) {
+      return visit("/login", {}, async (page) => {
+        await page
+          .context()
+          .addCookies(
+            Object.entries(cookies).map(([name, value]) => ({ name, value, url: frontOrigin })),
+          );
+
+        const entries = [];
+
+        for (let index = 0; index < 2; index += 1) {
+          const before = await page.evaluate(() => window.proofStarts());
+          const result = await page.evaluate(
+            (target) => window.proofGo(target, { state: { entry: "client" } }),
+            url,
+          );
+
+          entries.push(
+            await page.evaluate(
+              ([start, value]) => ({
+                result: value,
+                location: location.pathname + location.search,
+                starts: window.proofStarts() - start,
+                entry: history.state?.entry ?? null,
+                size: document.querySelector("#page-size")?.textContent ?? null,
+                density: document.querySelector("#density-value")?.textContent ?? null,
+                notFound: document.querySelector("#not-found") !== null,
+                cookie: document.cookie,
+              }),
+              [before, result],
+            ),
+          );
+          await page.evaluate(() => window.proofGo("/login"));
+        }
+
+        return entries;
+      });
+    }
+
+    const clientMissing = await clientEntries({ "search.orders.pageSize": "50" }, "/orders/42");
+    const clientOwners = await clientEntries(
+      { "search.orders.pageSize": "99", "search.workspace.density": "compact" },
+      "/orders",
+    );
+
+    rememberedObservations.clientMissing = clientMissing;
+    rememberedObservations.clientOwners = clientOwners;
+    assert.deepEqual(
+      clientMissing.extra.map(({ result, location, starts, notFound, cookie }) => ({
+        result,
+        location,
+        starts,
+        notFound,
+        cookie,
+      })),
+      [
+        { result: true, location: "/orders/42", starts: 4, notFound: true, cookie: "" },
+        { result: true, location: "/orders/42", starts: 2, notFound: true, cookie: "" },
+      ],
+    );
+    assert.deepEqual(clientMissing.pageErrors, []);
+    assert.deepEqual(clientOwners.extra, [
+      {
+        result: true,
+        location: "/orders",
+        starts: 3,
+        entry: "client",
+        size: "20",
+        density: "default",
+        notFound: false,
+        cookie: "",
+      },
+      {
+        result: true,
+        location: "/orders",
+        starts: 1,
+        entry: "client",
+        size: "20",
+        density: "default",
+        notFound: false,
+        cookie: "",
+      },
+    ]);
+    assert.deepEqual(clientOwners.pageErrors, []);
+  } finally {
+    await browser.close();
+    await new Promise((done) => front.close(done));
+    server.kill("SIGTERM");
+    await closed;
+    rememberedObservations.serverErrors = serverErrors;
+  }
+
+  assert.equal(serverErrors, "");
+
+  // The development server: the same rows, with Angular's development-only redirect checks.
+  const devHost = core.workspaces.createWorkspaceHost(new NodeJsSyncHost());
+  const { workspace: devWorkspace } = await core.workspaces.readWorkspace(rememberedSsr, devHost);
+  const devRegistry = new core.json.schema.CoreSchemaRegistry();
+
+  devRegistry.addPostTransform(core.json.schema.transforms.addUndefinedDefaults);
+
+  const devArchitect = new Architect(
+    new WorkspaceNodeModulesArchitectHost(devWorkspace, rememberedSsr),
+    devRegistry,
+  );
+  const devLogs = [];
+  const devLogger = new core.logging.Logger("remembered-ssr");
+
+  devLogger.subscribe((entry) => devLogs.push(entry));
+
+  const devServe = await devArchitect.scheduleTarget(
+    { project: "proof", target: "serve" },
+    {},
+    { logger: devLogger },
+  );
+  const devOutputs = [];
+  const devSubscription = devServe.output.subscribe((output) => devOutputs.push(output));
+
+  try {
+    const deadline = Date.now() + 90000;
+
+    while (!devOutputs.some((output) => output.success && output.baseUrl)) {
+      assert.ok(Date.now() < deadline, JSON.stringify(devLogs));
+      await new Promise((done) => setTimeout(done, 100));
+    }
+
+    const devOrigin = new URL(devOutputs.find((output) => output.success).baseUrl).origin;
+
+    rememberedObservations.development = await serverRows(devOrigin, "development");
+  } finally {
+    devSubscription.unsubscribe();
+    await devServe.stop();
+  }
+} catch (error) {
+  process.exitCode = 1;
+
+  throw error;
+} finally {
+  await save("remembered-ssr.json", rememberedObservations);
+}
+
+console.log("Remembered search keys SSR, recovery and hydration proof passed");

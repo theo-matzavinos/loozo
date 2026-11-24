@@ -214,7 +214,7 @@ await run(
   const b = await import(${JSON.stringify(secondEntry)});
   const ac = await import(${JSON.stringify(firstCore)});
   const bc = await import(${JSON.stringify(secondCore)});
-  const publicValues = ['arrayParam','booleanParam','createUrl','defineRoute','enumParam','localeUrls','numberParam','serverRoutePath','stringParam','withFallback'];
+  const publicValues = ['arrayParam','booleanParam','createUrl','defineRoute','enumParam','localeUrls','numberParam','remembered','retained','serverRoutePath','stringParam','withFallback'];
   assert.deepEqual(Object.keys(a).sort(), publicValues);
   assert.deepEqual(Object.keys(b).sort(), publicValues);
   assert.notEqual(a.defineRoute, b.defineRoute);

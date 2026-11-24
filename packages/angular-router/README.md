@@ -148,14 +148,16 @@ The member directory is inside the team directory, so the team route is its pare
 
 ### Codecs
 
-| Codec                        | Value                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| `stringParam`                | Any string, including `""`                                                    |
-| `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail)  |
-| `booleanParam`               | Exactly `true` or `false`                                                     |
-| `enumParam(values)`          | One of the listed strings, typed as their union                               |
-| `withFallback(codec, value)` | Search only: reads `value` when the key is missing, repeated or invalid       |
-| `arrayParam(codec)`          | Search only: reads every value of a repeated key (`?tag=a&tag=b`) as an array |
+| Codec                        | Value                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `stringParam`                | Any string, including `""`                                                                |
+| `numberParam`                | A finite number (`" 42 "`, `"1e3"` and `"0x10"` parse; blank and `NaN` fail)              |
+| `booleanParam`               | Exactly `true` or `false`                                                                 |
+| `enumParam(values)`          | One of the listed strings, typed as their union                                           |
+| `withFallback(codec, value)` | Search only: reads `value` when the key is missing, repeated or invalid                   |
+| `arrayParam(codec)`          | Search only: reads every value of a repeated key (`?tag=a&tag=b`) as an array             |
+| `retained(codec)`            | Search only: links and navigation keep its current value (below)                          |
+| `remembered(codec, id)`      | Search only: its last value comes back when you return ([below](#remembered-search-keys)) |
 
 For a catchall, the codec applies to each segment, so `$segments[]` with `stringParam` produces `readonly string[]`.
 
@@ -175,7 +177,7 @@ search: {
 | `withFallback`       | The fallback | The fallback | The fallback                  |
 | `arrayParam` (`tag`) | `[]`         | Every value  | `[]`, if any value is invalid |
 
-`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). An array key always reads a readonly array: `?tag=news&tag=guides` reads `["news", "guides"]`, `?tag=news` reads `["news"]`, and `?tag=news&tag=other` reads `[]`. Values keep their URL order, duplicates included. Links, `createUrl`, navigation and redirects can leave out any search key. An array key takes an array and writes one `tag=` pair per element; `[]` writes nothing, so an empty list and a missing key are the same URL. For the same reason an array key can't have a fallback: to default to some tags, check `tag.length` in the page.
+`sort` reads as `"asc" | "desc" | undefined`. A key with a fallback always reads a value (`page` is a `number`, never `undefined`). An array key always reads a readonly array: `?tag=news&tag=guides` reads `["news", "guides"]`, `?tag=news` reads `["news"]`, and `?tag=news&tag=other` reads `[]`. Values keep their URL order, duplicates included. Links, `createUrl`, navigation and redirects can leave out any search key. An array key takes an array and writes one `tag=` pair per element; `[]` writes nothing, so an empty list and a missing key are the same URL. For the same reason an array key can't have a fallback: to default to some tags, check `tag.length` in the page. `retained` and `remembered` go outside the other wrappers, in either order: `retained(withFallback(numberParam, 1))`, `retained(arrayParam(stringParam))`, `retained(remembered(withFallback(numberParam, 20), "orders.pageSize"))`.
 
 A custom codec implements `ParamCodec<Value>`. Both methods are synchronous: `parse` receives the already-decoded text and returns the value, and `stringify` returns the text:
 
@@ -185,7 +187,7 @@ Parsing should be pure and deterministic. A path codec runs twice per navigation
 
 `defineRoute` never calls parsers, guards, resolvers or other callbacks; it only records them.
 
-The package root exports exactly `defineRoute`, `createUrl`, `localeUrls`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback` and `arrayParam`, plus the types `Route`, `ParamCodec`, `Destination`, `LocaleUrl`, `ParamsOf`, `SearchOf` and `TargetOf`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
+The package root exports exactly `defineRoute`, `createUrl`, `localeUrls`, `serverRoutePath`, `stringParam`, `numberParam`, `booleanParam`, `enumParam`, `withFallback`, `arrayParam`, `retained` and `remembered`, plus the types `Route`, `ParamCodec`, `Destination`, `LocaleUrl`, `ParamsOf`, `SearchOf`, `TargetOf`, `SearchStorage` and `SearchRestore`. The `_core`, `_generated` and `_generation` subpaths are internal coupling for generated code and `@loozo/angular-launch`, not application APIs. Route extensions, factories that add their own steps before the router's, are a seam for `@loozo/angular-launch` in `_core`; see [SPEC.md](SPEC.md#route-extensions).
 
 ### Fragments
 
@@ -232,11 +234,23 @@ Reading `params` or `search` throws only if a path codec rejects a value it acce
 
 Without `to`, the call targets this route. `".."` targets the parent route: the nearest route above it with a shorter path, or the root route for a top-level route; TypeScript offers it only when that route exists. Otherwise `to` is a route's `destination`, imported from its `destination.generated.ts`. There are no string paths and no other relative selectors, and the values are always typed for the target route.
 
-Values are never carried over from the current URL. Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. The URL itself is composed with the current one, so open [named outlets](#named-outlets) stay open where they still fit; call `link` where it renders, in a template or a `computed`, so it follows navigations.
+Values aren't carried over from the current URL, except [retained search keys](#retained-search-keys). Pass every required param and search value explicitly, and pass `fragment` only when the target declares it. The URL itself is composed with the current one, so open [named outlets](#named-outlets) stay open where they still fit; call `link` where it renders, in a template or a `computed`, so it follows navigations.
 
 The rest of a `navigate` object is Angular's `NavigationBehaviorOptions`, such as `replaceUrl`, `state`, `info` or `skipLocationChange`, passed to `navigateByUrl` as given. The last call above uses `replaceUrl` to replace the current history entry instead of adding one, as a filter input that updates the search on every keystroke would. `link` takes no behavior options; set them as `RouterLink` inputs instead, such as `[replaceUrl]` or `[state]`.
 
 `to` takes only a genuine destination imported from a `destination.generated.ts`. A spread or copy of one, a declaration, or the `route` a `route.generated.ts` exports fails to type-check and throws a `TypeError` at runtime.
+
+### Retained search keys
+
+Wrap a search key's codec in `retained` to keep it across links and navigation, such as a workspace that every page below a layout shares, or a list's view mode:
+
+[src/routes/projects/route.ts](snippets/src/routes/projects/route.ts)
+
+[src/routes/projects/$projectId/links.ts](snippets/src/routes/projects/$projectId/links.ts)
+
+When `link` or `navigate` targets a route that inherits the key, the current URL is inside the route that declares it, and your `search` leaves the key out, the current value is copied. Pass a value to replace it, and `undefined` to drop it; a spread like `{ ...defaults, view: undefined }` drops it too. Only a valid value is copied, parsed and written again by the codec, so a repeated or invalid one isn't, and a fallback is never written. It doesn't matter which handle calls: a page, a layout above it linking to a child, or the shell's active route all keep the key. A link to a route outside the declaring route, such as a login page, never gets it, and neither does a route below another route that declares a key of the same name. `createUrl`, `localeUrls` and redirects never retain: they build exactly the URL you describe.
+
+The values and the route they belong to always come from the same URL. Before the browser's first navigation completes, a server-rendered shell keeps the key through [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages): the server's route says which keys the page is inside. With `urlUpdateStrategy: "eager"`, during that first navigation the browser shows the new URL before any route state matches it, so links read then leave retained keys out until the navigation completes. A route chain whose resolver uses a symbol key isn't seeded, so its shell keeps nothing until then either.
 
 ### Named outlets
 
@@ -294,7 +308,7 @@ Code outside a route's page, such as a shell, breadcrumbs or a nav bar, reads th
 
 `injectActiveRoute()` needs an injection context and returns a signal of the deepest active route in the primary outlet; a route in a [named outlet](#named-outlets) is never the active route. It's `undefined` before the first navigation (on a server-rendered page with [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages), the server's route until then), and when no generated route is active. A route with children is the deepest at its own URL: on `/teams/7` it's the team route.
 
-Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, `link` and `navigate` with a `to` destination (a close included, [Named outlets](#named-outlets)), and:
+Its `link` and `navigate` keep [retained search keys](#retained-search-keys) like a page's. Until you narrow it, the active route has `params`, `search`, `data` and `title`, typed as the union of every route's values, `link` and `navigate` with a `to` destination (a close included, [Named outlets](#named-outlets)), and:
 
 - `is(destination)`: whether it's exactly that route, not one of its ancestors. It narrows the route to that route's handle, with its `link` and `navigate`.
 - `contains(destination)`: whether that route is this one or one of its ancestors.
@@ -304,6 +318,56 @@ Until you narrow it, the active route has `params`, `search`, `data` and `title`
 The value changes only when a navigation completes. It stays the same while a navigation is pending, and when one is cancelled or fails. If it fails during activation, the routes above the failing one that stay active already have the new values, so `chain` can mix a parent's new params with the active route's old ones until the next navigation completes. While a route stays active it keeps its handle, so going from item 9 to item 10 changes that handle's `params`, not the active route. Each `injectActiveRoute()` call has its own handles, separate from the page's `injectRoute()` handle; their values are the same. A handle that's no longer active keeps its last values. `is` and `contains` compare destinations by identity, so a destination from another generated route tree is never active here. Every generated route record carries its own destination, and the active route reads those, so it sees every generated route installed in the router: install one generated tree per router.
 
 Use it outside the page. In the constructor of a page being activated it reads `undefined` until the navigation ends, while the page's own `injectRoute()` has its values right away. On a server-rendered page it's `undefined` from hydration until the browser's first navigation completes, so the shell shows what it shows for `undefined` in between, unless the app installs [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages).
+
+## Remembered search keys
+
+Wrap a search key's codec in `remembered` with an id to bring its last value back when the user returns, such as a list's page size or sort order:
+
+[src/routes/inbox/route.ts](snippets/src/routes/inbox/route.ts)
+
+Install storage for the remembered values in your application config, next to `provideRouter`. `"local"` keeps them in the browser's `localStorage`, `"session"` per tab in `sessionStorage`:
+
+```ts
+import { provideSearchStorage, routes } from "../generated/routes.generated.js";
+
+providers: [provideRouter(routes), provideSearchStorage("local")];
+```
+
+Every navigation that completes inside the route stores the key's value, and forgets it when the URL has none, an invalid one or the fallback. When a navigation enters the route from outside it, the first load included, without the key, the router redirects it to the same URL with the stored value: the URL always shows what the page reads, so links, guards and resolvers see nothing new. Inside the route, a missing key means the user cleared it: navigating from `/inbox?pageSize=50` to `/inbox` shows 20 and forgets 50. Entering is per route, not per param value, so going from `/teams/1?pageSize=50` to `/teams/2` stays inside `teams/$teamId` and clears the key; mark such a key `retained` too to keep it.
+
+The id names the stored value. Keys with the same id share one value wherever they are, on purpose or by accident, so prefix ids with their page (`"inbox.pageSize"`). Change the id (`"inbox.pageSize.v2"`) to start afresh after the key's meaning changes. A route and its parents can't remember two keys under one id: declaring one throws a `TypeError`. An id has letters, digits, `.`, `_` and `-` only, so it works as a cookie name as is.
+
+The redirect follows Angular's rules: from another page, the restored URL gets one history entry after it, `replaceUrl` replaces it as asked, the navigation's `state` is kept, and the bare URL never gets an entry of its own. Back or Forward into an older entry of the route without the key restores and replaces that entry's URL.
+
+Every guard of the navigation, named outlets and `canActivateChild` included, sees the original URL first, and nothing is read from storage until they all accept it. The restore then happens before any resolver or title runs, so they run once, on the restored URL. Guards run again on it, so a guard runs twice on such an entry, `canDeactivate` of the page being left included: remember a confirmation the user gave instead of prompting twice. A guard that requires a remembered key refuses before the restore can add it; read an absent key as its fallback instead. A guard that finds a stored value no longer acceptable should redirect to the route's URL without the key, such as `createUrl(inbox, {})`: the redirect doesn't restore it again, and the URL it commits forgets it. A redirect to another page keeps the value. When a restored value makes a guard or resolver refuse or fail the navigation, the router forgets it, so the next entry works.
+
+A stored value that no longer parses is forgotten silently. Navigating into such a route without `provideSearchStorage()` fails with `Remembered search keys need provideSearchStorage()`; in tests, add the provider next to the router, for example `provideSearchStorage(() => ({ read: () => undefined, write() {}, forget() {} }))` for storage that remembers nothing.
+
+### Custom storage
+
+`provideSearchStorage` also takes a factory that returns a `SearchStorage`. It runs once per application, in its injection context, so it can `inject()` what it needs:
+
+```ts
+export interface SearchStorage {
+  read(id: string): string | undefined;
+  write(id: string, text: string): void;
+  forget(id: string): void;
+}
+```
+
+The methods are synchronous. The text is the router's: the key's value written by its codec, encoded and joined with `&` (`"50"`, `"news&guides"`), safe to store as a cookie value as is. A spelling the codec also accepts is stored in the codec's own, so `?pageSize=0x32` stores `"50"` and comes back as `?pageSize=50`. A throwing `read` fails the navigation that restores; a throwing `write` or `forget` is reported to Angular's `ErrorHandler`, and the router carries on with the other keys. The built-in storage stores nothing on the server, so a server-rendered page shows the fallback and the browser restores after hydration, a visible change from 20 to 50. For the server's first render to use the value, store it in a cookie ([Remembered search keys on the server](#remembered-search-keys-on-the-server)).
+
+### Not-found pages
+
+A restored value can make the page's data missing: a page size that no longer exists, a filter on a deleted label. If your navigation error handler renders a not-found page, ask `currentSearchRestore()` from `routes.generated.ts` first. While the failing navigation restored a value and hasn't retried, it returns `{ originalUrl, forget() }`: forget the restored values and navigate again to the URL from before the restore, which renders with the fallbacks.
+
+[src/not-found.ts](snippets/src/not-found.ts)
+
+```ts
+providers: [provideRouter(routes, withNavigationErrorHandler(notFoundErrors))];
+```
+
+The retry happens once per navigation: a page that is missing anyway fails again, `currentSearchRestore()` returns `undefined`, and your normal not-found page follows. During server rendering the recipe shows it at the requested URL, not `error.url`: after a typed redirect (an alias) the two differ, and Angular's server engine answers a page whose final URL differs from the request with a redirect. It forgets every value the navigation restored, valid ones too, and guards and resolvers run again. A not-found handler that doesn't ask keeps the restored value stored, and during server rendering its not-found answers for a URL that differs from the request, so Angular's server engine builds a redirect with status 404: development throws `Invalid redirect status code: 404`, and production sends a 404 with a `Location` header and no body, which shows a blank page. Later entries without the key repeat it. `@loozo/angular-launch`'s `rpcNavigationErrors` asks on its own; see Launch's [Navigating on outcomes](../angular-launch/README.md#navigating-on-outcomes).
 
 ## Guards, resolvers and redirects
 
@@ -340,6 +404,8 @@ Resolvers get the parsed inputs too:
 `.title` takes a string or a callback like a resolver's that returns the title (or a Promise or Observable of it). Angular runs a title callback alongside the route's resolvers, so it can't read their results.
 
 Angular's default rerun policy, `paramsChange`, reruns resolvers and the title callback when the path or its path/matrix params change, but not when only search params change. Chain `.runGuardsAndResolvers` when a resolver reads search params, as above.
+
+The generated resolver and title adapters return Angular the callback's result as is, with one exception: on a navigation that restores a [remembered search key](#remembered-search-keys), the first one Angular calls returns the restore's redirect instead of calling its callback. A route under a remembered key also gets one resolver of the router's own under a symbol key; it resolves `true`, and handles and `data()` don't show it, though Angular's own `ActivatedRoute.data` does.
 
 A redirect targets another route's `destination`, imported from its `destination.generated.ts`, and must say what happens to search and fragment:
 
@@ -472,7 +538,7 @@ Declarations look the same, but the builder never creates or edits them, and dir
 
 The generated routes work with Angular SSR and `provideClientHydration` without extra setup; [`provideActiveRouteHydration()`](#the-active-route-on-hydrated-pages) is optional. There's no data transfer cache or custom renderer. Parsing is synchronous and resolvers keep Angular's stability pending, so server-rendered HTML contains parsed values and resolved data.
 
-[`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with a search fallback, a resolver, a redirect and hydration.
+[`examples/angular-router/ssr-proof`](../../examples/angular-router/ssr-proof/README.md) is a working SSR app with a search fallback, a resolver, a redirect, hydration, and remembered search keys in cookies with the not-found recipe.
 
 Angular SSR picks a server route by pathname and doesn't read outlet syntax, so a URL with a named outlet, such as `/products(chat:chat/7)`, reaches your `**` server route. Declare a root catchall (`defineRoute("$segments[]", …)`, your not-found page) so it renders instead of answering 404. `serverRoutePath` rejects a destination in a named outlet.
 
@@ -512,6 +578,27 @@ What it costs:
 - The Router and its dependencies (`UrlHandlingStrategy`, `RouteReuseStrategy`, `Location`, the `ROUTES`) are created before app initializers run, so an app initializer can't prepare their configuration. Prepare it before `bootstrapApplication` or in an environment initializer listed before the provider, or leave the provider out.
 - List the provider before any environment initializer that navigates.
 - An app that never navigates (`withDisabledInitialNavigation()`) keeps showing the server's route.
+
+### Remembered search keys on the server
+
+Browser storage doesn't reach the server, so a server-rendered page shows the fallback until the browser restores the value. To render the remembered value on the server, store it in a cookie with a factory that reads the request's cookies on the server and `document.cookie` in the browser:
+
+[src/search-cookies.ts](snippets/src/search-cookies.ts)
+
+```ts
+providers: [
+  provideRouter(routes, withNavigationErrorHandler(notFoundErrors)), // if you render not-found pages
+  provideClientHydration(),
+  provideSearchStorage(cookieSearchStorage),
+];
+```
+
+With `AngularNodeAppEngine` or `AngularAppEngine`, opening `/inbox` with a remembered page size of 50 answers `302 Location: /inbox?pageSize=50`, keeping your other response headers and cookies, and the browser renders the restored page through hydration with no change in between. A stored value that doesn't parse is forgotten, and its deletion goes out with that response. When a restored value makes the page's data missing, [the not-found recipe](#not-found-pages) retries inside the same render: the response is `200` with the fallbacks and the cookie's deletion, and a page missing anyway gets your handler's `404` at the requested URL. The adapter writes a cookie only when its value changes. A page that uses a remembered key depends on the visitor's cookies, whether it redirects, renders the fallback or sets a cookie, so the adapter adds `Vary: Cookie` to its response and its redirect, and a shared cache doesn't serve one visitor's page to another. If your cache ignores `Vary`, send `Cache-Control: private` for those pages instead.
+
+- The cookies have no `HttpOnly`, so the browser can read them, and `Secure`, which browsers accept from `http://localhost`; remove it for plain HTTP elsewhere.
+- `CommonEngine` answers with HTML, not a response, so it can't redirect: it renders the restored page at the bare URL, the browser restores again, the shell's [active-route seed](#the-active-route-on-hydrated-pages) is dropped, and cookie writes reach the browser only if your host copies them. Use `AngularNodeAppEngine`.
+- A server route that sets its own `status` for a page that can restore breaks the redirect: Angular's development server throws, and production keeps the status on the redirect.
+- Prerendered pages have no request, so they render the fallback and the browser restores.
 
 ## Translated URLs
 
@@ -664,12 +751,12 @@ A component that calls `injectActiveRoute()`, such as a shell, doesn't need a ro
 
 ## What gets generated
 
-| File                                                    | Contents                                                                                                                           |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `<outDirectory>/routes.generated.ts`                    | `routes: Routes` for `provideRouter`, `injectActiveRoute()`, the `RouteTypes` it's typed with, and `provideActiveRouteHydration()` |
-| `destination.generated.ts` beside each route            | `destination`: the route's URL facts                                                                                               |
-| `route.generated.ts` beside each route                  | `route`, the declaration's browser copy, and `injectRoute()` for a route that has a page or descendants with pages                 |
-| `children.generated.ts` beside each route with children | `routes`: its children's records, which its own record loads with `loadChildren`; nothing else imports it                          |
+| File                                                    | Contents                                                                                                                                                                              |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<outDirectory>/routes.generated.ts`                    | `routes: Routes` for `provideRouter`, `injectActiveRoute()`, the `RouteTypes` it's typed with, `provideActiveRouteHydration()`, `provideSearchStorage()` and `currentSearchRestore()` |
+| `destination.generated.ts` beside each route            | `destination`: the route's URL facts                                                                                                                                                  |
+| `route.generated.ts` beside each route                  | `route`, the declaration's browser copy, and `injectRoute()` for a route that has a page or descendants with pages                                                                    |
+| `children.generated.ts` beside each route with children | `routes`: its children's records, which its own record loads with `loadChildren`; nothing else imports it                                                                             |
 
 The two files beside a route are copies of its declaration with the same line numbers, so a stack trace or a type error in either points at the matching line of the declaration. `destination.generated.ts` keeps only the path and URL facts, and the imports and top-level code they use. `route.generated.ts` takes its URL facts from the destination and keeps the steps, minus any that a route extension marks server-only; imports and top-level helpers that only the removed parts used go too, and other top-level code stays as you wrote it. Generation type-checks both copies and reports their errors at the declaration's line. Redirect routes get both files too, without `injectRoute()`.
 
@@ -738,6 +825,8 @@ To go back to native file events, set `"poll": false` in the serve target or one
 - Route declarations can't use custom matchers or write `loadChildren`; generation emits `loadChildren` for every route with children ([Lazy route children](#lazy-route-children)).
 - [Named outlets](#named-outlets) don't nest, have no empty-path routes, own no search or fragments, and can't hold redirect sources. One navigation opens or closes one branch. Filesystem mode has no directory convention for them: write `outlet` in the route file. Hand-written outlet routes aren't validated against generated ones, and next to a generated empty route they leave it full-match, so declare branches with `outlet`.
 - One scan directory per application, and routes from other packages aren't generated. Compose a library's own `Routes` by hand next to the generated ones; typed links can't reach them.
+- Only marked search keys are carried over by links and navigation ([Retained search keys](#retained-search-keys)); there's no general query merge, and `createUrl` and redirects never carry values over. Under eager URL updates, links read during the first client navigation leave retained keys out until it completes.
+- [Remembered search keys](#remembered-search-keys) are stored per origin and browser profile, or as your adapter decides; storage is synchronous only. A value is remembered per route, not per param value, and a restore always rewrites the URL. A guard runs twice on an entry that restores. A key named `__proto__` doesn't survive a reload or a typed URL: Angular's URL parser drops it. The restore depends on how Angular 22.3 orders guards and resolvers, which the package's tests check on every Angular upgrade.
 - No data, URL or transfer caches. Resolver data lives in Angular. The active-route hydration seed is display state the browser drops at its first navigation's outcome; it skips no guard, resolver or load.
 - [Translated URLs](#translated-urls) have no locale detection or redirects, switching locale inside one build, or translated param, catchall or search values (`localeUrls` keeps them as they are), and no built-in head manager: hreflang links are the documented snippet in your app; for Launch applications, see Launch's [Translated URLs](../angular-launch/README.md#translated-urls). Angular's per-locale builds serve each locale under its own base href (`subPath`), which `RouterLink` and router navigation apply but `createUrl` strings don't include. A `$locale` param puts the locale in the route tree instead, and every typed link passes it. Use one or the other, not both.
 - Angular drops a resolver result named `__proto__`, so a resolver with that name has no value in `data`. This was found on Angular 22.2.2, and the package's lifecycle test still checks it on 22.3.0.

@@ -2,11 +2,11 @@ import { provideHttpClient } from "@angular/common/http";
 import { provideClientHydration } from "@angular/platform-browser";
 import { provideRouter, withNavigationErrorHandler } from "@angular/router";
 import type { ApplicationConfig } from "@angular/core";
-import { rpcNavigationErrors } from "@loozo/angular-launch";
+import { rpcNavigationErrors, searchCookies } from "@loozo/angular-launch";
 import { createUrl } from "@loozo/angular-router";
 import { provideLaunchQueries } from "@loozo/angular-launch/tanstack-query";
 import { MutationCache, provideTanStackQuery, QueryClient } from "@tanstack/angular-query";
-import { routes } from "../generated/routes.generated";
+import { provideSearchStorage, routes } from "../generated/routes.generated";
 import { destination as notFound } from "./routes/not-found/destination.generated";
 
 export const config: ApplicationConfig = {
@@ -17,6 +17,8 @@ export const config: ApplicationConfig = {
       routes,
       withNavigationErrorHandler(rpcNavigationErrors({ notFound: createUrl(notFound, {}) })),
     ),
+    // Remembered search keys in cookies, so the server renders them too.
+    provideSearchStorage(searchCookies()),
     provideTanStackQuery(() => {
       // Writes whose onSettled has run: their server call is done.
       const settled = new WeakSet<object>();

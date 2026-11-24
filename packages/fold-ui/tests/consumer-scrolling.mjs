@@ -1378,6 +1378,250 @@ async function run(browser, base, engine) {
     }
   });
 
+  // 10. List-view tables: a TableFrame's viewport is a Tab stop before and after hydration, so the
+  // keyboard scrolls a wide table at phone width while its pager stays put, and still after a
+  // resize to a width where the table fits. A wide empty table keeps its Empty's text in view at
+  // either end. The page without scripts can't run in-page waits, so its reads poll from Node.
+  {
+    const frameViewport =
+      "[data-slot=table-frame] > [data-slot=scroll-area] > [data-slot=scroll-area-viewport]";
+    const phone = { width: 390, height: 800 };
+    const near = (actual, expected, tolerance, label) =>
+      assert.ok(
+        Math.abs(actual - expected) <= tolerance,
+        `${label}: ${actual} isn't ${expected} ±${tolerance}`,
+      );
+    const until = async (read, holds, label) => {
+      const deadline = Date.now() + 3000;
+      let value = await read();
+
+      while (!holds(value)) {
+        assert.ok(Date.now() < deadline, `${label}: ${JSON.stringify(value)}`);
+        await new Promise((done) => setTimeout(done, 25));
+        value = await read();
+      }
+
+      return value;
+    };
+    // The server's HTML in a page without scripts, its fonts loaded.
+    const openPrerendered = async (viewport) => {
+      const page = await browser.newPage({
+        viewport,
+        deviceScaleFactor: 1,
+        javaScriptEnabled: false,
+      });
+
+      page.on("pageerror", (error) => errors.push(String(error)));
+      await page.goto(base);
+      await until(
+        () => page.evaluate(() => document.fonts.status),
+        (status) => status === "loaded",
+        "prerendered fonts",
+      );
+
+      return page;
+    };
+    const prerendered = async (name, viewport, body) => {
+      const page = await openPrerendered(viewport);
+
+      try {
+        await body(page);
+      } catch (error) {
+        error.message = `${engine} · ${name}: ${error.message}`;
+        throw error;
+      } finally {
+        await page.close();
+      }
+    };
+
+    // Tab from the control before a list lands on its viewport, and ArrowRight scrolls it while
+    // its pager's box stays put. Hydrated, the next Tab reaches the first sort button.
+    const scrollsByKeyboard = async (page, root, before, hydrated) => {
+      const scroller = page.locator(`${root} ${frameViewport}`);
+      const pager = page.locator(`${root} nav[data-slot=table-pager]`);
+
+      await before.focus();
+      await page.keyboard.press("Tab");
+
+      const start = await scroller.evaluate((node) => ({
+        focused: document.activeElement === node,
+        tabindex: node.getAttribute("tabindex"),
+        scrollLeft: node.scrollLeft,
+      }));
+
+      assert.deepEqual(
+        { focused: start.focused, tabindex: start.tabindex },
+        { focused: true, tabindex: "0" },
+        `${root}: Tab reaches the viewport`,
+      );
+
+      let pagerBefore = null;
+
+      if ((await pager.count()) > 0) {
+        pagerBefore = await pager.boundingBox();
+      }
+
+      for (let press = 0; press < 5; press++) {
+        await page.keyboard.press("ArrowRight");
+      }
+
+      await until(
+        () => scroller.evaluate((node) => node.scrollLeft),
+        (scrollLeft) => scrollLeft > start.scrollLeft,
+        `${root}: ArrowRight scrolls`,
+      );
+
+      if (pagerBefore) {
+        const pagerAfter = await pager.boundingBox();
+
+        for (const key of ["x", "y", "width", "height"]) {
+          near(pagerAfter[key], pagerBefore[key], 0.5, `${root} pager ${key}`);
+        }
+      }
+
+      if (hydrated && root === "#budget-list") {
+        await page.keyboard.press("Tab");
+        assert.deepEqual(
+          await page.evaluate(() => ({
+            slot: document.activeElement.getAttribute("data-slot"),
+            text: document.activeElement.textContent.trim(),
+          })),
+          { slot: "table-sort-button", text: "Name" },
+          "the next Tab reaches the first sort button",
+        );
+      }
+    };
+    const tableScrollers = async (page, hydrated) => {
+      const newBudget = page
+        .locator("#budget-list [data-slot=page-actions]")
+        .getByRole("button", { name: "New budget", exact: true });
+
+      await scrollsByKeyboard(page, "#budget-list", newBudget, hydrated);
+      await scrollsByKeyboard(
+        page,
+        "#wide-report",
+        page.locator("#wide-report-title-filter"),
+        hydrated,
+      );
+    };
+
+    await prerendered("table scroller, prerendered", phone, (page) => tableScrollers(page, false));
+    await scenario("table scroller, hydrated", phone, (page) => tableScrollers(page, true));
+
+    // The scroller stays a Tab stop once the table fits: D8's documented tradeoff.
+    await scenario("table scroller, resize", phone, async (page) => {
+      const scroller = page.locator(`#wide-report ${frameViewport}`);
+      const widths = () =>
+        scroller.evaluate((node) => ({
+          clientWidth: node.clientWidth,
+          scrollWidth: node.scrollWidth,
+          tabindex: node.getAttribute("tabindex"),
+        }));
+      const narrow = await widths();
+
+      assert.ok(
+        narrow.scrollWidth > narrow.clientWidth,
+        `overflows at 390px: ${JSON.stringify(narrow)}`,
+      );
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await rendered(page);
+
+      const wide = await widths();
+
+      assert.equal(wide.scrollWidth, wide.clientWidth, `fits at 1280px: ${JSON.stringify(wide)}`);
+      assert.equal(wide.tabindex, "0");
+      await page.locator("#wide-report-title-filter").focus();
+      await page.keyboard.press("Tab");
+      assert.equal(
+        await scroller.evaluate((node) => document.activeElement === node),
+        true,
+        "Tab still reaches the fitting table's viewport",
+      );
+    });
+
+    // The wide empty table's Empty: its text, with a long unbroken search term, inside the
+    // viewport's client box at scroll start and end, as wide as the viewport less the cell's
+    // padding; centered once the table fits. Each phase writes its offset once, then polls from
+    // Node until the measured offset is the phase's target before using the bounds, so the page
+    // without scripts settles too.
+    const wideEmpty = async (page) => {
+      const scroller = page.locator(`#wide-report-empty ${frameViewport}`);
+      const at = async (end) => {
+        const target = await scroller.evaluate((node, end) => {
+          if (end) {
+            node.scrollLeft = node.scrollWidth;
+
+            return node.scrollWidth - node.clientWidth;
+          }
+
+          node.scrollLeft = 0;
+
+          return 0;
+        }, end);
+        const measure = () =>
+          scroller.evaluate((node) => {
+            const empty = node.querySelector("[data-slot=empty]");
+            const range = document.createRange();
+
+            range.selectNodeContents(empty);
+
+            const text = range.getBoundingClientRect();
+            const box = node.getBoundingClientRect();
+            const left = box.left + node.clientLeft;
+
+            return {
+              clientLeft: left,
+              clientRight: left + node.clientWidth,
+              clientWidth: node.clientWidth,
+              scrollWidth: node.scrollWidth,
+              scrollLeft: node.scrollLeft,
+              textLeft: text.left,
+              textRight: text.right,
+              emptyWidth: empty.getBoundingClientRect().width,
+            };
+          });
+
+        return until(
+          measure,
+          (value) => Math.abs(value.scrollLeft - target) <= 1,
+          `scrolled to ${target}`,
+        );
+      };
+
+      await scroller.scrollIntoViewIfNeeded();
+
+      const start = await at(false);
+      const end = await at(true);
+
+      assert.ok(start.scrollWidth > start.clientWidth, `overflows: ${JSON.stringify(start)}`);
+      near(end.scrollLeft, end.scrollWidth - end.clientWidth, 1, "scrolled to the end");
+
+      for (const [label, value] of Object.entries({ start, end })) {
+        assert.ok(value.textLeft >= value.clientLeft - 0.5, `${label}: ${JSON.stringify(value)}`);
+        assert.ok(value.textRight <= value.clientRight + 0.5, `${label}: ${JSON.stringify(value)}`);
+        near(value.emptyWidth, value.clientWidth - 24, 1, `${label} Empty width`);
+      }
+
+      await page.setViewportSize({ width: 1280, height: 800 });
+
+      const wide = await until(
+        () => at(false),
+        (value) => value.scrollWidth === value.clientWidth,
+        "the empty table fits at 1280px",
+      );
+
+      near(
+        (wide.textLeft + wide.textRight) / 2,
+        (wide.clientLeft + wide.clientRight) / 2,
+        2,
+        "centered at 1280px",
+      );
+    };
+
+    await prerendered("wide empty table, prerendered", phone, wideEmpty);
+    await scenario("wide empty table, hydrated", phone, wideEmpty);
+  }
+
   assert.deepEqual(errors, [], "page or hydration errors");
   console.log(`${engine} scrolling suite passed.`);
 }

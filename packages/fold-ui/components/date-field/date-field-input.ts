@@ -24,13 +24,15 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
  * separators. Each segment sits in a cell as wide as its widest state, so nothing moves while you
  * type. The cells and separators sit in a row that scrolls sideways when the box is narrower than
  * them, with its scrollbar hidden. Focusing a segment scrolls it wholly into view. Browsers leave
- * a partly shown segment where it is unless it lies outside the row's scroll padding (2.5rem,
- * at most 40% of the row, each side). In a row under 100px that padding can be narrower than a
- * segment, so the row snaps, mandatory, to each cell's start and to its own end: a wheel or
- * swipe rests with a cell starting at the padding instead of anywhere a partly shown segment
- * could reach into it, and never pulls back to the focused segment. After a manual scroll, a
- * segment wider than 2.5rem, or one in a row under about 60px, can stay partly shown. The row
- * itself is out of the Tab order, which browsers would otherwise give a scroller. A
+ * a partly shown segment where it is unless it lies outside the row's scroll padding (2.5rem
+ * each side, less in a row under 108px, so that 1.75rem is always left between them). In a row
+ * under 108px that padding can be narrower than a segment, so the row snaps, mandatory, to each
+ * cell's start and to its own end: a wheel or swipe rests with a cell starting at the padding
+ * instead of anywhere a partly shown segment could reach into it, and never pulls back to the
+ * focused segment. After a manual scroll, a segment wider than 2.5rem, or one in a row under
+ * about 70px (seen in Firefox), can stay partly shown when keyboard focus reaches it; in Firefox,
+ * in a row under about 90px, the focused chip's edge can be cut by up to 2px, with its text whole.
+ * The row itself is out of the Tab order, which browsers would otherwise give a scroller. A
  * DatePickerTrigger written inside the box sits at its end, outside that row.
  *
  * It's the root's one Input: Origami gives it `role="group"` and, in a Field, the label's name.
@@ -45,7 +47,7 @@ const segmentTypes: readonly OrigamiDateFieldSegmentType[] = [
     <span
       data-slot="date-field-segments"
       tabindex="-1"
-      class="flex h-full min-w-0 flex-1 snap-x snap-mandatory scroll-px-[min(2.5rem,40%)] items-center overflow-x-auto [scrollbar-width:none] *:last:snap-end [&::-webkit-scrollbar]:hidden"
+      class="flex h-full min-w-0 flex-1 snap-x snap-mandatory scroll-px-[min(2.5rem,calc(50%_-_0.875rem))] items-center overflow-x-auto [scrollbar-width:none] *:last:snap-end [&::-webkit-scrollbar]:hidden"
     >
       @for (part of field.segments(); track part.key) {
         @if (part.type === "literal") {

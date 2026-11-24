@@ -1,6 +1,6 @@
 // The root component of the consumer check's app (consumer.mjs), using the components `add`
 // copied with the prefix `zz`. consumer-smoke.mjs reads its ids.
-import { DatePipe } from "@angular/common";
+import { CurrencyPipe, DatePipe } from "@angular/common";
 import {
   Component,
   Injector,
@@ -8,6 +8,7 @@ import {
   afterNextRender,
   computed,
   inject,
+  input,
   signal,
 } from "@angular/core";
 import {
@@ -24,10 +25,13 @@ import {
   submit,
   validate,
 } from "@angular/forms/signals";
+import type { OrigamiDateRange } from "@loozo/origami-ui/calendar";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
+import { OrigamiMeter, OrigamiMeterOptions } from "@loozo/origami-ui/meter";
 import { AccordionParts } from "#ui/accordion";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
+import { Badge } from "#ui/badge";
 import { Button, ButtonLink } from "#ui/button";
 import {
   Calendar,
@@ -46,7 +50,13 @@ import {
   TimeField,
   provideDateFieldPlaceholders,
 } from "#ui/date-field";
-import { DatePickerParts } from "#ui/date-picker";
+import {
+  DatePickerMultipleParts,
+  DatePickerParts,
+  DatePickerRangeParts,
+  DateTimePickerParts,
+  MonthPickerParts,
+} from "#ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -55,12 +65,15 @@ import {
   DialogParts,
   DialogTitle,
 } from "#ui/dialog";
+import { EmptyParts } from "#ui/empty";
 import { Field, FieldDescription, FieldError, FieldLabel } from "#ui/field";
 import { FileFieldParts } from "#ui/file-field";
 import { Input } from "#ui/input";
 import { MenuParts } from "#ui/menu";
+import { Meter, MeterRing } from "#ui/meter";
 import { NumberFieldParts } from "#ui/number-field";
 import { OtpField, OtpFieldInput } from "#ui/otp-field";
+import { PageParts } from "#ui/page";
 import { PopoverParts } from "#ui/popover";
 import { Progress } from "#ui/progress";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
@@ -69,25 +82,42 @@ import { SelectParts } from "#ui/select";
 import { SheetParts } from "#ui/sheet";
 import { Slider, SliderThumb } from "#ui/slider";
 import { Switch } from "#ui/switch";
+import { TableParts, type TableSort } from "#ui/table";
 import { TabsParts } from "#ui/tabs";
 import { Textarea } from "#ui/textarea";
 import { ToastRegion, Toasts } from "#ui/toast";
+import { Toggle } from "#ui/toggle";
+import { ToggleGroupParts } from "#ui/toggle-group";
+import { ToolbarParts } from "#ui/toolbar";
 import { TooltipParts } from "#ui/tooltip";
 import {
   LucideArchive,
+  LucideBell,
+  LucideBold,
   LucideChevronDown,
+  LucideCopy,
   LucideEllipsis,
+  LucideItalic,
   LucideLink,
   LucideMinus,
   LucidePencil,
+  LucidePin,
   LucidePlus,
   LucideReceipt,
+  LucideRedo2,
   LucideRotateCcw,
   LucideStore,
   LucideTrash,
   LucideTriangleAlert,
+  LucideUndo2,
   LucideUpload,
+  LucideWrapText,
 } from "@lucide/angular";
+// Meter's internal thresholds directive, which the Options probe below composes as a copied Meter
+// does. The path resolves in the generated app (src/app → src/ui), not in this repository; an
+// expect-error directive would fail the generated app's build, where it does resolve.
+// @ts-ignore
+import { MeterThresholds } from "../ui/meter/meter-thresholds";
 
 const PLANETS = [
   { id: 1, name: "Mercury", dwarf: false },
@@ -882,6 +912,529 @@ export class DateEntries {
   );
 }
 
+// DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker. The light looks come from
+// `.light` on the section, which the smoke adds at runtime.
+@Component({
+  selector: "app-more-date-pickers",
+  imports: [
+    Button,
+    DatePickerMultipleParts,
+    DatePickerRangeParts,
+    DatePipe,
+    DateTimePickerParts,
+    DialogParts,
+    Field,
+    FieldError,
+    FieldLabel,
+    FormField,
+    MonthPickerParts,
+  ],
+  template: `
+    <section id="more-date-pickers" class="grid max-w-3xl grid-cols-2 items-start gap-5 p-5">
+      <div zzField id="dpm-field">
+        <span zzFieldLabel>Holidays</span>
+        <div
+          zzDatePickerMultiple
+          [formField]="more.holidays"
+          [(open)]="holidaysOpen"
+          #holidays="zzDatePickerMultiple"
+          id="dpm"
+        >
+          <button zzDatePickerTrigger>
+            @switch (holidays.state.value().length) {
+              @case (0) {
+                Choose days
+              }
+              @case (1) {
+                1 day
+              }
+              @default {
+                {{ holidays.state.value().length }} days
+              }
+            }
+          </button>
+          <div zzDatePickerContent #content="zzDatePickerContent">
+            @if (content.state.open()) {
+              <div
+                zzCalendarMultiple
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+              <div zzDatePickerFooter>
+                <button zzButton size="sm" (click)="holidaysOpen.set(false)" id="dpm-done">
+                  Done
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+      <div
+        zzDatePickerMultiple
+        [(value)]="noDays"
+        #noDaysPicker="zzDatePickerMultiple"
+        id="dpm-empty"
+      >
+        <button zzDatePickerTrigger>
+          @if (noDaysPicker.state.value().length === 0) {
+            Choose days
+          } @else {
+            {{ noDaysPicker.state.value().length }} days
+          }
+        </button>
+        <div zzDatePickerContent #noDaysContent="zzDatePickerContent">
+          @if (noDaysContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <!-- The list text (D3-B) truncates in 200px. -->
+      <div class="w-50 max-w-full">
+        <div zzDatePickerMultiple [value]="listDays" #list="zzDatePickerMultiple" id="dpm-list">
+          <button zzDatePickerTrigger>
+            @for (day of list.state.value(); track day; let last = $last) {
+              {{ day | date: "d MMM" }}{{ last ? "" : ", " }}
+            }
+          </button>
+          <div zzDatePickerContent #listContent="zzDatePickerContent">
+            @if (listContent.state.open()) {
+              <div
+                zzCalendarMultiple
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzDatePickerMultiple [value]="crossDays" #cross="zzDatePickerMultiple" id="dpm-cross">
+        <button zzDatePickerTrigger>{{ cross.state.value().length }} days</button>
+        <div zzDatePickerContent #crossContent="zzDatePickerContent">
+          @if (crossContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <div zzDatePickerMultiple readonly [value]="oneDay" id="dpm-readonly">
+        <button zzDatePickerTrigger>1 day</button>
+        <div zzDatePickerContent #readonlyDaysContent="zzDatePickerContent">
+          @if (readonlyDaysContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <div zzDatePickerMultiple disabled [value]="oneDay" id="dpm-disabled">
+        <button zzDatePickerTrigger>1 day</button>
+        <div zzDatePickerContent #disabledDaysContent="zzDatePickerContent">
+          @if (disabledDaysContent.state.open()) {
+            <div
+              zzCalendarMultiple
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+
+      <div zzField #stayField="zzField" id="dpr-field">
+        <span zzFieldLabel>Stay</span>
+        <div zzDatePickerRange [formField]="more.stay" #stay="zzDatePickerRange" id="dpr">
+          <button zzDatePickerTrigger>
+            @if (stay.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            } @else {
+              Choose dates
+            }
+          </button>
+          <div zzDatePickerContent #stayContent="zzDatePickerContent">
+            @if (stayContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (stayField.state.errorsShown()) {
+          <p zzFieldError>{{ stayField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzField #checkInField="zzField" id="dpr-required-field">
+        <span zzFieldLabel>Check-in</span>
+        <div
+          zzDatePickerRange
+          [formField]="more.checkIn"
+          #checkIn="zzDatePickerRange"
+          id="dpr-required"
+        >
+          <button zzDatePickerTrigger>
+            @if (checkIn.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            } @else {
+              Choose dates
+            }
+          </button>
+          <div zzDatePickerContent #checkInContent="zzDatePickerContent">
+            @if (checkInContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (checkInField.state.errorsShown()) {
+          <p zzFieldError id="dpr-required-error">{{ checkInField.state.errors()[0]?.message }}</p>
+        }
+      </div>
+      <div zzDatePickerRange [(value)]="noRange" #noRangePicker="zzDatePickerRange" id="dpr-empty">
+        <button zzDatePickerTrigger>
+          @if (noRangePicker.state.value(); as range) {
+            {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+          } @else {
+            Choose dates
+          }
+        </button>
+        <div zzDatePickerContent #noRangeContent="zzDatePickerContent">
+          @if (noRangeContent.state.open()) {
+            <div
+              zzCalendarRange
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <!-- A range across three months truncates in 160px. -->
+      <div class="w-40 max-w-full">
+        <div zzDatePickerRange [value]="crossRange" #crossStay="zzDatePickerRange" id="dpr-cross">
+          <button zzDatePickerTrigger>
+            @if (crossStay.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            }
+          </button>
+          <div zzDatePickerContent #crossStayContent="zzDatePickerContent">
+            @if (crossStayContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzField id="dpr-readonly-schema-field">
+        <span zzFieldLabel>Booked stay</span>
+        <div
+          zzDatePickerRange
+          [formField]="more.bookedStay"
+          #booked="zzDatePickerRange"
+          id="dpr-readonly-schema"
+        >
+          <button zzDatePickerTrigger>
+            @if (booked.state.value(); as range) {
+              {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+            }
+          </button>
+          <div zzDatePickerContent #bookedContent="zzDatePickerContent">
+            @if (bookedContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzDatePickerRange disabled [value]="novemberStay" id="dpr-disabled-focusable">
+        <button zzDatePickerTrigger focusableWhenDisabled>3 Nov 2026 – 10 Nov 2026</button>
+        <div zzDatePickerContent #disabledStayContent="zzDatePickerContent">
+          @if (disabledStayContent.state.open()) {
+            <div
+              zzCalendarRange
+              today="2026-10-27"
+              [weekStart]="1"
+              selectedDescription="selected"
+            ></div>
+          }
+        </div>
+      </div>
+      <div zzDialog>
+        <button zzDialogTrigger id="dpr-dialog-trigger">Edit stay</button>
+        <dialog zzDialogContent id="dpr-dialog-content">
+          <div zzDialogHeader>
+            <h2 zzDialogTitle>Edit stay</h2>
+          </div>
+          <div zzDialogBody>
+            <div
+              zzDatePickerRange
+              [(value)]="dialogStay"
+              #dialogRange="zzDatePickerRange"
+              id="dpr-dialog"
+            >
+              <button zzDatePickerTrigger>
+                @if (dialogRange.state.value(); as range) {
+                  {{ range.start | date: "d MMM y" }} – {{ range.end | date: "d MMM y" }}
+                } @else {
+                  Choose dates
+                }
+              </button>
+              <div zzDatePickerContent #dialogRangeContent="zzDatePickerContent">
+                @if (dialogRangeContent.state.open()) {
+                  <div
+                    zzCalendarRange
+                    today="2026-10-27"
+                    [weekStart]="1"
+                    selectedDescription="selected"
+                  ></div>
+                }
+              </div>
+            </div>
+          </div>
+        </dialog>
+      </div>
+
+      <div zzField id="dmp-field">
+        <span zzFieldLabel>Billing month</span>
+        <div zzMonthPicker [formField]="more.billing" #billing="zzMonthPicker" id="dmp">
+          <button zzDatePickerTrigger>
+            {{ (billing.state.value() | date: "MMMM y") ?? "Choose a month" }}
+          </button>
+          <div zzDatePickerContent #billingContent="zzDatePickerContent">
+            @if (billingContent.state.open()) {
+              <div
+                zzMonthCalendar
+                today="2026-10-27"
+                maxMonth="2026-12"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+      </div>
+      <div zzMonthPicker [(value)]="noMonth" #noMonthPicker="zzMonthPicker" id="dmp-empty">
+        <button zzDatePickerTrigger>
+          {{ (noMonthPicker.state.value() | date: "MMMM y") ?? "Choose a month" }}
+        </button>
+        <div zzDatePickerContent #noMonthContent="zzDatePickerContent">
+          @if (noMonthContent.state.open()) {
+            <div zzMonthCalendar today="2026-10-27" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzMonthPicker readonly disabled value="2026-10" id="dmp-readonly-disabled">
+        <button zzDatePickerTrigger>October 2026</button>
+        <div zzDatePickerContent #lockedMonthContent="zzDatePickerContent">
+          @if (lockedMonthContent.state.open()) {
+            <div zzMonthCalendar today="2026-10-27" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+
+      <div zzField #starts="zzField" id="dtp-field">
+        <span zzFieldLabel>Starts at</span>
+        <div zzDateTimePicker [formField]="more.startsAt" locale="en-GB" id="dtp">
+          <div zzDateFieldInput>
+            <button zzDatePickerTrigger aria-label="Choose start date"></button>
+          </div>
+          <div zzDatePickerContent align="end" #startsContent="zzDatePickerContent">
+            @if (startsContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (starts.state.errorsShown()) {
+          @switch (starts.state.errors()[0]?.kind) {
+            @case ("dateTimeIncomplete") {
+              <p zzFieldError>Enter a complete date and time</p>
+            }
+            @case ("dateInvalid") {
+              <p zzFieldError>This date doesn't exist</p>
+            }
+            @default {
+              <p zzFieldError>{{ starts.state.errors()[0]?.message }}</p>
+            }
+          }
+        }
+      </div>
+      <div zzField #meeting="zzField" id="dtp-empty-field">
+        <span zzFieldLabel>Meeting</span>
+        <div zzDateTimePicker [formField]="more.meeting" locale="en-GB" id="dtp-empty">
+          <div zzDateFieldInput>
+            <button zzDatePickerTrigger aria-label="Choose meeting date"></button>
+          </div>
+          <div zzDatePickerContent align="end" #meetingContent="zzDatePickerContent">
+            @if (meetingContent.state.open()) {
+              <div
+                zzCalendar
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        @if (meeting.state.errorsShown()) {
+          @switch (meeting.state.errors()[0]?.kind) {
+            @case ("dateTimeIncomplete") {
+              <p zzFieldError>Enter a complete date and time</p>
+            }
+            @case ("dateInvalid") {
+              <p zzFieldError>This date doesn't exist</p>
+            }
+            @default {
+              <p zzFieldError>{{ meeting.state.errors()[0]?.message }}</p>
+            }
+          }
+        }
+      </div>
+      <div zzDateTimePicker [(value)]="reminder" locale="en-US" hourCycle="12" id="dtp-12">
+        <div zzDateFieldInput aria-label="Reminder">
+          <button zzDatePickerTrigger aria-label="Choose reminder date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #reminderContent="zzDatePickerContent">
+          @if (reminderContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDateTimePicker readonly value="2026-10-27T09:30" locale="en-GB" id="dtp-readonly">
+        <div zzDateFieldInput aria-label="Signed at">
+          <button zzDatePickerTrigger aria-label="Choose signing date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #signedAtContent="zzDatePickerContent">
+          @if (signedAtContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+      <div zzDateTimePicker disabled value="2026-10-27T09:30" locale="en-GB" id="dtp-disabled">
+        <div zzDateFieldInput aria-label="Closed at">
+          <button zzDatePickerTrigger aria-label="Choose closing date"></button>
+        </div>
+        <div zzDatePickerContent align="end" #closedAtContent="zzDatePickerContent">
+          @if (closedAtContent.state.open()) {
+            <div zzCalendar today="2026-10-27" [weekStart]="1" selectedDescription="selected"></div>
+          }
+        </div>
+      </div>
+
+      <div dir="rtl" class="col-span-2 grid grid-cols-2 gap-5">
+        <div zzDatePickerRange [value]="novemberStay" id="dpr-rtl">
+          <button zzDatePickerTrigger>3 Nov 2026 – 10 Nov 2026</button>
+          <div zzDatePickerContent #rtlRangeContent="zzDatePickerContent">
+            @if (rtlRangeContent.state.open()) {
+              <div
+                zzCalendarRange
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+            }
+          </div>
+        </div>
+        <div zzDatePickerMultiple [value]="oneDay" [(open)]="rtlDaysOpen" id="dpm-rtl">
+          <button zzDatePickerTrigger>1 day</button>
+          <div zzDatePickerContent #rtlDaysContent="zzDatePickerContent">
+            @if (rtlDaysContent.state.open()) {
+              <div
+                zzCalendarMultiple
+                today="2026-10-27"
+                [weekStart]="1"
+                selectedDescription="selected"
+              ></div>
+              <div zzDatePickerFooter>
+                <button zzButton size="sm" (click)="rtlDaysOpen.set(false)">Done</button>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="col-span-2 grid gap-1 text-label text-muted-foreground">
+        <output id="more-holidays">{{ json(more.holidays().value()) }}</output>
+        <output id="more-holidays-touched">{{ more.holidays().touched() }}</output>
+        <output id="more-stay">{{ json(more.stay().value()) }}</output>
+        <output id="more-billing">{{ json(more.billing().value()) }}</output>
+        <output id="more-starts">{{ json(more.startsAt().value()) }}</output>
+        <output id="more-meeting">{{ json(more.meeting().value()) }}</output>
+        <output id="dtp-12-value">{{ json(reminder()) }}</output>
+      </div>
+    </section>
+  `,
+})
+export class MoreDatePickers {
+  protected readonly json = JSON.stringify;
+  protected readonly holidaysOpen = signal(false);
+  protected readonly rtlDaysOpen = signal(false);
+  protected readonly noDays = signal<readonly string[]>([]);
+  protected readonly noRange = signal<OrigamiDateRange | null>(null);
+  protected readonly dialogStay = signal<OrigamiDateRange | null>(null);
+  protected readonly noMonth = signal<string | null>(null);
+  protected readonly reminder = signal<string | null>(null);
+  protected readonly listDays = [
+    "2026-11-03",
+    "2026-11-10",
+    "2026-11-17",
+    "2026-11-24",
+    "2026-12-01",
+    "2026-12-08",
+  ];
+  protected readonly crossDays = ["2026-11-03", "2026-12-10", "2027-01-17"];
+  protected readonly oneDay = ["2026-11-03"];
+  protected readonly crossRange: OrigamiDateRange = { start: "2026-11-20", end: "2027-01-12" };
+  protected readonly novemberStay: OrigamiDateRange = { start: "2026-11-03", end: "2026-11-10" };
+  protected readonly more = form(
+    signal({
+      holidays: ["2026-11-03", "2026-11-10", "2026-11-17"] as readonly string[],
+      stay: { start: "2026-11-03", end: "2026-11-10" } as OrigamiDateRange | null,
+      checkIn: null as OrigamiDateRange | null,
+      bookedStay: { start: "2026-11-03", end: "2026-11-10" } as OrigamiDateRange | null,
+      billing: "2026-10" as string | null,
+      startsAt: "2026-10-27T09:30" as string | null,
+      meeting: null as string | null,
+    }),
+    (path) => {
+      required(path.stay, { message: "Choose your dates" });
+      required(path.checkIn, { message: "Choose your dates" });
+      required(path.startsAt);
+      readonly(path.bookedStay);
+    },
+  );
+}
+
 // The FileField's size in Greek: the value part formats it in its injector's LOCALE_ID.
 @Component({
   selector: "app-greek-file",
@@ -1606,9 +2159,1256 @@ export class Disclosures {
   }
 }
 
+// Toggle, ToggleGroup and Toolbar: every Toggle state and size, standalone segmented controls
+// (indicator, Multiple, vertical, root-disabled, Signal Forms, a nested root), and Toolbars with
+// every control, at full width, at 360px, with a long radio label, vertical and right to left.
+@Component({
+  selector: "app-toggles",
+  imports: [
+    Button,
+    Field,
+    FieldLabel,
+    FormField,
+    LucideBell,
+    LucideBold,
+    LucideChevronDown,
+    LucideCopy,
+    LucideItalic,
+    LucidePin,
+    LucideRedo2,
+    LucideUndo2,
+    LucideWrapText,
+    MenuParts,
+    PopoverParts,
+    RadioGroupItem,
+    Toggle,
+    ToggleGroupParts,
+    ToolbarParts,
+    TooltipParts,
+  ],
+  template: `
+    <section id="toggles" class="grid gap-6 p-5">
+      <div class="flex flex-wrap items-center gap-2">
+        <button zzToggle [(checked)]="mute" id="toggle-mute">Mute</button>
+        <button
+          zzToggle
+          size="icon"
+          aria-label="Pin to sidebar"
+          [(checked)]="pinned"
+          id="toggle-pin"
+        >
+          <svg lucidePin aria-hidden="true"></svg>
+        </button>
+        <button zzToggle size="sm" [(checked)]="wrap" id="toggle-wrap">
+          <svg lucideWrapText aria-hidden="true"></svg> Wrap
+        </button>
+        <button zzToggle size="lg" [checked]="true" id="toggle-lg">Bold</button>
+        <button zzToggle [(checked)]="unreadOnly" id="toggle-count">
+          Unread <span class="text-muted-foreground" id="toggle-count-span">12</span>
+        </button>
+        <button zzToggle disabled id="toggle-off-disabled">Off</button>
+        <button zzToggle [checked]="true" disabled id="toggle-on-disabled">On</button>
+        <button
+          zzToggle
+          [checked]="true"
+          (checkedChange)="lockedChanges.set(lockedChanges() + 1)"
+          disabled
+          focusableWhenDisabled
+          id="toggle-focusable-disabled"
+        >
+          Locked
+        </button>
+        <div zzField orientation="horizontal">
+          <button zzToggle [formField]="controls.notify" size="icon" id="toggle-form">
+            <svg lucideBell aria-hidden="true"></svg>
+          </button>
+          <label zzFieldLabel id="toggle-form-label">Notify me</label>
+        </div>
+      </div>
+      <output id="toggle-result"
+        >{{ mute() }} {{ controls.notify().value() }} {{ controls.notify().touched() }}
+        {{ lockedChanges() }}</output
+      >
+
+      <div class="flex flex-wrap items-start gap-4">
+        <div zzToggleGroupSingle [(value)]="status" indicator aria-label="Status" id="tg-status">
+          <button zzToggleGroupItem value="all" id="seg-all">All</button>
+          <button zzToggleGroupItem value="active" id="seg-active">Active</button>
+          <button zzToggleGroupItem value="ending" id="seg-ending">Ending</button>
+          <button zzToggleGroupItem value="overdue" disabled id="seg-overdue">Overdue</button>
+        </div>
+        <div zzToggleGroupMultiple [(value)]="marks" aria-label="Text style" id="tg-marks">
+          <button zzToggleGroupItem value="bold" aria-label="Bold" id="tg-bold">
+            <svg lucideBold aria-hidden="true"></svg>
+          </button>
+          <button zzToggleGroupItem value="italic" aria-label="Italic" id="tg-italic">
+            <svg lucideItalic aria-hidden="true"></svg>
+          </button>
+          <button zzToggleGroupItem value="underline" aria-label="Underline" id="tg-underline">
+            U
+          </button>
+        </div>
+        <div
+          zzToggleGroupSingle
+          orientation="vertical"
+          deselectable
+          [(value)]="density"
+          aria-label="Density"
+          id="tg-density"
+        >
+          <button zzToggleGroupItem value="compact" id="density-compact">Compact</button>
+          <button zzToggleGroupItem value="comfortable" id="density-comfortable">
+            Comfortable
+          </button>
+          <span zzTooltip>
+            <button zzToggleGroupItem zzTooltipTrigger value="spacious" id="density-spacious">
+              Spacious
+            </button>
+            <span zzTooltipContent>Most room between rows</span>
+          </span>
+        </div>
+        <div
+          zzToggleGroupSingle
+          value="all"
+          disabled
+          indicator
+          aria-label="Disabled status"
+          id="tg-disabled"
+        >
+          <button zzToggleGroupItem value="all" id="tg-disabled-all">All</button>
+          <button zzToggleGroupItem value="active">Active</button>
+        </div>
+        <div zzField>
+          <span zzFieldLabel>Billing</span>
+          <div
+            zzToggleGroupSingle
+            [formField]="controls.billing"
+            aria-label="Billing"
+            id="tg-billing"
+          >
+            <button zzToggleGroupItem value="monthly" id="billing-monthly">Monthly</button>
+            <button zzToggleGroupItem value="annual" id="billing-annual">Annual</button>
+          </div>
+        </div>
+        <button zzButton (click)="controls.billing().focusBoundControl()" id="focus-billing">
+          Focus billing
+        </button>
+        <!-- The inner root sits inside the outer indicator root, outside any item. -->
+        <div zzToggleGroupSingle indicator value="outer" aria-label="Outer group" id="tg-outer">
+          <button zzToggleGroupItem value="outer" id="tg-outer-item">Outer</button>
+          <div>
+            <div zzToggleGroupSingle value="inner" aria-label="Nested group" id="tg-nested">
+              <button zzToggleGroupItem value="inner" id="tg-nested-item">Inner</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <output id="tg-result"
+        >{{ status() ?? "none" }} {{ marks().join(",") }} {{ density() ?? "none" }}</output
+      >
+
+      <div zzToolbar aria-label="Formatting" id="toolbar">
+        <button zzToolbarButton size="icon" aria-label="Undo" id="tb-undo">
+          <svg lucideUndo2 aria-hidden="true"></svg>
+        </button>
+        <button
+          zzToolbarButton
+          size="icon"
+          aria-label="Redo"
+          [disabled]="!canRedo()"
+          focusableWhenDisabled
+          (click)="canRedo() && redo()"
+          id="tb-redo"
+        >
+          <svg lucideRedo2 aria-hidden="true"></svg>
+        </button>
+        <div zzToolbarSeparator id="tb-sep-1"></div>
+        <div
+          zzToolbarToggleGroupMultiple
+          [(value)]="toolbarMarks"
+          aria-label="Text style"
+          id="tb-marks"
+        >
+          <button zzToggleGroupItem value="bold" aria-label="Bold" id="tb-bold">
+            <svg lucideBold aria-hidden="true"></svg>
+          </button>
+          <button zzToggleGroupItem value="italic" aria-label="Italic" id="tb-italic">
+            <svg lucideItalic aria-hidden="true"></svg>
+          </button>
+        </div>
+        <div zzToolbarSeparator></div>
+        <button zzToolbarToggle [(checked)]="spellcheck" id="tb-spell">Spell check</button>
+        <div
+          zzToolbarToggleGroupSingle
+          [(value)]="view"
+          deselectable
+          indicator
+          aria-label="Period"
+          id="tb-view"
+        >
+          <button zzToggleGroupItem value="week" id="tb-week">Week</button>
+          <button zzToggleGroupItem value="month" id="tb-month">Month</button>
+        </div>
+        <div zzToolbarRadioGroup [(value)]="alignment" aria-label="Alignment" id="tb-align">
+          <button zzRadioGroupItem value="left" id="tb-left">Left</button>
+          <span zzTooltip [openDelay]="0">
+            <button zzRadioGroupItem zzTooltipTrigger value="center" id="tb-center">Center</button>
+            <span zzTooltipContent id="tb-center-tooltip">Centers the paragraph</span>
+          </span>
+          <button zzRadioGroupItem value="right" id="tb-right">Right</button>
+        </div>
+        <div zzPopover>
+          <button zzToolbarPopoverTrigger id="tb-symbol">Symbol</button>
+          <div zzPopoverContent aria-label="Symbols" id="tb-symbol-content">
+            <button zzButton id="tb-symbol-star">★ Star</button>
+          </div>
+        </div>
+        <div zzMenu>
+          <button zzToolbarMenuTrigger id="tb-more">
+            More <svg lucideChevronDown aria-hidden="true"></svg>
+          </button>
+          <div zzMenuContent id="tb-more-content">
+            <button zzMenuItem (select)="cleared.set(true)" id="tb-clear">Clear formatting</button>
+          </div>
+        </div>
+        <span zzTooltip>
+          <button zzToolbarButton zzTooltipTrigger size="icon" aria-label="Copy" id="tb-copy">
+            <svg lucideCopy aria-hidden="true"></svg>
+          </button>
+          <span zzTooltipContent id="tb-copy-tooltip">Copies the link</span>
+        </span>
+      </div>
+      <output id="tb-result"
+        >{{ spellcheck() }} {{ alignment() ?? "none" }} {{ view() ?? "none" }} {{ redoRuns() }}
+        {{ cleared() }} {{ toolbarMarks().join(",") }}</output
+      >
+
+      <div class="w-[360px]">
+        <div zzToolbar aria-label="Narrow formatting" id="toolbar-narrow">
+          <button zzToolbarButton size="icon" aria-label="Undo" id="n-undo">
+            <svg lucideUndo2 aria-hidden="true"></svg>
+          </button>
+          <button zzToolbarButton size="icon" aria-label="Redo" id="n-redo">
+            <svg lucideRedo2 aria-hidden="true"></svg>
+          </button>
+          <div zzToolbarSeparator></div>
+          <div zzToolbarToggleGroupMultiple [value]="['bold']" aria-label="Text style" id="n-marks">
+            <button zzToggleGroupItem value="bold" aria-label="Bold">
+              <svg lucideBold aria-hidden="true"></svg>
+            </button>
+            <button zzToggleGroupItem value="italic" aria-label="Italic">
+              <svg lucideItalic aria-hidden="true"></svg>
+            </button>
+            <button zzToggleGroupItem value="underline" aria-label="Underline">U</button>
+          </div>
+          <div zzToolbarSeparator></div>
+          <button zzToolbarToggle [checked]="true" id="n-spell">Spell check</button>
+          <div zzToolbarSeparator></div>
+          <div zzToolbarRadioGroup value="center" aria-label="Alignment" id="n-align">
+            <button zzRadioGroupItem value="left">Left</button>
+            <button zzRadioGroupItem value="center">Center</button>
+            <button zzRadioGroupItem value="right">Right</button>
+          </div>
+          <div zzToolbarSeparator></div>
+          <div zzPopover>
+            <button zzToolbarPopoverTrigger id="n-symbol">Symbol</button>
+            <div zzPopoverContent aria-label="Symbols">★</div>
+          </div>
+          <div zzMenu>
+            <button zzToolbarMenuTrigger id="n-more">More</button>
+            <div zzMenuContent>
+              <button zzMenuItem>Clear formatting</button>
+            </div>
+          </div>
+          <button zzToolbarButton size="icon" aria-label="Copy" id="n-copy">
+            <svg lucideCopy aria-hidden="true"></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- A long unbreakable label beside breakable ones: every row stays one 32px line. -->
+      <div class="w-[360px]">
+        <div zzToolbar aria-label="Long alignment" id="toolbar-long">
+          <div zzToolbarRadioGroup value="left" aria-label="Alignment" id="long-align">
+            <button zzRadioGroupItem value="left" id="long-left">Align left</button>
+            <button zzRadioGroupItem value="center" id="long-center">Align center</button>
+            <button zzRadioGroupItem value="right" id="long-right">
+              AlignRightWithoutBreaking
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div zzToolbar orientation="vertical" aria-label="Vertical formatting" id="toolbar-vertical">
+        <button zzToolbarButton size="sm" id="vert-start">Undo</button>
+        <div zzToolbarSeparator id="vert-sep"></div>
+        <div zzToolbarRadioGroup value="center" aria-label="Alignment" id="vert-align">
+          <button zzRadioGroupItem value="left" id="vert-left">Left</button>
+          <button zzRadioGroupItem value="center" id="vert-center">Center</button>
+        </div>
+        <button zzToolbarButton id="vert-end">Options</button>
+      </div>
+
+      <div dir="rtl">
+        <div zzToolbar aria-label="Right to left" id="toolbar-rtl">
+          <button zzToolbarButton id="rtl-first">First</button>
+          <button zzToolbarButton id="rtl-second">Second</button>
+          <button zzToolbarButton id="rtl-third">Third</button>
+        </div>
+      </div>
+    </section>
+  `,
+})
+export class Toggles {
+  protected readonly mute = signal(false);
+  protected readonly pinned = signal(false);
+  protected readonly wrap = signal(false);
+  protected readonly unreadOnly = signal(true);
+  protected readonly lockedChanges = signal(0);
+  protected readonly status = signal<string | null>("active");
+  protected readonly marks = signal<readonly string[]>(["bold", "italic"]);
+  protected readonly density = signal<string | null>("compact");
+  protected readonly toolbarMarks = signal<readonly string[]>(["bold"]);
+  protected readonly spellcheck = signal(true);
+  protected readonly alignment = signal<string | null>("center");
+  protected readonly view = signal<string | null>("month");
+  protected readonly redoRuns = signal(0);
+  protected readonly cleared = signal(false);
+  protected readonly controls = form(
+    signal<{ notify: boolean; billing: string | null }>({ notify: false, billing: "annual" }),
+  );
+
+  protected canRedo(): boolean {
+    return false;
+  }
+
+  protected redo(): void {
+    this.redoRuns.set(this.redoRuns() + 1);
+  }
+}
+
+// A replaced Options whose factory reads the bound, required value: fold's thresholds must not
+// resolve Options before Origami's first read, or the prerender throws NG0950.
+@Component({
+  selector: "[appMeterOptionsProbe]",
+  hostDirectives: [
+    { directive: OrigamiMeter, inputs: ["value"] },
+    { directive: MeterThresholds, inputs: ["low", "high", "optimum"] },
+  ],
+  providers: [
+    OrigamiMeterOptions.provideFactory(() => ({
+      value: signal(inject(OrigamiMeter).value()),
+      min: signal(0),
+      max: signal(200),
+      valueText: signal(null),
+    })),
+  ],
+  template: "",
+})
+export class MeterOptionsProbe {}
+
+// Meter and MeterRing: regions, edges, sizes, live bounds and values, themes, right to left,
+// forced colors and the README's recipes. Every root's name is unique on the page.
+@Component({
+  selector: "app-meters",
+  imports: [Button, Meter, MeterOptionsProbe, MeterRing],
+  template: `
+    <section id="meters" class="grid w-[626px] max-w-full gap-5 bg-surface p-5 text-foreground">
+      <h3 id="meter-system-disk-title" class="text-title">System disk</h3>
+      <div
+        zzMeter
+        [value]="72"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-labelledby="meter-system-disk-title"
+        id="meter-disk-72"
+      ></div>
+      <div class="flex flex-wrap items-center gap-4">
+        <div
+          zzMeterRing
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Disk ring 35%"
+          id="ring-disk-35"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="72"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Disk ring"
+          id="ring-disk-72"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Disk ring 92%"
+          id="ring-disk-92"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="12"
+          [max]="40"
+          valueText="12 of 40 seats"
+          aria-label="Seats taken"
+          id="ring-seats"
+        ></div>
+        <div zzMeterRing [value]="72" aria-label="Big ring 72%" class="size-32" id="ring-big"></div>
+      </div>
+      <div zzMeter [value]="42" aria-label="Plain 42%" id="meter-plain"></div>
+      <div
+        zzMeter
+        [value]="35"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="Disk 35%"
+        id="meter-disk-35"
+      ></div>
+      <div
+        zzMeter
+        [value]="92"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="Disk 92%"
+        id="meter-disk-92"
+      ></div>
+      <div zzMeter [value]="72" aria-label="Thick 72%" class="h-4 w-60" id="meter-thick"></div>
+      <div
+        zzMeter
+        [value]="92"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="Recoloured 92%"
+        class="data-[region=worst]:[--meter-fill:var(--destructive-text)]"
+        id="meter-recolour"
+      ></div>
+      <div
+        zzMeter
+        [value]="15"
+        [min]="20"
+        [max]="10"
+        low="20"
+        aria-label="Inverted range"
+        id="meter-inverted"
+      ></div>
+      <div
+        zzMeter
+        [value]="90"
+        [max]="nan"
+        low="60"
+        high="85"
+        optimum="0"
+        aria-label="No maximum"
+        id="meter-nan-max"
+      ></div>
+      <div
+        appMeterOptionsProbe
+        [value]="90"
+        low="60"
+        high="85"
+        aria-label="Options probe"
+        id="meter-options"
+      ></div>
+
+      <div class="flex flex-wrap items-center gap-4">
+        <button zzButton (click)="toggleMaximum()" id="meter-toggle-max">Change maximum</button>
+        <button zzButton (click)="toggleLow()" id="meter-toggle-low">Toggle threshold</button>
+        <div
+          zzMeterRing
+          [value]="70"
+          [max]="maximum()"
+          low="60"
+          high="80"
+          aria-label="Live maximum"
+          id="ring-bounds"
+        ></div>
+      </div>
+      <div
+        zzMeter
+        [value]="70"
+        [low]="singleLow()"
+        aria-label="Single threshold"
+        id="meter-threshold"
+      ></div>
+
+      <div class="grid justify-items-start gap-3" id="meter-arrivals-card">
+        <h3 id="meter-arrivals-title" class="text-title">Arrivals</h3>
+        @if (arrivals(); as result) {
+          <div
+            zzMeterRing
+            [value]="result.percentage"
+            low="40"
+            high="70"
+            optimum="100"
+            aria-labelledby="meter-arrivals-title"
+            id="ring-arrivals"
+          ></div>
+        } @else {
+          <p id="meter-arrivals-empty">No arrivals data for this period</p>
+        }
+        <button zzButton (click)="nextPeriod()" id="meter-next-period">Next period</button>
+      </div>
+
+      <div dir="rtl" class="flex items-center gap-4" id="meter-rtl">
+        <div
+          zzMeter
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Right-to-left disk 35%"
+          id="meter-rtl-35"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Right-to-left disk ring 35%"
+          id="ring-rtl-35"
+        ></div>
+      </div>
+
+      <div class="light grid gap-4 bg-surface p-4 text-foreground" id="meter-light">
+        <div zzMeter [value]="42" aria-label="Light plain 42%" id="meter-light-plain"></div>
+        <div
+          zzMeter
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk 35%"
+          id="meter-light-35"
+        ></div>
+        <div
+          zzMeter
+          [value]="72"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk 72%"
+          id="meter-light-72"
+        ></div>
+        <div
+          zzMeter
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk 92%"
+          id="meter-light-92"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="35"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Light disk ring 35%"
+          id="ring-light-35"
+        ></div>
+      </div>
+
+      <div
+        class="flex items-center gap-4 bg-muted p-4 forced-color-adjust-none"
+        id="meter-forced-panel"
+      >
+        <div
+          zzMeter
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Forced disk 92%"
+          id="meter-forced-92"
+        ></div>
+        <div
+          zzMeterRing
+          [value]="92"
+          low="60"
+          high="85"
+          optimum="0"
+          aria-label="Forced disk ring 92%"
+          id="ring-forced-92"
+        ></div>
+      </div>
+
+      <div class="grid gap-2">
+        <div class="flex items-baseline justify-between gap-3">
+          <h3 id="meter-recipe-title" class="text-title">Disk capacity</h3>
+          <span aria-hidden="true" class="tabular-nums" id="meter-recipe-text">{{
+            diskText()
+          }}</span>
+        </div>
+        <div
+          zzMeter
+          [value]="disk().used"
+          low="60"
+          high="85"
+          optimum="0"
+          [valueText]="diskText()"
+          aria-labelledby="meter-recipe-title"
+          id="meter-recipe"
+        ></div>
+      </div>
+    </section>
+  `,
+})
+export class Meters {
+  protected readonly nan = NaN;
+  protected readonly maximum = signal(100);
+  protected readonly singleLow = signal<number | undefined>(65);
+  protected readonly disk = signal({ used: 92 });
+  protected readonly diskText = computed(() => `${this.disk().used}% used, critically full`);
+
+  // 25 → 75 → 130 (clamped to 100) → no data → 25 again.
+  readonly #periods: ({ percentage: number } | undefined)[] = [
+    { percentage: 25 },
+    { percentage: 75 },
+    { percentage: 130 },
+    undefined,
+  ];
+  readonly #period = signal(0);
+  protected readonly arrivals = computed(() => this.#periods[this.#period()]);
+
+  protected toggleMaximum(): void {
+    if (this.maximum() === 100) {
+      this.maximum.set(140);
+      return;
+    }
+    this.maximum.set(100);
+  }
+
+  protected toggleLow(): void {
+    if (this.singleLow() === undefined) {
+      this.singleLow.set(65);
+      return;
+    }
+    this.singleLow.set(undefined);
+  }
+
+  protected nextPeriod(): void {
+    this.#period.set((this.#period() + 1) % this.#periods.length);
+  }
+}
+
+/**
+ * The fixture's stand-in for budget.bs's generated row (`budget.generated.server.ts:46-100`):
+ * `name` is nullable, `status` is tagged by `_tag`, and users are usernames.
+ */
+type BudgetStatus =
+  | { readonly _tag: "Draft" }
+  | { readonly _tag: "Submitted"; readonly submittedOn: string; readonly submittedBy: string }
+  | {
+      readonly _tag: "Approved";
+      readonly submittedOn: string;
+      readonly submittedBy: string;
+      readonly approvalReference: string;
+      readonly approvedOn: string;
+      readonly approvedBy: string;
+    };
+
+interface BudgetRow {
+  readonly id: string;
+  readonly name: string | null;
+  readonly status: BudgetStatus;
+  /** Fixture-only: budget.bs has no amount. It exercises the end-aligned money column. */
+  readonly amount: number;
+}
+
+type BudgetSortKey = "name" | "status" | "submittedOn" | "amount";
+
+interface BudgetSort {
+  readonly key: BudgetSortKey;
+  readonly direction: TableSort;
+}
+
+const BUDGET_PAGE_SIZE = 4;
+
+/** Fixture-only projection: the generated row carries usernames, not display names. */
+const USER_NAMES = new Map([
+  ["ada", "Ada Lovelace"],
+  ["grace", "Grace Hopper"],
+]);
+
+function displayName(username: string): string {
+  const name = USER_NAMES.get(username);
+
+  if (name === undefined) {
+    throw new Error(`No fixture user ${username}`);
+  }
+
+  return name;
+}
+
+/** Ten rows over three statuses, one of them unnamed: three pages of four, the last one partial. */
+const BUDGETS: readonly BudgetRow[] = [
+  { id: "b01", name: "Capital expenditure", status: { _tag: "Draft" }, amount: 48250 },
+  {
+    id: "b02",
+    name: "Facilities",
+    status: { _tag: "Submitted", submittedOn: "2026-03-12", submittedBy: "ada" },
+    amount: 9800,
+  },
+  {
+    id: "b03",
+    name: "Marketing",
+    status: {
+      _tag: "Approved",
+      submittedOn: "2026-02-02",
+      submittedBy: "ada",
+      approvalReference: "BUD-2026-0042",
+      approvedOn: "2026-02-10",
+      approvedBy: "grace",
+    },
+    amount: 126400,
+  },
+  {
+    id: "b04",
+    name: "Research",
+    status: { _tag: "Submitted", submittedOn: "2026-03-20", submittedBy: "grace" },
+    amount: 72000,
+  },
+  { id: "b05", name: "Training", status: { _tag: "Draft" }, amount: 15600 },
+  {
+    id: "b06",
+    name: "Travel",
+    status: {
+      _tag: "Approved",
+      submittedOn: "2026-01-15",
+      submittedBy: "grace",
+      approvalReference: "BUD-2026-0017",
+      approvedOn: "2026-01-22",
+      approvedBy: "ada",
+    },
+    amount: 31200,
+  },
+  { id: "b07", name: null, status: { _tag: "Draft" }, amount: 5000 },
+  {
+    id: "b08",
+    name: "Hiring",
+    status: { _tag: "Submitted", submittedOn: "2026-02-27", submittedBy: "ada" },
+    amount: 88900,
+  },
+  {
+    id: "b09",
+    name: "Legal",
+    status: {
+      _tag: "Approved",
+      submittedOn: "2026-01-08",
+      submittedBy: "ada",
+      approvalReference: "BUD-2026-0009",
+      approvedOn: "2026-01-12",
+      approvedBy: "grace",
+    },
+    amount: 22750,
+  },
+  { id: "b10", name: "Software licences", status: { _tag: "Draft" }, amount: 40100 },
+];
+
+function submittedOn(status: BudgetStatus): string | null {
+  if (status._tag === "Draft") {
+    return null;
+  }
+
+  return status.submittedOn;
+}
+
+function sortValue(row: BudgetRow, key: BudgetSortKey): string | number | null {
+  if (key === "name") {
+    return row.name;
+  }
+
+  if (key === "status") {
+    return row.status._tag;
+  }
+
+  if (key === "submittedOn") {
+    return submittedOn(row.status);
+  }
+
+  return row.amount;
+}
+
+/** The fixture view's order: missing values last in both directions, ties by id. */
+function compareBudgets(a: BudgetRow, b: BudgetRow, sort: BudgetSort): number {
+  const left = sortValue(a, sort.key);
+  const right = sortValue(b, sort.key);
+
+  if (left === null || right === null) {
+    if (left === right) {
+      return a.id.localeCompare(b.id);
+    }
+
+    if (left === null) {
+      return 1;
+    }
+
+    return -1;
+  }
+
+  let order: number;
+
+  if (typeof left === "number" && typeof right === "number") {
+    order = left - right;
+  } else {
+    order = String(left).localeCompare(String(right), "en");
+  }
+
+  if (order === 0) {
+    return a.id.localeCompare(b.id);
+  }
+
+  if (sort.direction === "descending") {
+    return -order;
+  }
+
+  return order;
+}
+
+@Component({
+  selector: "app-budget-list",
+  imports: [Badge, Button, CurrencyPipe, DatePipe, EmptyParts, PageParts, TableParts],
+  template: `
+    <section zzPage>
+      <header zzPageHeader>
+        <div>
+          <h2 zzPageTitle [id]="titleId()">{{ heading() }}</h2>
+          <p zzPageDescription>
+            Acme Ltd · fiscal year 2026. Submit a draft, or approve a submitted one.
+          </p>
+        </div>
+        <div zzPageActions>
+          <button zzButton>Export</button>
+          <button zzButton variant="primary">New budget</button>
+        </div>
+      </header>
+
+      <div zzTableFrame [aria-labelledby]="titleId()">
+        <table zzTable [attr.aria-labelledby]="titleId()">
+          <thead>
+            <tr zzTableRow>
+              <th zzTableColumnHeader [sort]="sortOf('name')">
+                <button zzTableSortButton (click)="toggleSort('name')">Name</button>
+              </th>
+              <th zzTableColumnHeader [sort]="sortOf('status')">
+                <button zzTableSortButton (click)="toggleSort('status')">Status</button>
+              </th>
+              <th zzTableColumnHeader [sort]="sortOf('submittedOn')">
+                <button zzTableSortButton (click)="toggleSort('submittedOn')">Submitted</button>
+              </th>
+              <th zzTableColumnHeader align="end" [sort]="sortOf('amount')">
+                <button zzTableSortButton (click)="toggleSort('amount')">Amount</button>
+              </th>
+              <th zzTableColumnHeader align="end"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (budget of visible(); track budget.id) {
+              <tr zzTableRow>
+                <td zzTableCell>{{ budget.name ?? "Untitled draft" }}</td>
+                <td zzTableCell>
+                  @switch (budget.status._tag) {
+                    @case ("Draft") {
+                      <span zzBadge tone="neutral">Draft</span>
+                    }
+                    @case ("Submitted") {
+                      @let by = budget.status.submittedBy;
+                      <span zzBadge tone="info">Submitted by {{ displayName(by) }}</span>
+                    }
+                    @case ("Approved") {
+                      @let reference = budget.status.approvalReference;
+                      <span zzBadge tone="success">Approved · {{ reference }}</span>
+                    }
+                    @default never(budget.status);
+                  }
+                </td>
+                <td zzTableCell>{{ (submittedOn(budget.status) | date: "d MMM y") ?? "—" }}</td>
+                <td zzTableCell align="end">{{ budget.amount | currency: "EUR" }}</td>
+                <td zzTableCell align="end" class="whitespace-nowrap">
+                  @if (budget.status._tag === "Draft") {
+                    <button zzButton size="sm">Submit</button>
+                  }
+                  @if (budget.status._tag === "Submitted") {
+                    <button zzButton size="sm">Back to draft</button>
+                    <button zzButton size="sm" variant="primary">Approve</button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr zzTableRow>
+                <td zzTableCell colspan="5"><div zzEmpty>No budgets match</div></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <nav zzTablePager [attr.aria-label]="heading() + ' pages'">
+          <output>{{ rangeText() }}</output>
+          <button
+            zzButton
+            size="sm"
+            [disabled]="!hasPrevious()"
+            focusableWhenDisabled
+            (click)="previous()"
+          >
+            Previous
+          </button>
+          <button zzButton size="sm" [disabled]="!hasNext()" focusableWhenDisabled (click)="next()">
+            Next
+          </button>
+        </nav>
+      </div>
+    </section>
+  `,
+})
+export class BudgetList {
+  readonly rows = input.required<readonly BudgetRow[]>();
+  // Not `title`: a static `title` attribute would also stay on the host as a native tooltip.
+  readonly heading = input.required<string>();
+  readonly titleId = input.required<string>();
+
+  protected readonly submittedOn = submittedOn;
+  protected readonly displayName = displayName;
+  protected readonly sort = signal<BudgetSort>({ key: "name", direction: "ascending" });
+  protected readonly page = signal(1);
+
+  protected readonly sorted = computed(() => {
+    const sort = this.sort();
+    const rows = [...this.rows()];
+
+    rows.sort((a, b) => compareBudgets(a, b, sort));
+
+    return rows;
+  });
+
+  protected readonly pageCount = computed(() =>
+    Math.max(1, Math.ceil(this.rows().length / BUDGET_PAGE_SIZE)),
+  );
+  protected readonly hasPrevious = computed(() => this.page() > 1);
+  protected readonly hasNext = computed(() => this.page() < this.pageCount());
+
+  protected readonly visible = computed(() => {
+    const start = (this.page() - 1) * BUDGET_PAGE_SIZE;
+
+    return this.sorted().slice(start, start + BUDGET_PAGE_SIZE);
+  });
+
+  protected readonly rangeText = computed(() => {
+    const total = this.rows().length;
+
+    if (total === 0) {
+      return "No budgets";
+    }
+
+    const first = (this.page() - 1) * BUDGET_PAGE_SIZE + 1;
+    const last = Math.min(first + BUDGET_PAGE_SIZE - 1, total);
+
+    return `${first}–${last} of ${total}`;
+  });
+
+  protected sortOf(key: BudgetSortKey): TableSort | null {
+    const current = this.sort();
+
+    if (current.key !== key) {
+      return null;
+    }
+
+    return current.direction;
+  }
+
+  /** The view's paging rule: a new sort returns to page 1. */
+  protected toggleSort(key: BudgetSortKey): void {
+    const current = this.sort();
+
+    this.page.set(1);
+
+    if (current.key === key && current.direction === "ascending") {
+      this.sort.set({ key, direction: "descending" });
+
+      return;
+    }
+
+    this.sort.set({ key, direction: "ascending" });
+  }
+
+  // A focusable disabled button still fires (click), so each handler checks its boundary.
+  protected previous(): void {
+    if (!this.hasPrevious()) {
+      return;
+    }
+
+    this.page.update((page) => page - 1);
+  }
+
+  protected next(): void {
+    if (!this.hasNext()) {
+      return;
+    }
+
+    this.page.update((page) => page + 1);
+  }
+}
+
+interface CostCentre {
+  readonly id: string;
+  readonly name: string;
+  readonly owner: string;
+  readonly region: string;
+  readonly department: string;
+  readonly holder: string;
+  readonly fiscalYear: string;
+  readonly approved: number;
+  readonly spent: number;
+}
+
+/** View 1a without buttons: eight text columns, wider than a phone and narrower than a desktop. */
+const COST_CENTRES: readonly CostCentre[] = [
+  {
+    id: "c1",
+    name: "Head office",
+    owner: "Ada Lovelace",
+    region: "Attica",
+    department: "Finance",
+    holder: "Grace Hopper",
+    fiscalYear: "2026",
+    approved: 480000,
+    spent: 212400,
+  },
+  {
+    id: "c2",
+    name: "Thessaloniki branch",
+    owner: "Grace Hopper",
+    region: "Central Macedonia",
+    department: "Sales",
+    holder: "Ada Lovelace",
+    fiscalYear: "2026",
+    approved: 156000,
+    spent: 98750,
+  },
+  {
+    id: "c3",
+    name: "Patras warehouse",
+    owner: "Ada Lovelace",
+    region: "Western Greece",
+    department: "Logistics",
+    holder: "Grace Hopper",
+    fiscalYear: "2026",
+    approved: 92500,
+    spent: 40100,
+  },
+];
+
+@Component({
+  selector: "app-cost-centres",
+  imports: [Button, CurrencyPipe, EmptyParts, TableParts],
+  template: `
+    <h3 class="sr-only" [id]="titleId()">{{ heading() }}</h3>
+    <button zzButton size="sm" [id]="titleId() + '-filter'">Filter</button>
+    <div zzTableFrame [aria-labelledby]="titleId()" class="mt-2">
+      <table zzTable [attr.aria-labelledby]="titleId()">
+        <thead>
+          <tr zzTableRow>
+            <th zzTableColumnHeader>Cost centre</th>
+            <th zzTableColumnHeader>Owner</th>
+            <th zzTableColumnHeader>Region</th>
+            <th zzTableColumnHeader>Department</th>
+            <th zzTableColumnHeader>Budget holder</th>
+            <th zzTableColumnHeader>Fiscal year</th>
+            <th zzTableColumnHeader align="end">Approved total</th>
+            <th zzTableColumnHeader align="end">Spent to date</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (centre of rows(); track centre.id) {
+            <tr zzTableRow>
+              <td zzTableCell>{{ centre.name }}</td>
+              <td zzTableCell>{{ centre.owner }}</td>
+              <td zzTableCell>{{ centre.region }}</td>
+              <td zzTableCell>{{ centre.department }}</td>
+              <td zzTableCell>{{ centre.holder }}</td>
+              <td zzTableCell>{{ centre.fiscalYear }}</td>
+              <td zzTableCell align="end">{{ centre.approved | currency: "EUR" }}</td>
+              <td zzTableCell align="end">{{ centre.spent | currency: "EUR" }}</td>
+            </tr>
+          } @empty {
+            <tr zzTableRow>
+              <!-- A long unbroken search term wraps inside the visible width. -->
+              <td zzTableCell colspan="8">
+                <div zzEmpty>
+                  No cost centres match “WGR2026PATRASWAREHOUSELOGISTICSOUTBOUNDFREIGHT0017”
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  `,
+})
+export class CostCentres {
+  readonly rows = input.required<readonly CostCentre[]>();
+  readonly heading = input.required<string>();
+  readonly titleId = input.required<string>();
+}
+
+@Component({
+  selector: "app-list-parts",
+  imports: [Badge, Button, EmptyParts, PageParts, TableParts],
+  template: `
+    <div class="flex flex-wrap gap-2" id="badges-background">
+      <span zzBadge>Draft</span>
+      <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+      <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+      <span zzBadge tone="warning">Over limit</span>
+      <span zzBadge tone="danger">Rejected</span>
+    </div>
+
+    <div
+      class="flex flex-wrap gap-2 rounded-surface border border-border bg-surface p-3"
+      id="badges-surface"
+    >
+      <span zzBadge>Draft</span>
+      <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+      <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+      <span zzBadge tone="warning">Over limit</span>
+      <span zzBadge tone="danger">Rejected</span>
+    </div>
+
+    <div class="flex gap-2 [--info:initial]" id="badges-no-info">
+      <span zzBadge>Draft</span>
+      <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+    </div>
+
+    <div class="light grid gap-4 bg-background p-5 text-foreground" id="badges-light">
+      <div class="flex flex-wrap gap-2" id="badges-light-background">
+        <span zzBadge>Draft</span>
+        <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+        <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+        <span zzBadge tone="warning">Over limit</span>
+        <span zzBadge tone="danger">Rejected</span>
+      </div>
+      <div zzTableFrame aria-label="Light budgets">
+        <!-- An inherited text-end, which align="start" cells and headers override. -->
+        <table zzTable aria-label="Light budgets" class="text-end">
+          <thead>
+            <tr zzTableRow>
+              <th zzTableColumnHeader sort="ascending"><button zzTableSortButton>Name</button></th>
+              <th zzTableColumnHeader><button zzTableSortButton>Status</button></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr zzTableRow>
+              <td zzTableCell>Facilities</td>
+              <td zzTableCell>
+                <span class="flex flex-wrap gap-2" id="badges-light-surface">
+                  <span zzBadge>Draft</span>
+                  <span zzBadge tone="info">Submitted by Ada Lovelace</span>
+                  <span zzBadge tone="success">Approved · BUD-2026-0042</span>
+                  <span zzBadge tone="warning">Over limit</span>
+                  <span zzBadge tone="danger">Rejected</span>
+                </span>
+              </td>
+            </tr>
+            <!-- A table nested in a cell: TableFrame's Empty and last-row rules stay on its own table. -->
+            <tr zzTableRow>
+              <td zzTableCell>Allocations</td>
+              <td zzTableCell>
+                <table zzTable aria-label="Facilities allocations" id="nested-table">
+                  <tbody>
+                    <tr zzTableRow>
+                      <td zzTableCell colspan="2">
+                        <div zzEmpty class="py-0" id="empty-nested">No allocations</div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            <!-- An Empty in a row with other cells: TableFrame's full-span rule leaves it alone. -->
+            <tr zzTableRow>
+              <td zzTableCell>Training</td>
+              <td zzTableCell>
+                <div zzEmpty class="items-start py-0" id="empty-beside-cells">No status yet</div>
+              </td>
+            </tr>
+            <!-- A row's only cell beside a rowspan, without a colspan: the full-span rule leaves
+            its Empty alone. -->
+            <tr zzTableRow>
+              <td zzTableCell rowspan="2">Travel</td>
+              <td zzTableCell>Draft</td>
+            </tr>
+            <tr zzTableRow>
+              <td zzTableCell>
+                <div zzEmpty class="items-start py-0" id="empty-beside-rowspan">
+                  No approver yet
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- The caller's alignment utility wins over align="end" on a header and a cell. -->
+    <table zzTable aria-label="Alignment overrides" id="table-align-override">
+      <thead>
+        <tr zzTableRow>
+          <th zzTableColumnHeader align="end" class="text-center">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr zzTableRow>
+          <td zzTableCell align="end" class="text-center">€1,200.00</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <section zzPage class="p-0" id="page-long">
+      <header zzPageHeader>
+        <div>
+          <h3 zzPageTitle>Organisation budgets for fiscal year 2026</h3>
+          <p zzPageDescription>
+            Acme Ltd · drafts, submissions and approvals across every department.
+          </p>
+        </div>
+        <div zzPageActions lang="de">
+          <button
+            zzButton
+            variant="primary"
+            class="h-auto min-h-8 max-w-full py-1 text-start whitespace-normal [overflow-wrap:anywhere]"
+          >
+            Alle verbleibenden Budgetentwürfe zur Genehmigung einreichen
+          </button>
+        </div>
+      </header>
+    </section>
+
+    <div zzEmpty id="empty-rich">
+      <h3 zzEmptyTitle>No budgets yet</h3>
+      <p zzEmptyDescription>Create the first budget for fiscal year 2026; it starts as a draft.</p>
+      <div zzEmptyActions><button zzButton variant="primary">New budget</button></div>
+    </div>
+  `,
+})
+export class ListParts {}
+
 @Component({
   selector: "app-root",
   imports: [
+    BudgetList,
+    CostCentres,
+    ListParts,
     Button,
     ButtonLink,
     AlertDialogParts,
@@ -1616,6 +3416,7 @@ export class Disclosures {
     Calendars,
     DateEntries,
     Disclosures,
+    MoreDatePickers,
     Checkbox,
     ComboboxParts,
     DialogParts,
@@ -1636,6 +3437,7 @@ export class Disclosures {
     LucideTrash,
     LucideTriangleAlert,
     MenuParts,
+    Meters,
     NumberFieldParts,
     OtpFields,
     PopoverParts,
@@ -1651,6 +3453,7 @@ export class Disclosures {
     TabsParts,
     Textarea,
     ToastRegion,
+    Toggles,
     TooltipParts,
   ],
   template: `
@@ -1854,6 +3657,36 @@ export class Disclosures {
           <h2 zzSheetTitle>Details</h2>
         </div>
       </dialog>
+
+      <!-- A BizneScript list view: Page, Table, Badge and Empty. -->
+      <div class="grid basis-full gap-8" id="list-views">
+        <app-budget-list
+          id="budget-list"
+          heading="Budgets"
+          titleId="budget-list-title"
+          [rows]="budgets"
+        />
+        <app-budget-list
+          id="budget-list-empty"
+          heading="Archived budgets"
+          titleId="budget-list-empty-title"
+          [rows]="[]"
+        />
+        <app-cost-centres
+          id="wide-report"
+          heading="Cost centres"
+          titleId="wide-report-title"
+          [rows]="costCentres"
+        />
+        <app-cost-centres
+          id="wide-report-empty"
+          heading="Closed cost centres"
+          titleId="wide-report-empty-title"
+          [rows]="[]"
+        />
+        <!-- min-w-0, so a no-wrap Button can't widen the grid item past a phone-width header. -->
+        <app-list-parts class="min-w-0" />
+      </div>
     </main>
 
     <section class="grid w-80 gap-4 p-5">
@@ -3166,6 +4999,7 @@ export class Disclosures {
         <div zzProgress [value]="40" aria-label="Light upload" id="progress-light"></div>
       </div>
     </section>
+    <app-meters />
     <!-- Toast fixtures: every toast but the timed one stays until it's closed. -->
     <section id="toasts" class="flex max-w-3xl flex-wrap items-start gap-2 p-5">
       <button zzButton (click)="toastSuccesses()" id="toast-successes">Three saves</button>
@@ -3265,10 +5099,14 @@ export class Disclosures {
       <button zzButton id="after-country-search">After the country search</button>
     </section>
     <app-date-entries />
+    <app-toggles />
+    <app-more-date-pickers />
     <app-disclosures />
   `,
 })
 export class App {
+  protected readonly budgets = BUDGETS;
+  protected readonly costCentres = COST_CENTRES;
   protected readonly open = signal(false);
   protected readonly pending = signal(false);
   protected readonly terminations = signal(0);

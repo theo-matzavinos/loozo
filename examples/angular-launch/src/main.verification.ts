@@ -1,7 +1,7 @@
 // Test-only native entry. No extra UI or production browser globals.
 import { bootstrapApplication } from "@angular/platform-browser";
 import { runInInjectionContext } from "@angular/core";
-import { Router } from "@angular/router";
+import { Router, type NavigationBehaviorOptions } from "@angular/router";
 import { RpcRedirect } from "@loozo/angular-launch";
 import { injectActiveRoute } from "../generated/routes.generated";
 import { App } from "./app";
@@ -17,7 +17,9 @@ declare global {
   var __launchFrameworkError: (() => Promise<string>) | undefined;
   var __launchIdentity: (() => Promise<{ user: string; own: string }>) | undefined;
   var __launchCompleteMissing: ((id: string) => Promise<{ code: string; id: string }>) | undefined;
-  var __launchNavigate: ((url: string) => Promise<boolean>) | undefined;
+  var __launchNavigate:
+    | ((url: string, extras?: NavigationBehaviorOptions) => Promise<boolean>)
+    | undefined;
   var __launchStable: Promise<true> | undefined;
   var __launchChannel:
     | ((titles: string[]) => Promise<{ lists: number[]; outcome: string }>)
@@ -58,7 +60,7 @@ function liveRoute() {
   return route;
 }
 
-globalThis.__launchNavigate = (url) => app.injector.get(Router).navigateByUrl(url);
+globalThis.__launchNavigate = (url, extras) => app.injector.get(Router).navigateByUrl(url, extras);
 
 globalThis.__launchFrameworkError = async () => {
   const { list } = todosRoute().remote.todos;

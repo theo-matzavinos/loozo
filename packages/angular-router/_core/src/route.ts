@@ -1,6 +1,8 @@
 import {
   codecFallback,
   isArrayCodec,
+  isRetained,
+  rememberedId,
   validateCodec,
   type ParamCodec,
   type PathCodec,
@@ -130,6 +132,14 @@ function copyCodecs(value: unknown, path: boolean): Readonly<Record<string, Para
 
     if (path && isArrayCodec(codec)) {
       throw new TypeError("arrayParam codecs are search-only");
+    }
+
+    if (path && isRetained(codec)) {
+      throw new TypeError("retained codecs are search-only");
+    }
+
+    if (path && rememberedId(codec) !== undefined) {
+      throw new TypeError("remembered codecs are search-only");
     }
 
     result[key] = codec;
@@ -295,6 +305,84 @@ function ownOutlet(
   return outlet;
 }
 
+/** A parent's URL facts, with its own parent in the same registry. */
+type Inherited = Omit<UrlMetadata, "parent"> & { readonly parent?: unknown };
+
+/**
+ * Remembered ids are unique within one effective search map: the keys a route and its
+ * ancestors declare. Inherited ids are unique already, checked when each ancestor composed.
+ */
+function checkRememberedIds(
+  localSearch: Readonly<Record<string, ParamCodec<any>>>,
+  inherited: Inherited | undefined,
+  parent: unknown,
+  inheritedOf: (parent: unknown) => Inherited,
+): void {
+  const users = new Map<string, string>();
+
+  for (const key of Object.keys(inherited?.search ?? {})) {
+    const id = rememberedId(inherited!.search[key]);
+
+    if (id !== undefined) {
+      users.set(id, key);
+    }
+  }
+
+  const local = new Set<string>();
+
+  for (const key of Object.keys(localSearch)) {
+    const id = rememberedId(localSearch[key]);
+
+    if (id === undefined) {
+      continue;
+    }
+
+    const other = users.get(id);
+
+    if (other === undefined) {
+      users.set(id, key);
+      local.add(key);
+
+      continue;
+    }
+
+    let where = "";
+
+    if (!local.has(other)) {
+      where = `, inherited from ${ownerPath(other, parent, inheritedOf)}`;
+    }
+
+    throw new TypeError(`Remembered search id "${id}" is used by ${key} and by ${other}${where}`);
+  }
+}
+
+// The effective path of the ancestor that declares an inherited key, as authored: "/orders/$id".
+function ownerPath(
+  key: string,
+  parent: unknown,
+  inheritedOf: (parent: unknown) => Inherited,
+): string {
+  let facts = inheritedOf(parent);
+
+  while (!has(facts.localSearch, key) && facts.parent !== undefined) {
+    facts = inheritedOf(facts.parent);
+  }
+
+  const parts: string[] = [];
+
+  for (const segment of facts.segments) {
+    if (segment.kind === "static") {
+      parts.push(segment.text);
+    } else if (segment.kind === "scalar") {
+      parts.push(`$${segment.name}`);
+    } else {
+      parts.push(`$${segment.name}[]`);
+    }
+  }
+
+  return JSON.stringify(`/${parts.join("/")}`);
+}
+
 /**
  * Path grammar, parent, local codecs and fragments: everything but behavior.
  * `inheritedOf` authenticates the parent in the registry the caller means (routes
@@ -303,7 +391,7 @@ function ownOutlet(
 function facts<Parent>(
   path: unknown,
   value: unknown,
-  inheritedOf: (parent: unknown) => Omit<UrlMetadata, "parent">,
+  inheritedOf: (parent: unknown) => Inherited,
 ): Facts<Parent> {
   const supplied = ownRecord(value, "URL facts");
 
@@ -311,7 +399,7 @@ function facts<Parent>(
 
   const localSegments = parsePath(path);
   let parent: Parent | undefined;
-  let inherited: Omit<UrlMetadata, "parent"> | undefined;
+  let inherited: Inherited | undefined;
 
   if (has(supplied, "parent")) {
     inherited = inheritedOf(supplied.parent);
@@ -375,6 +463,8 @@ function facts<Parent>(
       throw new TypeError(`Inherited search already owned: ${key}`);
     }
   }
+
+  checkRememberedIds(localSearch, inherited, supplied.parent, inheritedOf);
 
   const fragments: string[] = [];
 

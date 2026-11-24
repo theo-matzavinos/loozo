@@ -1,6 +1,6 @@
 # Scale benchmark
 
-Measures how `@loozo/angular-router` scales with the number of routes: first generation, regeneration while serving, `ng build`, type-checking, bundle size and the built app's bootstrap and navigation in Chromium, each on a generated fixture of 100, 300 and 1,000 routes by default. A second workload measures the same routes declared through `@loozo/angular-launch`'s route extension, with SSR and RPC latency in place of the browser; see [Launch workload](#launch-workload).
+Measures how `@loozo/angular-router` scales with the number of routes: first generation, regeneration while serving, `ng build`, type-checking, bundle size and the built app's bootstrap and navigation in Chromium, each on a generated fixture of 100, 300 and 1,000 routes by default. A second workload measures the same routes declared through `@loozo/angular-launch`'s route extension, with SSR and RPC latency in place of the browser; see [Launch workload](#launch-workload). A third adds retained and remembered search keys; see [Remembered workload](#remembered-workload).
 
 It runs on demand only, not in CI. Timings depend on the machine and on whatever else it's running, so compare numbers from one machine under similar load, and read them next to the machine and load averages recorded with them.
 
@@ -24,6 +24,7 @@ pnpm run bench --scenarios 300 --samples boot=20,warm=60
 pnpm run bench --check                                  # also compare against bench/budgets.json
 pnpm run bench --deterministic --check                  # generate, build, tsc and bundle once each; what CI checks
 pnpm run bench --workload launch --check                # the Launch workload, against bench/launch-budgets.json
+pnpm run bench --workload remembered --scenarios 100 --check   # the remembered workload, against bench/remembered-budgets.json
 ```
 
 The script runs under the machine-wide gate lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`): while an acceptance run or another bench holds it, it prints `origami gate: waiting for …` and starts once it's released. A full run holds the lock until it finishes.
@@ -32,7 +33,7 @@ The flags, `results.json`, budgets and the `record`/`check` CLI are the shared h
 
 | Option                | Default                     | Meaning                                                                                                                                                                                                                                                                                       |
 | --------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--workload <name>`   | `router`                    | `router` or `launch` (see [Launch workload](#launch-workload)).                                                                                                                                                                                                                               |
+| `--workload <name>`   | `router`                    | `router`, `remembered` (see [Remembered workload](#remembered-workload)) or `launch` (see [Launch workload](#launch-workload)).                                                                                                                                                               |
 | `--scenarios <list>`  | `100,300,1000`              | Comma-separated route counts, each a positive multiple of 10. Each gets its own fresh consumer.                                                                                                                                                                                               |
 | `--samples <list>`    | by workload, below          | Samples per measurement. Metrics are medians unless their label says p95.                                                                                                                                                                                                                     |
 | `--timeout <seconds>` | `1200`                      | Limit for each command and each wait, including each runtime sample's wait for its page. Exceeding one fails the run. A wait checks its limit between polls, so a long synchronous generation pass can overrun it; the serve process as a whole is killed at the limit times (3 + 2 × edits). |
@@ -41,6 +42,7 @@ The flags, `results.json`, budgets and the `record`/`check` CLI are the shared h
 Sample names and defaults:
 
 - router: `generate=3,edits=3,build=1,ngc=3,tsc=1,boot=10,cold=10,warm=30`;
+- remembered: `generate=3,build=1,ngc=3,tsc=1,boot=10,cold=10,warm=30`;
 - Launch: `generate=3,build=1,ngc=3,tsc=1,ssr=1000,rpc=1000`.
 
 A name the workload doesn't have is a usage error.
@@ -297,6 +299,12 @@ The same machine on 2026-11-14, at `0292b5c` before and after the change:
 | One-minute load average              |          2.5 – 3.4 |         5.9 – 6.9 |          3.3 – 11.4 |          3.1 – 5.2 |
 
 Generated files are byte-identical before and after at every size. At 100 routes the scan was small enough that load differences dominate the comparison.
+
+## Remembered workload
+
+`--workload remembered` is the router workload with [remembered search keys](../README.md#remembered-search-keys) in use. Every block root declares `view: retained(enumParam(["list", "board"]))` and `pageSize: remembered(withFallback(numberParam, 20), "bench.pageSize")`, one id shared by all blocks, and `main.ts` installs `provideSearchStorage("session")`. Every route below a block root therefore has effective search, so each gets the generated matching guard, and the restore's resolver joins each block root's record.
+
+The runtime phase is the router workload's, except that it boots at `/g0000/static/l0?pageSize=50`, so its first commit stores 50; the shell's warm links carry `?pageSize=50`, so each warm round trip stays inside `g0000` and writes the unchanged value to `sessionStorage`; and the cold link enters the last block's root without the key, so the cold navigation reads 50, redirects and runs a second attempt before its page shows. `runtime.navigateColdMs` is therefore a restoring entry, and `runtime.navigateWarmMs` a navigation inside the owner with its commit write. There's no serve phase. `bench/remembered-budgets.json` budgets 100 routes only, by the same rules as `bench/budgets.json`.
 
 ## Launch workload
 

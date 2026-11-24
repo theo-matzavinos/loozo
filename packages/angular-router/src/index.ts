@@ -22,6 +22,8 @@ export {
   enumParam,
   withFallback,
   arrayParam,
+  retained,
+  remembered,
 } from "@loozo/angular-router/_core";
 export type {
   Route,
@@ -30,5 +32,7 @@ export type {
   LocaleUrl,
   ParamsOf,
   SearchOf,
+  SearchRestore,
+  SearchStorage,
   TargetOf,
 } from "@loozo/angular-router/_core";

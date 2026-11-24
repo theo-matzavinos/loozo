@@ -1,12 +1,19 @@
 import type { ApplicationConfig } from "@angular/core";
-import { provideRouter } from "@angular/router";
+import { provideRouter, withNavigationErrorHandler } from "@angular/router";
 import { provideClientHydration, withNoHttpTransferCache } from "@angular/platform-browser";
-import { provideActiveRouteHydration, routes } from "../generated/routes.generated.js";
+import {
+  provideActiveRouteHydration,
+  provideSearchStorage,
+  routes,
+} from "../generated/routes.generated.js";
+import { notFoundErrors } from "./not-found.js";
+import { cookieSearchStorage } from "./search-cookies.js";
 
 export const config: ApplicationConfig = {
   providers: [
-    provideRouter(routes),
+    provideRouter(routes, withNavigationErrorHandler(notFoundErrors)),
     provideClientHydration(withNoHttpTransferCache()),
     provideActiveRouteHydration(),
+    provideSearchStorage(cookieSearchStorage),
   ],
 };

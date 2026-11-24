@@ -19,16 +19,23 @@
 // sizes, long names, drag and drop, keyboard focus, validation, clearing, states, themes and
 // forced colors, and the date fields' and DatePicker's server state, cells that keep their width
 // while typing, gaps, looks, popup placement, choosing, Escape in a Dialog, readonly and disabled
-// policies and forced colors, and Accordion's and Collapsible's server state, ARIA links, class
-// routing to the content box, selection, locks, disabled looks, deferred content, themes and forced
-// colors. Scrolling in Select, Combobox, Menu and Popover content and Dialog
-// and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial focus, revealing the
-// active option or the focused control, and height caps) is consumer-scrolling.mjs's, in every
-// engine.
+// policies and forced colors, Toggle's, ToggleGroup's and Toolbar's server state and tab
+// stops, looks, sizes, Field wiring, segmented geometry and dot, keys, roving, bindings, wrapping,
+// popups, reduced motion and forced colors, Meter's and MeterRing's server state and paint,
+// hydration on the same nodes, regions, bounds, geometry, sweep, themes, right to left, live
+// bounds, live value and no data, the emitted mask prefix and forced colors, the multiple,
+// range, month and date-time pickers' server state, geometry, footer, choices and close rules,
+// months away, the month picker's years, an incomplete time, looks, right to left, narrow rows and
+// triggers, short popups and forced colors, and Accordion's and Collapsible's server state, ARIA
+// links, class routing to the content box, selection, locks, disabled looks, deferred content,
+// themes and forced colors. Scrolling in Select, Combobox, Menu and Popover
+// content and Dialog and Sheet bodies (thumbs, Tab out of an open list, menu or Popover, initial
+// focus, revealing the active option or the focused control, and height caps) is
+// consumer-scrolling.mjs's, in every engine.
 //
 // Usage: node tests/consumer-smoke.mjs <app directory>
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { chromium } from "playwright";
@@ -6989,6 +6996,1004 @@ try {
     );
   };
 
+  // Meter and MeterRing, in their own block. Exact geometry and pixels are DPR-1 values. Every
+  // meter root is listed with what Origami and fold render for it; the Options probe has its own
+  // expectations, since it draws nothing.
+  {
+    const bar = (id, now, region, extra = {}) => ({
+      id,
+      kind: "bar",
+      min: 0,
+      max: 100,
+      now,
+      percent: now,
+      region,
+      defaultSize: true,
+      ...extra,
+    });
+    const ring = (id, now, region, extra = {}) => ({
+      ...bar(id, now, region, extra),
+      kind: "ring",
+    });
+    const meterRoots = [
+      bar("meter-disk-72", 72, "suboptimum"),
+      ring("ring-disk-35", 35, "optimum"),
+      ring("ring-disk-72", 72, "suboptimum"),
+      ring("ring-disk-92", 92, "worst"),
+      ring("ring-seats", 12, null, { max: 40, percent: 30, text: "12 of 40 seats" }),
+      ring("ring-big", 72, null, { defaultSize: false }),
+      bar("meter-plain", 42, null),
+      bar("meter-disk-35", 35, "optimum"),
+      bar("meter-disk-92", 92, "worst"),
+      bar("meter-thick", 72, null, { defaultSize: false }),
+      bar("meter-recolour", 92, "worst"),
+      // A max below min is raised to it: an empty range at 0%, where fold's region needs the raise.
+      bar("meter-inverted", 20, "optimum", { min: 20, max: 20, percent: 0 }),
+      // A max that isn't a number falls back to 100.
+      bar("meter-nan-max", 90, "worst"),
+      ring("ring-bounds", 70, "suboptimum"),
+      bar("meter-threshold", 70, "suboptimum"),
+      ring("ring-arrivals", 25, "worst"),
+      bar("meter-rtl-35", 35, "optimum"),
+      ring("ring-rtl-35", 35, "optimum"),
+      bar("meter-light-plain", 42, null),
+      bar("meter-light-35", 35, "optimum"),
+      bar("meter-light-72", 72, "suboptimum"),
+      bar("meter-light-92", 92, "worst"),
+      ring("ring-light-35", 35, "optimum"),
+      bar("meter-forced-92", 92, "worst"),
+      ring("ring-forced-92", 92, "worst"),
+      bar("meter-recipe", 92, "worst", { text: "92% used, critically full" }),
+    ];
+    const valueTextOf = (root) => root.text ?? `${root.percent}%`;
+    const dark = {
+      foreground: "rgb(237, 237, 235)",
+      warning: "rgb(233, 184, 106)",
+      destructive: "rgb(196, 71, 26)",
+      input: "rgb(107, 107, 104)",
+    };
+    const light = {
+      foreground: "rgb(27, 27, 27)",
+      warning: "rgb(128, 86, 10)",
+      destructive: "rgb(184, 66, 26)",
+      input: "rgb(133, 133, 129)",
+    };
+    const conic = (color, percent) => `conic-gradient(${color} ${percent}%, rgba(0, 0, 0, 0) 0deg)`;
+    const rgb = (color) => channels(color).slice(0, 3);
+
+    // 1. Server HTML: Origami's ARIA and percent and fold's region and parts, before any script.
+    for (const root of meterRoots) {
+      const tag = openingTag(html, root.id);
+      const markup = element(html, root.id);
+
+      assert.match(tag, /\brole="meter"/, `${root.id} role`);
+      assert.match(tag, new RegExp(`\\baria-valuemin="${root.min}"`), `${root.id} min`);
+      assert.match(tag, new RegExp(`\\baria-valuemax="${root.max}"`), `${root.id} max`);
+      assert.match(tag, new RegExp(`\\baria-valuenow="${root.now}"`), `${root.id} now`);
+      assert.match(
+        tag,
+        new RegExp(`--og-meter-percent:\\s*${root.percent}%`),
+        `${root.id} percent`,
+      );
+      assert.match(tag, /\bdata-slot="meter"/, `${root.id} slot`);
+      assert.equal(
+        /\baria-valuetext="([^"]*)"/.exec(tag)?.[1],
+        valueTextOf(root),
+        `${root.id} text`,
+      );
+
+      if (root.region === null) {
+        assert.doesNotMatch(tag, /\sdata-region=/, `${root.id} region`);
+      } else {
+        assert.match(tag, new RegExp(`\\bdata-region="${root.region}"`), `${root.id} region`);
+      }
+
+      if (root.kind === "bar") {
+        assert.match(markup, /<span\b[^>]*\bdata-slot="meter-fill"/, `${root.id} fill`);
+      } else {
+        const centre = /<span\b[^>]*\bdata-slot="meter-value"[^>]*>([^<]*)<\/span>/.exec(markup);
+
+        assert.match(markup, /<span\b[^>]*\bdata-slot="meter-arc"/, `${root.id} arc`);
+        assert.equal(centre?.[1].trim(), valueTextOf(root), `${root.id} centre`);
+      }
+    }
+
+    // The Options probe reads Options that replace Origami's own: its bound value over a 0–200
+    // range. An eager Options read in fold's thresholds would throw NG0950 in the prerender.
+    const optionsTag = openingTag(html, "meter-options");
+
+    assert.match(optionsTag, /\brole="meter"/);
+    assert.match(optionsTag, /\baria-valuemin="0"/);
+    assert.match(optionsTag, /\baria-valuemax="200"/);
+    assert.match(optionsTag, /\baria-valuenow="90"/);
+    assert.match(optionsTag, /\baria-valuetext="45%"/);
+    assert.match(optionsTag, /--og-meter-percent:\s*45%/);
+    assert.match(optionsTag, /\bdata-region="optimum"/);
+    assert.doesNotMatch(optionsTag, /\sdata-slot=/);
+    assert.doesNotMatch(element(html, "meter-options").slice(optionsTag.length), /<[a-z]/);
+    assert.doesNotMatch(html, /\bid="meter-arrivals-empty"/);
+
+    // 2. The ring's mask, as the consumer's production stylesheet emits it.
+    const browserOutput = join(app, "dist/consumer/browser");
+    const stylesheets = [];
+
+    for (const file of await readdir(browserOutput)) {
+      if (/^styles-[^/]*\.css$/.test(file)) {
+        stylesheets.push(file);
+      }
+    }
+
+    assert.equal(stylesheets.length, 1, `one global stylesheet: ${stylesheets.join(", ")}`);
+
+    const css = await readFile(join(browserOutput, stylesheets[0]), "utf8");
+    const maskRules = [...css.matchAll(/[^{}]*mask-image[^{}]*7\\\.5px[^{}]*\{([^}]*)\}/g)];
+    const prefixMessage =
+      "Angular's esbuild adds -webkit-mask-image for Chrome/Edge 119 (D6). If Angular's default " +
+      "targets no longer include 119, delete this check and D6's caveat.";
+
+    assert.equal(maskRules.length, 1, `one MeterRing mask rule. ${prefixMessage}`);
+
+    const maskBody = maskRules[0][1];
+    const maskDeclarations =
+      /^-webkit-mask-image:(radial-gradient\(farthest-side,[^;]+\));mask-image:(radial-gradient\(farthest-side,[^;]+\))$/.exec(
+        maskBody,
+      );
+
+    assert.ok(maskDeclarations, `the mask rule is ${maskBody}. ${prefixMessage}`);
+    assert.equal(maskDeclarations[1], maskDeclarations[2], prefixMessage);
+
+    // Pixel helpers over viewport coordinates read in-page. `ringPoint` samples a ring's interior,
+    // clockwise from twelve; `edgePoints` samples each cardinal side's outline pixel and its two
+    // gap pixels as whole-pixel offsets from the layout edge, where the circle's edge is
+    // axis-aligned.
+    const ringPoint = (rect, angle, radius) => {
+      const theta = (angle * Math.PI) / 180;
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      return [cx + radius * Math.sin(theta), cy - radius * Math.cos(theta)];
+    };
+    const edgePoints = (rect) => {
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      return {
+        top: [
+          [cx, rect.top],
+          [cx, rect.top + 1],
+          [cx, rect.top + 2],
+        ],
+        right: [
+          [rect.right - 1, cy],
+          [rect.right - 2, cy],
+          [rect.right - 3, cy],
+        ],
+        bottom: [
+          [cx, rect.bottom - 1],
+          [cx, rect.bottom - 2],
+          [cx, rect.bottom - 3],
+        ],
+        left: [
+          [rect.left, cy],
+          [rect.left + 1, cy],
+          [rect.left + 2, cy],
+        ],
+      };
+    };
+    // Every sample, rounded as it's read, lies in the viewport and the root's rounded box, so none
+    // reads past a row or off the meter.
+    const assertSamples = (points, box, viewport, label) => {
+      for (const [x, y] of points) {
+        const column = Math.round(x);
+        const row = Math.round(y);
+
+        assert.ok(
+          column >= 0 && column < viewport.width && row >= 0 && row < viewport.height,
+          `${label}: (${column}, ${row}) is outside the ${viewport.width}×${viewport.height} viewport`,
+        );
+        assert.ok(
+          column >= Math.round(box.left) &&
+            column < Math.round(box.right) &&
+            row >= Math.round(box.top) &&
+            row < Math.round(box.bottom),
+          `${label}: (${column}, ${row}) is outside the root's box`,
+        );
+      }
+    };
+    // A 1px round outline at DPR 1 covers its cardinal pixel only partly, so the pixel is the
+    // outline composited over the ground: every channel at least 90% of the way to the outline.
+    const assertOutline = (actual, outline, ground, label) => {
+      for (let index = 0; index < 3; index += 1) {
+        const coverage = (actual[index] - ground[index]) / (outline[index] - ground[index]);
+
+        assert.ok(
+          coverage >= 0.9 && coverage <= 1.02,
+          `${label}: [${actual}] isn't [${outline}] over [${ground}] at 90% or more`,
+        );
+      }
+    };
+    // The gap is the ground: its inner pixel exactly, and the pixel next to the outline at most
+    // 10% of the way to the outline, which its antialiasing bleeds into.
+    const assertGap = (outer, inner, outline, ground, label) => {
+      assert.deepEqual(inner, ground, `${label}: inner pixel`);
+
+      for (let index = 0; index < 3; index += 1) {
+        const bleed = (outer[index] - ground[index]) / (outline[index] - ground[index]);
+
+        assert.ok(
+          bleed >= 0 && bleed <= 0.1,
+          `${label}: [${outer}] is more than 10% of the way from [${ground}] to [${outline}]`,
+        );
+      }
+    };
+    const rectsOf = (target, ids) =>
+      target.evaluate((ids) => {
+        const result = {};
+
+        for (const id of ids) {
+          const element = document.getElementById(id);
+          const rect = element.getBoundingClientRect();
+          const box = {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          };
+
+          result[id] = box;
+
+          const part = element.querySelector("[data-slot=meter-fill], [data-slot=meter-arc]");
+
+          if (part !== null) {
+            const partRect = part.getBoundingClientRect();
+
+            result[`${id} part`] = {
+              left: partRect.left,
+              top: partRect.top,
+              right: partRect.right,
+              bottom: partRect.bottom,
+              width: partRect.width,
+              height: partRect.height,
+            };
+          }
+        }
+
+        return result;
+      }, ids);
+    // A page promise with a deadline: a font load or a frame that never comes throws instead, so
+    // the held page's cleanup still releases its scripts and the run exits.
+    const bounded = async (pending, label) => {
+      let timer;
+
+      try {
+        return await Promise.race([
+          pending,
+          new Promise((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} took over 10 s`)), 10_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    // Scrolls a sampled group into view and waits for its paint before anything is read.
+    const showGroup = async (target, id) => {
+      await bounded(
+        target.evaluate((id) => {
+          document.getElementById(id).scrollIntoView({ block: "center" });
+
+          return new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        }, id),
+        `${id}'s paint`,
+      );
+    };
+    const groundOf = async (target, id) =>
+      rgb(
+        await target.evaluate(
+          (id) => getComputedStyle(document.getElementById(id)).backgroundColor,
+          id,
+        ),
+      );
+    const viewport = { width: 1280, height: 720 };
+
+    // 3. Server paint and hydration on the same nodes, on a page whose scripts wait.
+    const held = await browser.newPage({ deviceScaleFactor: 1, viewport });
+
+    held.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") {
+        errors.push(message.text());
+      }
+    });
+    held.on("pageerror", (error) => errors.push(String(error)));
+
+    let releaseScripts;
+    let heldRequests = 0;
+    const scriptsReleased = new Promise((resolve) => {
+      releaseScripts = resolve;
+    });
+    const holdScripts = async (route) => {
+      heldRequests += 1;
+      await scriptsReleased;
+      await route.continue();
+    };
+    const heldPixels = async (points) => {
+      await bounded(
+        held.evaluate(
+          () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+        ),
+        "the held page's paint",
+      );
+
+      const read = decodePng(await held.screenshot({ animations: "disabled" }));
+
+      return points.map(([x, y]) => read(Math.round(x), Math.round(y)));
+    };
+    const heldReading = () =>
+      held.evaluate(() => {
+        const root = document.getElementById("meter-disk-72");
+        const fill = root.querySelector("[data-slot=meter-fill]");
+        const ringRoot = document.getElementById("ring-disk-72");
+        const style = getComputedStyle(root);
+        const content =
+          root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const read = (element) => ({
+          now: element.getAttribute("aria-valuenow"),
+          min: element.getAttribute("aria-valuemin"),
+          max: element.getAttribute("aria-valuemax"),
+          text: element.getAttribute("aria-valuetext"),
+          region: element.getAttribute("data-region"),
+          percent: element.style.getPropertyValue("--og-meter-percent"),
+        });
+
+        return {
+          bar: read(root),
+          ring: read(ringRoot),
+          share: fill.getBoundingClientRect().width / content,
+          gradient: getComputedStyle(ringRoot.querySelector("[data-slot=meter-arc]"))
+            .backgroundImage,
+          centre: ringRoot.querySelector("[data-slot=meter-value]").textContent.trim(),
+        };
+      });
+
+    await held.route("**/*.js", holdScripts);
+
+    try {
+      let serverReading;
+
+      try {
+        await held.goto(base, { waitUntil: "commit" });
+        await held.waitForFunction(
+          () => document.getElementById("meter-disk-72")?.getBoundingClientRect().height === 12,
+          null,
+          { timeout: 10_000 },
+        );
+        await bounded(
+          held.evaluate(() => document.fonts.ready.then(() => undefined)),
+          "the held page's fonts",
+        );
+
+        assert.ok(heldRequests > 0, "at least one script request is held");
+        assert.equal(await held.evaluate(() => document.querySelector("[ngh]") !== null), true);
+
+        await showGroup(held, "meter-disk-72");
+        await held.evaluate(() => {
+          const bar = document.getElementById("meter-disk-72");
+          const ring = document.getElementById("ring-disk-72");
+
+          window.meterServerNodes = [
+            bar,
+            bar.querySelector("[data-slot=meter-fill]"),
+            ring,
+            ring.querySelector("[data-slot=meter-arc]"),
+            ring.querySelector("[data-slot=meter-value]"),
+          ];
+        });
+
+        serverReading = await heldReading();
+
+        const { now, min, max } = serverReading.bar;
+        const expectedShare = (Number(now) - Number(min)) / (Number(max) - Number(min));
+
+        assert.equal(expectedShare, 0.72);
+        assert.ok(
+          Math.abs(serverReading.share - expectedShare) <= 0.001,
+          `server fill share ${serverReading.share} isn't ${expectedShare}`,
+        );
+        assert.equal(serverReading.gradient, conic(dark.warning, 72));
+        assert.equal(serverReading.centre, serverReading.ring.text);
+
+        const rects = await rectsOf(held, ["meter-disk-72", "ring-disk-72"]);
+        const fillRect = rects["meter-disk-72 part"];
+        const ringRect = rects["ring-disk-72"];
+        const barMiddle = [fillRect.left + fillRect.width / 2, fillRect.top + fillRect.height / 2];
+        const ringRight = ringPoint(ringRect, 90, 41);
+        const ringHole = ringPoint(ringRect, 90, 25);
+
+        assertSamples([barMiddle], rects["meter-disk-72"], viewport, "server bar");
+        assertSamples([ringRight, ringHole], ringRect, viewport, "server ring");
+
+        const ground = await groundOf(held, "meters");
+        const [barFill, ringFill, hole] = await heldPixels([barMiddle, ringRight, ringHole]);
+
+        assert.deepEqual(barFill, rgb(dark.warning), "server bar fill");
+        assert.deepEqual(ringFill, rgb(dark.warning), "server ring arc");
+        assert.deepEqual(hole, ground, "server ring hole");
+      } finally {
+        releaseScripts();
+      }
+
+      await held.waitForFunction(() => !document.querySelector("[ngh]"), null, {
+        timeout: 10_000,
+      });
+      assert.deepEqual(
+        await held.evaluate(() => {
+          const bar = document.getElementById("meter-disk-72");
+          const ring = document.getElementById("ring-disk-72");
+          const nodes = [
+            bar,
+            bar.querySelector("[data-slot=meter-fill]"),
+            ring,
+            ring.querySelector("[data-slot=meter-arc]"),
+            ring.querySelector("[data-slot=meter-value]"),
+          ];
+          const same = [];
+
+          for (let index = 0; index < nodes.length; index += 1) {
+            same.push(nodes[index] === window.meterServerNodes[index]);
+          }
+
+          return same;
+        }),
+        [true, true, true, true, true],
+        "hydration keeps the server's meter nodes",
+      );
+      assert.deepEqual(
+        await heldReading(),
+        serverReading,
+        "hydration keeps the server's meter state",
+      );
+
+      // Each naming path names exactly one meter.
+      for (const [name, id] of [
+        ["System disk", "meter-disk-72"],
+        ["Disk ring", "ring-disk-72"],
+        ["Disk capacity", "meter-recipe"],
+      ]) {
+        const named = held.getByRole("meter", { name, exact: true });
+
+        assert.equal(await named.count(), 1, `one meter named ${name}`);
+        assert.equal(await named.evaluate((element) => element.id), id, `${name} names ${id}`);
+      }
+
+      assert.deepEqual(
+        await held.evaluate(() => {
+          const result = { rootsHidden: [], childrenHidden: [] };
+
+          for (const id of ["meter-disk-72", "ring-disk-72", "meter-recipe"]) {
+            result.rootsHidden.push(document.getElementById(id).hasAttribute("aria-hidden"));
+          }
+
+          for (const id of ["meter-disk-72", "ring-disk-72"]) {
+            for (const child of document.getElementById(id).children) {
+              result.childrenHidden.push(child.getAttribute("aria-hidden"));
+            }
+          }
+
+          return result;
+        }),
+        { rootsHidden: [false, false, false], childrenHidden: ["true", "true", "true"] },
+      );
+      // The recipe's heading row shows the meter's value text, hidden from assistive technology,
+      // which reads it from the meter.
+      assert.deepEqual(
+        await held.evaluate(() => {
+          const text = document.getElementById("meter-recipe-text");
+
+          return {
+            shown: text?.textContent.trim() ?? null,
+            hidden: text?.getAttribute("aria-hidden") ?? null,
+            valueText: document.getElementById("meter-recipe").getAttribute("aria-valuetext"),
+          };
+        }),
+        {
+          shown: "92% used, critically full",
+          hidden: "true",
+          valueText: "92% used, critically full",
+        },
+        "the recipe's visible value text",
+      );
+    } finally {
+      // A failed assertion closes the page while held scripts still wait to continue; dropping
+      // their errors keeps the failure the run reports and lets it reach the server's cleanup.
+      // Route removal can itself reject once the page or browser is gone; the page still closes and
+      // the original failure is the one the run reports.
+      await held
+        .unrouteAll({ behavior: "ignoreErrors" })
+        .finally(() => held.close())
+        .catch(() => undefined);
+    }
+
+    // The main page, fresh: the earlier blocks leave a toast over the viewport.
+    await fresh();
+    await page.mouse.move(0, 0);
+
+    // 4. Geometry: a 12px bar with a 6px fill and a 1px outline, a 96px ring with a 90px arc, both
+    // resized by an ordinary class; every fill's share is its percent.
+    const geometry = await page.evaluate((roots) => {
+      const result = {};
+
+      for (const { id, kind } of roots) {
+        const root = document.getElementById(id);
+        const style = getComputedStyle(root);
+        const rect = root.getBoundingClientRect();
+        const entry = {
+          width: rect.width,
+          height: rect.height,
+          border: style.borderTopWidth,
+        };
+
+        if (kind === "bar") {
+          const fill = root.querySelector("[data-slot=meter-fill]").getBoundingClientRect();
+          const content =
+            root.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+
+          entry.fillHeight = fill.height;
+          entry.share = fill.width / content;
+        } else {
+          const arc = root.querySelector("[data-slot=meter-arc]").getBoundingClientRect();
+
+          entry.arc = [arc.width, arc.height];
+        }
+
+        result[id] = entry;
+      }
+
+      // The seats ring's two line boxes, as distances from the ring's centre to their farthest
+      // corners.
+      const seats = document.getElementById("ring-seats");
+      const seatsRect = seats.getBoundingClientRect();
+      const cx = seatsRect.left + seatsRect.width / 2;
+      const cy = seatsRect.top + seatsRect.height / 2;
+      const range = document.createRange();
+      const lines = [];
+
+      range.selectNodeContents(seats.querySelector("[data-slot=meter-value]"));
+
+      for (const line of range.getClientRects()) {
+        lines.push(
+          Math.hypot(
+            Math.max(Math.abs(line.left - cx), Math.abs(line.right - cx)),
+            Math.max(Math.abs(line.top - cy), Math.abs(line.bottom - cy)),
+          ),
+        );
+      }
+
+      result.seatsLines = lines;
+
+      return result;
+    }, meterRoots);
+
+    for (const root of meterRoots) {
+      const measured = geometry[root.id];
+
+      if (root.kind === "bar") {
+        assert.ok(
+          Math.abs(measured.share - root.percent / 100) <= 0.001,
+          `${root.id} fill share ${measured.share} isn't ${root.percent / 100}`,
+        );
+
+        if (root.defaultSize) {
+          assert.equal(measured.height, 12, `${root.id} height`);
+          assert.equal(measured.fillHeight, 6, `${root.id} fill height`);
+          assert.equal(measured.border, "1px", `${root.id} outline`);
+        }
+      } else if (root.defaultSize) {
+        assert.deepEqual([measured.width, measured.height], [96, 96], `${root.id} size`);
+        assert.deepEqual(measured.arc, [90, 90], `${root.id} arc`);
+      }
+    }
+
+    assert.equal(geometry["meter-thick"].width, 240);
+    assert.equal(geometry["meter-thick"].fillHeight, 10);
+    assert.deepEqual([geometry["ring-big"].width, geometry["ring-big"].height], [128, 128]);
+    assert.equal(geometry.seatsLines.length, 2, "the seats text is two lines");
+
+    for (const distance of geometry.seatsLines) {
+      assert.ok(distance <= 37, `a seats line reaches ${distance}px from the centre`);
+    }
+
+    // 5. The ring's mask, stops and sweep: an 8px arc from twelve, clockwise, with a clear hole.
+    await showGroup(page, "ring-disk-35");
+
+    const arcStyle = (id) =>
+      page.evaluate((id) => {
+        const style = getComputedStyle(
+          document.getElementById(id).querySelector("[data-slot=meter-arc]"),
+        );
+
+        return { mask: style.maskImage, gradient: style.backgroundImage };
+      }, id);
+    const sweep = await arcStyle("ring-disk-35");
+
+    assert.match(
+      sweep.mask,
+      /radial-gradient\(farthest-side, rgba\(0, 0, 0, 0\) calc\(100% - 8px\), rgb\(0, 0, 0\) calc\(100% - 7\.5px\)\)/,
+    );
+    assert.equal(sweep.gradient, conic(dark.foreground, 35));
+
+    const meterGround = await groundOf(page, "meters");
+    const ringSamples = async (id, label) => {
+      const rects = await rectsOf(page, [id]);
+      const rect = rects[id];
+      const interior = [
+        ringPoint(rect, 356, 41),
+        ringPoint(rect, 4, 41),
+        ringPoint(rect, 122, 41),
+        ringPoint(rect, 131, 41),
+        ringPoint(rect, 270, 41),
+        ringPoint(rect, 90, 35.5),
+        ringPoint(rect, 90, 39),
+      ];
+      const edges = edgePoints(rect);
+      const band = [...edges.top, ...edges.right, ...edges.bottom, ...edges.left];
+
+      assertSamples([...interior, ...band], rect, viewport, label);
+
+      const colors = await bounded(screenPixels([...interior, ...band]), `${label} pixels`);
+
+      return { interior: colors.slice(0, interior.length), band: colors.slice(interior.length) };
+    };
+    const ltrRing = await ringSamples("ring-disk-35", "ring-disk-35");
+
+    assert.deepEqual(
+      ltrRing.interior,
+      [
+        meterGround,
+        rgb(dark.foreground),
+        rgb(dark.foreground),
+        meterGround,
+        meterGround,
+        meterGround,
+        rgb(dark.foreground),
+      ],
+      "ring-disk-35 sweep: ground at 356°, fill at 4° and 122°, ground at 131° and 270°, a hole at r35.5, stroke at r39",
+    );
+
+    for (let side = 0; side < 4; side += 1) {
+      const [outline, outer, inner] = ltrRing.band.slice(side * 3, side * 3 + 3);
+
+      assertOutline(outline, rgb(dark.input), meterGround, `ring-disk-35 outline, side ${side}`);
+      assertGap(outer, inner, rgb(dark.input), meterGround, `ring-disk-35 gap, side ${side}`);
+    }
+
+    // 6. Colours, resolved: foreground with no region or in the optimum one, warning in the
+    // suboptimum one, destructive in the worst one; an ordinary class recolours a region.
+    const fills = await page.evaluate(() => {
+      const result = {};
+      const probe = document.createElement("span");
+
+      for (const root of document.querySelectorAll("#meters [data-slot=meter]")) {
+        const fill = root.querySelector("[data-slot=meter-fill]");
+        const arc = root.querySelector("[data-slot=meter-arc]");
+
+        result[root.id] = {
+          outline: getComputedStyle(root).borderTopColor,
+          region: root.getAttribute("data-region"),
+        };
+
+        if (fill !== null) {
+          result[root.id].fill = getComputedStyle(fill).backgroundColor;
+        } else {
+          result[root.id].gradient = getComputedStyle(arc).backgroundImage;
+        }
+      }
+
+      probe.style.color = "var(--destructive-text)";
+      document.getElementById("meters").append(probe);
+      result.destructiveText = getComputedStyle(probe).color;
+      probe.remove();
+
+      return result;
+    });
+
+    for (const [id, color] of [
+      ["meter-plain", dark.foreground],
+      ["meter-disk-35", dark.foreground],
+      ["meter-disk-72", dark.warning],
+      ["meter-disk-92", dark.destructive],
+      ["meter-light-plain", light.foreground],
+      ["meter-light-35", light.foreground],
+      ["meter-light-72", light.warning],
+      ["meter-light-92", light.destructive],
+    ]) {
+      assert.equal(fills[id].fill, color, `${id} fill`);
+    }
+
+    for (const [id, color, percent] of [
+      ["ring-disk-35", dark.foreground, 35],
+      ["ring-disk-72", dark.warning, 72],
+      ["ring-disk-92", dark.destructive, 92],
+      ["ring-light-35", light.foreground, 35],
+    ]) {
+      assert.equal(fills[id].gradient, conic(color, percent), `${id} arc`);
+    }
+
+    assert.equal(fills["meter-disk-35"].outline, dark.input);
+    assert.equal(fills["ring-disk-35"].outline, dark.input);
+    assert.equal(fills["meter-light-35"].outline, light.input);
+    assert.equal(fills["ring-light-35"].outline, light.input);
+    assert.notEqual(fills.destructiveText, dark.destructive);
+    assert.equal(fills["meter-recolour"].fill, fills.destructiveText);
+    assert.equal(fills["meter-recipe"].region, "worst");
+    assert.equal(fills["meter-recipe"].fill, dark.destructive);
+
+    // 7. Right to left: the bar fills from inline-start; the ring stays clockwise.
+    await showGroup(page, "meter-rtl");
+
+    const starts = await page.evaluate(() => {
+      const edges = (id) => {
+        const root = document.getElementById(id).getBoundingClientRect();
+        const fill = document
+          .getElementById(id)
+          .querySelector("[data-slot=meter-fill]")
+          .getBoundingClientRect();
+
+        return { left: fill.left - root.left, right: root.right - fill.right };
+      };
+
+      return { ltr: edges("meter-disk-35").left, rtl: edges("meter-rtl-35").right };
+    });
+
+    assert.ok(Math.abs(starts.ltr - 3) < 0.01, `the LTR fill starts ${starts.ltr}px in`);
+    assert.ok(Math.abs(starts.rtl - 3) < 0.01, `the RTL fill starts ${starts.rtl}px in`);
+    assert.deepEqual(await arcStyle("ring-rtl-35"), sweep, "the RTL ring draws as the LTR one");
+
+    const rtlRing = await ringSamples("ring-rtl-35", "ring-rtl-35");
+
+    assert.deepEqual(
+      [rtlRing.interior[1], rtlRing.interior[2], rtlRing.interior[0]],
+      [rgb(dark.foreground), rgb(dark.foreground), meterGround],
+      "ring-rtl-35: fill at 4° and 122°, ground at 356°",
+    );
+
+    // 8. Live bounds and threshold removal: the region and the drawing follow on the same node.
+    const ringNow = (id) =>
+      page.evaluate((id) => {
+        const root = document.getElementById(id);
+
+        return {
+          max: root.getAttribute("aria-valuemax"),
+          percent: root.style.getPropertyValue("--og-meter-percent"),
+          gradient: getComputedStyle(root.querySelector("[data-slot=meter-arc]")).backgroundImage,
+          centre: root.querySelector("[data-slot=meter-value]").textContent.trim(),
+          text: root.getAttribute("aria-valuetext"),
+          region: root.getAttribute("data-region"),
+        };
+      }, id);
+    const untilMeter = (id, name, value) =>
+      page.waitForFunction(
+        ([id, name, value]) => document.getElementById(id)?.getAttribute(name) === value,
+        [id, name, value],
+        { timeout: 10_000 },
+      );
+    const thresholdLook = () =>
+      page.evaluate(() => {
+        const root = document.getElementById("meter-threshold");
+
+        return {
+          region: root.getAttribute("data-region"),
+          fill: getComputedStyle(root.querySelector("[data-slot=meter-fill]")).backgroundColor,
+        };
+      });
+
+    await page.click("#meter-toggle-max");
+    await untilMeter("ring-bounds", "aria-valuemax", "140");
+    assert.deepEqual(await ringNow("ring-bounds"), {
+      max: "140",
+      percent: "50%",
+      gradient: conic(dark.foreground, 50),
+      centre: "50%",
+      text: "50%",
+      region: "optimum",
+    });
+
+    await page.click("#meter-toggle-max");
+    await untilMeter("ring-bounds", "aria-valuemax", "100");
+    assert.deepEqual(await ringNow("ring-bounds"), {
+      max: "100",
+      percent: "70%",
+      gradient: conic(dark.warning, 70),
+      centre: "70%",
+      text: "70%",
+      region: "suboptimum",
+    });
+
+    await page.click("#meter-toggle-low");
+    await page.waitForFunction(
+      () => !document.getElementById("meter-threshold").hasAttribute("data-region"),
+      null,
+      { timeout: 10_000 },
+    );
+    assert.deepEqual(await thresholdLook(), { region: null, fill: dark.foreground });
+
+    await page.click("#meter-toggle-low");
+    await untilMeter("meter-threshold", "data-region", "suboptimum");
+    assert.deepEqual(await thresholdLook(), { region: "suboptimum", fill: dark.warning });
+
+    // 9. A live value and no data: the centre is Origami's live value text at every state; no data
+    // is the consumer's placeholder, and data again is a new ring.
+    await showGroup(page, "meter-arrivals-card");
+    await page.evaluate(() => {
+      window.meterArrivalsRing = document.getElementById("ring-arrivals");
+    });
+
+    const arrivals = () =>
+      page.evaluate(() => {
+        const root = document.getElementById("ring-arrivals");
+        const empty = document.getElementById("meter-arrivals-empty");
+        const meters = document.querySelectorAll("#meter-arrivals-card [role=meter]").length;
+
+        if (root === null) {
+          return { meters, empty: empty?.textContent.trim() ?? null };
+        }
+
+        return {
+          meters,
+          valueNow: root.getAttribute("aria-valuenow"),
+          valueText: root.getAttribute("aria-valuetext"),
+          centre: root.querySelector("[data-slot=meter-value]").textContent.trim(),
+          percent: root.style.getPropertyValue("--og-meter-percent"),
+          gradient: getComputedStyle(root.querySelector("[data-slot=meter-arc]")).backgroundImage,
+          region: root.getAttribute("data-region"),
+          same: root === window.meterArrivalsRing,
+          empty: empty?.textContent.trim() ?? null,
+        };
+      });
+    const arrivalsState = (now, color, region, same) => ({
+      meters: 1,
+      valueNow: String(now),
+      valueText: `${now}%`,
+      centre: `${now}%`,
+      percent: `${now}%`,
+      gradient: conic(color, now),
+      region,
+      same,
+      empty: null,
+    });
+
+    assert.deepEqual(await arrivals(), arrivalsState(25, dark.destructive, "worst", true));
+
+    for (const { now, expected } of [
+      { now: "75", expected: arrivalsState(75, dark.foreground, "optimum", true) },
+      { now: "100", expected: arrivalsState(100, dark.foreground, "optimum", true) },
+      { now: null, expected: { meters: 0, empty: "No arrivals data for this period" } },
+      { now: "25", expected: arrivalsState(25, dark.destructive, "worst", false) },
+    ]) {
+      await page.click("#meter-next-period");
+
+      if (now === null) {
+        await page.waitForFunction(
+          () => document.getElementById("meter-arrivals-empty") !== null,
+          null,
+          { timeout: 10_000 },
+        );
+      } else {
+        await untilMeter("ring-arrivals", "aria-valuenow", now);
+      }
+
+      const state = await arrivals();
+
+      assert.deepEqual(state, expected, `arrivals after reaching ${now ?? "no data"}`);
+      assert.equal(state.centre, state.valueText, "the centre is the live value text");
+    }
+
+    // 10. Forced colors, in both palettes: CanvasText on the meter's own Canvas, whatever is
+    // painted behind it.
+    for (const colorScheme of ["light", "dark"]) {
+      await page.emulateMedia({ colorScheme, forcedColors: "active" });
+      await showGroup(page, "meter-forced-panel");
+
+      const forced = await page.evaluate(() => {
+        const probe = document.createElement("span");
+
+        probe.style.cssText =
+          "position: fixed; forced-color-adjust: none; background: Canvas; color: CanvasText";
+        document.body.append(probe);
+
+        const system = {
+          canvas: getComputedStyle(probe).backgroundColor,
+          canvasText: getComputedStyle(probe).color,
+        };
+
+        probe.remove();
+
+        const barRoot = document.getElementById("meter-forced-92");
+        const ringRoot = document.getElementById("ring-forced-92");
+
+        return {
+          ...system,
+          panel: getComputedStyle(document.getElementById("meter-forced-panel")).backgroundColor,
+          barGround: getComputedStyle(barRoot).backgroundColor,
+          barOutline: getComputedStyle(barRoot).borderTopColor,
+          barFill: getComputedStyle(barRoot.querySelector("[data-slot=meter-fill]"))
+            .backgroundColor,
+          ringGround: getComputedStyle(ringRoot).backgroundColor,
+          ringOutline: getComputedStyle(ringRoot).borderTopColor,
+          arc: getComputedStyle(ringRoot.querySelector("[data-slot=meter-arc]")).backgroundImage,
+          value: getComputedStyle(ringRoot.querySelector("[data-slot=meter-value]")).color,
+        };
+      });
+      const label = `forced ${colorScheme}`;
+
+      assert.notEqual(forced.panel, forced.canvas, `${label}: the panel isn't Canvas`);
+      assert.deepEqual(
+        [forced.barGround, forced.barOutline, forced.barFill],
+        [forced.canvas, forced.canvasText, forced.canvasText],
+        `${label} bar`,
+      );
+      assert.deepEqual(
+        [forced.ringGround, forced.ringOutline, forced.value],
+        [forced.canvas, forced.canvasText, forced.canvasText],
+        `${label} ring`,
+      );
+      assert.ok(
+        forced.arc.startsWith(`conic-gradient(${forced.canvasText} 92%`),
+        `${label} arc: ${forced.arc}`,
+      );
+
+      const rects = await rectsOf(page, ["meter-forced-92", "ring-forced-92"]);
+      const barRect = rects["meter-forced-92"];
+      const fillRect = rects["meter-forced-92 part"];
+      const ringRect = rects["ring-forced-92"];
+      const barCy = barRect.top + barRect.height / 2;
+      const barPoints = [
+        edgePoints(barRect).top[1],
+        [barRect.left + barRect.width * 0.97, barCy],
+        [fillRect.left + fillRect.width / 2, fillRect.top + fillRect.height / 2],
+      ];
+      const ringEdges = edgePoints(ringRect);
+      const ringBand = [
+        ...ringEdges.top,
+        ...ringEdges.right,
+        ...ringEdges.bottom,
+        ...ringEdges.left,
+      ];
+      const ringPoints = [
+        ringPoint(ringRect, 90, 41),
+        ringPoint(ringRect, 345, 41),
+        ringPoint(ringRect, 90, 25),
+        ...ringBand,
+      ];
+
+      assertSamples(barPoints, barRect, viewport, `${label} bar`);
+      assertSamples(ringPoints, ringRect, viewport, `${label} ring`);
+
+      const colors = await bounded(screenPixels([...barPoints, ...ringPoints]), `${label} pixels`);
+      const canvas = rgb(forced.canvas);
+      const canvasText = rgb(forced.canvasText);
+
+      assert.deepEqual(
+        colors.slice(0, 6),
+        [canvas, canvas, canvasText, canvasText, canvas, canvas],
+        `${label}: bar gap, unfilled span and fill; ring arc at 90°, unfilled at 345°, hole`,
+      );
+
+      const band = colors.slice(6);
+
+      for (let side = 0; side < 4; side += 1) {
+        const [outline, outer, inner] = band.slice(side * 3, side * 3 + 3);
+
+        assertOutline(outline, canvasText, canvas, `${label} ring outline, side ${side}`);
+        assertGap(outer, inner, canvasText, canvas, `${label} ring gap, side ${side}`);
+      }
+    }
+
+    // Playwright's default scheme, which the blocks after this one ran under.
+    await page.emulateMedia({ colorScheme: "light", forcedColors: "none" });
+  }
+
   // Calendar, in its own block. Exact geometry and pixels are DPR-1 values. Every day root pins
   // today to 27 October 2026 and the Monday week start: October's rows are 28 September–4
   // October, 5–11, 12–18, 19–25 and 26 October–1 November.
@@ -7945,9 +8950,9 @@ try {
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
   }
 
-  // Date entry, in its own block: DateField, TimeField, DateTimeField and the single DatePicker in
-  // both shapes. Exact geometry and pixels are DPR-1 values; every Calendar pins today to 27
-  // October 2026.
+  // Date entry, in its own block: DateField, TimeField, DateTimeField, the single DatePicker in
+  // both shapes, and the multiple, range, month and date-time pickers. Exact geometry and pixels
+  // are DPR-1 values; every Calendar pins today to 27 October 2026.
   {
     const box = (id) => `#${id} [data-slot=date-field-input]`;
     const row = (id) => `${box(id)} > [data-slot=date-field-segments]`;
@@ -8128,7 +9133,9 @@ try {
 
       const triggers = {};
 
-      for (const element of document.querySelectorAll("[data-slot=date-picker-trigger]")) {
+      for (const element of document.querySelectorAll(
+        "#date-entries [data-slot=date-picker-trigger]",
+      )) {
         triggers[element.closest("[data-slot=date-picker]").id] = {
           placeholder: element.getAttribute("data-placeholder"),
           readonly: element.getAttribute("data-readonly"),
@@ -9401,6 +10408,3043 @@ try {
 
     assert.equal(await iconStroke("dp-field"), systemColors.canvasText);
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+
+    // DatePickerMultiple, DatePickerRange, MonthPicker and DateTimePicker (#more-date-pickers),
+    // over the same trigger, popup and box as the single DatePicker above.
+    const moreRoots = [
+      "dpm",
+      "dpm-empty",
+      "dpm-list",
+      "dpm-cross",
+      "dpm-readonly",
+      "dpm-disabled",
+      "dpr",
+      "dpr-required",
+      "dpr-empty",
+      "dpr-cross",
+      "dpr-readonly-schema",
+      "dpr-disabled-focusable",
+      "dpr-dialog",
+      "dmp",
+      "dmp-empty",
+      "dmp-readonly-disabled",
+      "dtp",
+      "dtp-empty",
+      "dtp-12",
+      "dtp-readonly",
+      "dtp-disabled",
+      "dpr-rtl",
+      "dpm-rtl",
+    ];
+    const moreButtons = moreRoots.filter((id) => !id.startsWith("dtp") && id !== "dpr-dialog");
+    const moreDay = new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+    const day = (id, date) => dayCell(id, moreDay.format(new Date(`${date}T00:00:00Z`)));
+    const calendarPart = (id, name) => `${content(id)} [data-slot=calendar-${name}]`;
+    const focusedLabel = () =>
+      page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? null);
+    const focusIs = (selector) =>
+      page.evaluate(
+        (selector) => document.activeElement === document.querySelector(selector),
+        selector,
+      );
+    const textIn = async (selector) =>
+      (await page.textContent(selector)).replace(/\s+/g, " ").trim();
+    const jsonOf = async (id) => JSON.parse(await textOf(id));
+    const animationsDone = (id) =>
+      page.waitForFunction(
+        (selector) =>
+          document.querySelector(selector).getAnimations({ subtree: true }).length === 0,
+        content(id),
+      );
+    // Each opens from the viewport's middle, so the popup has room below its trigger.
+    const centre = (id) =>
+      page.evaluate(
+        (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
+        trigger(id),
+      );
+    const openWithKeyboard = async (id) => {
+      await centre(id);
+      await keyboardFocus(trigger(id));
+      await page.keyboard.press("Enter");
+      await opened(id);
+      await animationsDone(id);
+      await rendered();
+    };
+    const openWithPointer = async (id) => {
+      await centre(id);
+      await page.click(trigger(id));
+      await opened(id);
+      await animationsDone(id);
+      await rendered();
+    };
+    // Tab until focus leaves a root, at most 4 presses.
+    const tabOut = async (id) => {
+      const focusInside = () =>
+        page.evaluate((id) => document.getElementById(id).contains(document.activeElement), id);
+
+      for (let presses = 0; presses < 4 && (await focusInside()); presses += 1) {
+        await page.keyboard.press("Tab");
+        await rendered();
+      }
+
+      assert.equal(await focusInside(), false, `Tab leaves ${id}`);
+    };
+    const untilFocused = (label) =>
+      page.waitForFunction(
+        (label) => document.activeElement?.getAttribute("aria-label") === label,
+        label,
+      );
+
+    // Server HTML, parsed by a page without scripts: every trigger closed and announcing a dialog,
+    // every Content an inert dialog with nothing inside it (the Calendars and the footer are
+    // gated), fold's two markers, "" or absent, and the date-time picker's segments.
+    const morePrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await morePrerendered.goto(base);
+
+    const moreServer = await morePrerendered.evaluate(() => {
+      const section = document.getElementById("more-date-pickers");
+      const roots = {};
+
+      for (const root of section.querySelectorAll("[data-slot=date-picker]")) {
+        const trigger = root.querySelector("[data-slot=date-picker-trigger]");
+        const content = root.querySelector("[data-slot=date-picker-content]");
+
+        roots[root.id] = {
+          haspopup: trigger.getAttribute("aria-haspopup"),
+          expanded: trigger.getAttribute("aria-expanded"),
+          placeholder: trigger.getAttribute("data-placeholder"),
+          readonly: trigger.getAttribute("data-readonly"),
+          role: content.getAttribute("role"),
+          inert: content.hasAttribute("inert"),
+          children: content.children.length,
+        };
+      }
+
+      const dateTime = document.getElementById("dtp");
+
+      return {
+        roots,
+        calendars: section.querySelectorAll("[data-slot=calendar]").length,
+        footers: section.querySelectorAll("[data-slot=date-picker-footer]").length,
+        done: document.querySelectorAll("#dpm-done").length,
+        markersFalse: section.querySelectorAll(
+          '[data-placeholder="false"], [data-readonly="false"]',
+        ).length,
+        spinbuttons: dateTime.querySelectorAll("[role=spinbutton]").length,
+        layout: dateTime.hasAttribute("data-layout"),
+        triggerInBox:
+          dateTime.querySelector(
+            "[data-slot=date-field-input] > [data-slot=date-picker-trigger]",
+          ) !== null,
+      };
+    });
+
+    await morePrerendered.close();
+
+    const moreEmpty = ["dpm-empty", "dpr-empty", "dpr-required", "dmp-empty", "dpr-dialog"];
+    const moreReadonly = ["dpm-readonly", "dpr-readonly-schema", "dmp-readonly-disabled"];
+
+    const byText = (a, b) => a.localeCompare(b);
+
+    assert.deepEqual(Object.keys(moreServer.roots).sort(byText), [...moreRoots].sort(byText));
+
+    for (const id of moreRoots) {
+      const server = moreServer.roots[id];
+      let placeholder = null;
+      let readonly = null;
+
+      if (moreEmpty.includes(id)) {
+        placeholder = "";
+      }
+
+      if (moreReadonly.includes(id)) {
+        readonly = "";
+      }
+
+      assert.deepEqual(
+        server,
+        {
+          haspopup: "dialog",
+          expanded: "false",
+          placeholder,
+          readonly,
+          role: "dialog",
+          inert: true,
+          children: 0,
+        },
+        `${id} on the server`,
+      );
+    }
+
+    assert.equal(moreServer.calendars, 0, "no Calendar renders inside a closed, gated Content");
+    assert.equal(moreServer.footers, 0, "no footer renders inside a closed, gated Content");
+    assert.equal(moreServer.done, 0);
+    assert.equal(moreServer.markersFalse, 0);
+    assert.equal(moreServer.spinbuttons, 5);
+    assert.equal(moreServer.layout, true);
+    assert.equal(moreServer.triggerInBox, true);
+
+    // Geometry at 1280×800, without motion: every button-shape trigger is 32px tall and fills
+    // its grid cell; each popup is 250px wide, 4px below its trigger; the date-time trigger is
+    // the field shape's 28px square, its popup ending with it; the footer sits 12px under the
+    // Calendar with Done at its inline end.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const fills = await page.evaluate((ids) => {
+      const result = {};
+
+      for (const id of ids) {
+        const trigger = document.querySelector(`#${id} [data-slot=date-picker-trigger]`);
+        let item = trigger.closest("[data-slot=date-picker]");
+
+        while (getComputedStyle(item.parentElement).display !== "grid") {
+          item = item.parentElement;
+        }
+
+        const own = trigger.getBoundingClientRect();
+        const cell = item.getBoundingClientRect();
+
+        result[id] = {
+          height: own.height,
+          left: own.left - cell.left,
+          right: cell.right - own.right,
+        };
+      }
+
+      return result;
+    }, moreButtons);
+
+    for (const id of moreButtons) {
+      assert.deepEqual(
+        fills[id],
+        { height: 32, left: 0, right: 0 },
+        `${id}'s trigger fills its cell`,
+      );
+    }
+
+    // Closed, every popup stays hidden by the browser's own `display: none`; open, it stacks.
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const displays = new Set();
+
+        for (const element of document.querySelectorAll(
+          "#more-date-pickers [data-slot=date-picker-content], #dp-field [data-slot=date-picker-content], #dp-button [data-slot=date-picker-content]",
+        )) {
+          displays.add(getComputedStyle(element).display);
+        }
+
+        return [...displays];
+      }),
+      ["none"],
+    );
+
+    for (const id of ["dpm", "dpr", "dmp"]) {
+      await openWithKeyboard(id);
+      assert.equal((await styleOf(content(id), ["display"])).display, "flex", `${id} stacks`);
+
+      const popup = await rect(content(id));
+      const opener = await rect(trigger(id));
+
+      assert.equal(popup.width, 250, `${id}'s popup width`);
+      assert.ok(Math.abs(popup.top - opener.bottom - 4) <= 0.5, `${id}'s popup 4px below`);
+      assert.ok(Math.abs(popup.left - opener.left) <= 1, `${id}'s popup starts with its trigger`);
+
+      if (id === "dpm") {
+        const calendar = await rect(`${content(id)} [data-slot=calendar]`);
+        const footer = await rect(`${content(id)} [data-slot=date-picker-footer]`);
+        const done = await rect("#dpm-done");
+
+        assert.ok(Math.abs(footer.top - calendar.bottom - 12) <= 0.5, "the footer 12px under");
+        assert.equal(done.height, 28);
+        assert.ok(Math.abs(done.right - calendar.right) <= 1, "Done at the Calendar's end");
+        assert.ok(Math.abs(footer.width - calendar.width) <= 0.5, "the footer spans the Calendar");
+      }
+
+      await page.keyboard.press("Escape");
+      await closed(id);
+    }
+
+    const startsBox = await rect(box("dtp"));
+    const startsTrigger = await rect(trigger("dtp"));
+
+    assert.equal(startsTrigger.width, 28);
+    assert.equal(startsTrigger.height, 28);
+    assert.equal(startsBox.height, 32);
+    assert.equal(startsBox.right - startsTrigger.right, 2);
+    await openWithPointer("dtp");
+
+    const startsPopup = await rect(content("dtp"));
+    const startsOpener = await rect(trigger("dtp"));
+
+    assert.equal(startsPopup.width, 250);
+    assert.ok(
+      Math.abs(startsPopup.right - startsTrigger.right) <= 1,
+      "the popup ends with the box",
+    );
+    assert.ok(
+      Math.abs(startsPopup.top - startsOpener.bottom - 4) <= 0.5,
+      `the popup 4px below: ${JSON.stringify([startsPopup, startsOpener])}`,
+    );
+    await page.keyboard.press("Escape");
+    await closed("dtp");
+
+    // The scoped names: one "Starts at" group in this section (slice 2's DateTimeField has the
+    // same label), one trigger named for the field, which names the popup too.
+    const moreSection = page.locator("#more-date-pickers");
+
+    assert.equal(
+      await moreSection.getByRole("group", { name: "Starts at", exact: true }).count(),
+      1,
+    );
+    assert.equal(
+      await page.locator("#dtp").getByRole("group", { name: "Starts at", exact: true }).count(),
+      1,
+    );
+    assert.equal(await moreSection.getByRole("button", { name: "Choose start date" }).count(), 1);
+    assert.equal(
+      await page.locator("#dtp").getByRole("button", { name: "Choose start date" }).count(),
+      1,
+    );
+
+    // Multiple: opens on the first chosen day; a choice toggles a day and keeps it open; Done
+    // closes it, back on the trigger, without touching the field; Escape closes it too.
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    assert.equal(await textOf("more-holidays-touched"), "false");
+    await openWithKeyboard("dpm");
+    await untilFocused("Tuesday, November 3, 2026");
+    assert.equal(
+      await page.evaluate(() => {
+        const done = document.getElementById("dpm-done");
+
+        return `${done.getAttribute("data-slot")} ${done.getAttribute("type")}`;
+      }),
+      "button button",
+    );
+    await page.keyboard.press("ArrowRight");
+    await untilFocused("Wednesday, November 4, 2026");
+    await page.keyboard.press("Enter");
+    await page.click(day("dpm", "2026-11-10"));
+    await rendered();
+    assert.deepEqual([...(await jsonOf("more-holidays"))].sort(byText), [
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-17",
+    ]);
+    assert.equal(await isOpen("dpm"), true, "a choice keeps the multiple picker open");
+    assert.equal(await textIn(trigger("dpm")), "3 days");
+    await page.click("#dpm-done");
+    await closed("dpm");
+    assert.equal(await focusIs(trigger("dpm")), true, "Done returns focus to the trigger");
+    assert.equal(await textOf("more-holidays-touched"), "false", "Done doesn't touch the field");
+    await openWithKeyboard("dpm");
+    await page.keyboard.press("Escape");
+    await closed("dpm");
+    assert.equal(await focusIs(trigger("dpm")), true);
+
+    // Cross-month: the popup opens on the first chosen day's month and shows only its chips;
+    // the others are a Next away.
+    const selectedDays = (id) =>
+      page.evaluate(
+        (selector) =>
+          [...document.querySelectorAll(`${selector} td[data-selected]:not([data-outside])`)].map(
+            (cell) => cell.getAttribute("aria-label"),
+          ),
+        content(id),
+      );
+
+    await openWithKeyboard("dpm-cross");
+    assert.equal(await textIn(calendarPart("dpm-cross", "heading")), "November 2026");
+    assert.deepEqual(await selectedDays("dpm-cross"), ["Tuesday, November 3, 2026"]);
+    await page.click(calendarPart("dpm-cross", "next"));
+    await rendered();
+    assert.equal(await textIn(calendarPart("dpm-cross", "heading")), "December 2026");
+    assert.deepEqual(await selectedDays("dpm-cross"), ["Thursday, December 10, 2026"]);
+    await page.click(calendarPart("dpm-cross", "next"));
+    await rendered();
+    assert.equal(await textIn(calendarPart("dpm-cross", "heading")), "January 2027");
+    assert.deepEqual(await selectedDays("dpm-cross"), ["Sunday, January 17, 2027"]);
+    await page.keyboard.press("Escape");
+    await closed("dpm-cross");
+
+    // Range: the first choice anchors and asks for the last day, the hover previews the band, the
+    // second choice writes the range and closes back on the trigger.
+    await openWithKeyboard("dpr");
+    await untilFocused("Tuesday, November 3, 2026");
+    await page.click(day("dpr", "2026-11-12"));
+    await rendered();
+    assert.equal(await page.getAttribute(day("dpr", "2026-11-12"), "data-anchor"), "");
+    assert.notEqual(await page.getAttribute(calendarPart("dpr", "grid"), "data-pending"), null);
+    assert.equal(await textIn(calendarPart("dpr", "prompt")), "Choose the last day");
+    assert.equal(await isOpen("dpr"), true);
+    await page.hover(day("dpr", "2026-11-15"));
+    await rendered();
+    assert.ok(
+      (await page.locator(`${content("dpr")} td[data-preview]`).count()) > 0,
+      "the hover previews the band",
+    );
+    await page.click(day("dpr", "2026-11-15"));
+    await closed("dpr");
+    assert.equal(await focusIs(trigger("dpr")), true);
+    assert.deepEqual(await jsonOf("more-stay"), { start: "2026-11-12", end: "2026-11-15" });
+    assert.equal(await textIn(trigger("dpr")), "12 Nov 2026 – 15 Nov 2026");
+
+    // In a Dialog: Escape drops the pending first day, then closes the picker, then the Dialog.
+    await page.click("#dpr-dialog-trigger");
+    await page.waitForFunction(() => document.getElementById("dpr-dialog-content").open);
+    await openWithPointer("dpr-dialog");
+    await page.click(day("dpr-dialog", "2026-10-12"));
+    await rendered();
+    assert.equal(await page.locator(`${content("dpr-dialog")} [data-anchor]`).count(), 1);
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal(await page.locator(`${content("dpr-dialog")} [data-anchor]`).count(), 0);
+    assert.equal(await isOpen("dpr-dialog"), true, "the first Escape drops only the anchor");
+    await page.keyboard.press("Escape");
+    await closed("dpr-dialog");
+    assert.equal(await focusIs(trigger("dpr-dialog")), true);
+    assert.equal(
+      await page.evaluate(() => document.getElementById("dpr-dialog-content").open),
+      true,
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.getElementById("dpr-dialog-content").open);
+
+    // A range across months: its text truncates in 160px with the whole range in the name; the
+    // popup opens on the start's month, banded to its end, and the end is two Nexts away.
+    const truncated = (id) =>
+      page.evaluate((selector) => {
+        const value = document.querySelector(`${selector} [data-slot=date-picker-value]`);
+
+        return value.scrollWidth > value.clientWidth;
+      }, trigger(id));
+
+    assert.equal(await truncated("dpr-cross"), true);
+    assert.equal(
+      await page
+        .locator("#dpr-cross")
+        .getByRole("button", { name: "20 Nov 2026 – 12 Jan 2027", exact: true })
+        .count(),
+      1,
+    );
+    await openWithKeyboard("dpr-cross");
+    assert.equal(await textIn(calendarPart("dpr-cross", "heading")), "November 2026");
+    assert.equal(await page.getAttribute(day("dpr-cross", "2026-11-20"), "data-range-start"), "");
+    assert.equal(await page.locator(`${content("dpr-cross")} td[data-range-end]`).count(), 0);
+    await page.click(calendarPart("dpr-cross", "next"));
+    await page.click(calendarPart("dpr-cross", "next"));
+    await rendered();
+    assert.equal(await textIn(calendarPart("dpr-cross", "heading")), "January 2027");
+    assert.equal(await page.getAttribute(day("dpr-cross", "2027-01-12"), "data-range-end"), "");
+    await page.keyboard.press("Escape");
+    await closed("dpr-cross");
+
+    // Month: the months of the value's year; the switch shows the years and keeps focus; Escape
+    // returns to the months; a month closes it; maxMonth stops Next; a year leads back to its
+    // months, where a month closes it.
+    const month = (id, label) => `${content(id)} td[aria-label="${label}"]`;
+
+    await openWithKeyboard("dmp");
+    await untilFocused("October 2026");
+    assert.equal(await page.getAttribute(month("dmp", "October 2026"), "data-selected"), "");
+    await page.click(calendarPart("dmp", "view-switch"));
+    await rendered();
+    assert.equal(await focusIs(calendarPart("dmp", "view-switch")), true);
+    assert.equal(
+      await page
+        .locator(content("dmp"))
+        .getByRole("button", { name: "2016 – 2027, show the months" })
+        .count(),
+      1,
+    );
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal(await page.locator(month("dmp", "October 2026")).count(), 1);
+    assert.equal(await isOpen("dmp"), true, "Escape in the years returns to the months");
+    await page.click(month("dmp", "December 2026"));
+    await closed("dmp");
+    assert.equal(await textIn(trigger("dmp")), "December 2026");
+    assert.equal(await focusIs(trigger("dmp")), true);
+    await openWithKeyboard("dmp");
+    assert.equal(await page.getAttribute(calendarPart("dmp", "next"), "aria-disabled"), "true");
+
+    await page.click(calendarPart("dmp", "view-switch"));
+    await rendered();
+    await page.keyboard.press("Tab");
+    assert.equal(await focusedLabel(), "Next 12 years");
+    await page.keyboard.press("Tab");
+    assert.equal(await focusedLabel(), "2026");
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await focusedLabel(), "2025");
+    await page.keyboard.press("Enter");
+    await rendered();
+    assert.equal(await isOpen("dmp"), true);
+    assert.match(await focusedLabel(), /^[A-Z][a-z]+ 2025$/, "a month of 2025 is focused");
+
+    for (let presses = 0; presses < 12 && (await focusedLabel()) !== "March 2025"; presses += 1) {
+      await page.keyboard.press("ArrowLeft");
+    }
+
+    assert.equal(await focusedLabel(), "March 2025");
+    await page.keyboard.press("Enter");
+    await closed("dmp");
+    assert.equal(await textOf("more-billing"), '"2025-03"');
+    assert.equal(await textIn(trigger("dmp")), "March 2025");
+    assert.equal(await focusIs(trigger("dmp")), true);
+
+    // Date-time: a choice keeps the typed time and closes on the trigger; over an empty time it
+    // keeps the value, focuses the hour and shows the error only once focus leaves; typing the
+    // time completes it.
+    await openWithPointer("dtp");
+    await untilFocused("Tuesday, October 27, 2026");
+    await page.click(day("dtp", "2026-10-28"));
+    await closed("dtp");
+    assert.equal(await textOf("more-starts"), '"2026-10-28T09:30"');
+    assert.equal(await focusIs(trigger("dtp")), true);
+
+    await openWithPointer("dtp-12");
+    await page.click(day("dtp-12", "2026-10-15"));
+    await closed("dtp-12");
+    assert.deepEqual(await segmentTexts("dtp-12"), ["10", "15", "2026", "hh", "mm", "AM/PM"]);
+    assert.equal(await focusIs(segment("dtp-12", 3)), true, "the empty hour is focused");
+    assert.equal(await textOf("dtp-12-value"), "null");
+
+    // From a fresh page, so the field isn't touched yet.
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    // Backspace empties the hour, Tab moves to the minute and Backspace empties it too.
+    // (Playwright's programmatic focus from one segment to the next surfaces the error at once;
+    // a real Tab doesn't.)
+    const empty = async (index) => {
+      for (
+        let presses = 0;
+        presses < 3 &&
+        (await page.getAttribute(segment("dtp", index), "data-placeholder")) === null;
+        presses += 1
+      ) {
+        await page.keyboard.press("Backspace");
+        await rendered();
+      }
+    };
+
+    await keyboardFocus(segment("dtp", 3));
+    await empty(3);
+    await page.keyboard.press("Tab");
+    await rendered();
+    assert.equal(await focusIs(segment("dtp", 4)), true);
+    await empty(4);
+
+    assert.deepEqual(await segmentTexts("dtp"), ["27", "10", "2026", "hh", "mm"]);
+
+    const startsBefore = await textOf("more-starts");
+
+    await openWithPointer("dtp");
+    await page.click(day("dtp", "2026-10-29"));
+    await closed("dtp");
+    assert.equal(await focusIs(segment("dtp", 3)), true);
+    assert.equal(await textOf("more-starts"), startsBefore);
+    assert.equal(await page.locator("#dtp-field [data-slot=field-error]").count(), 0);
+
+    await tabOut("dtp");
+    assert.equal(
+      await textIn("#dtp-field [data-slot=field-error]"),
+      "Enter a complete date and time",
+    );
+    await keyboardFocus(segment("dtp", 3));
+    await page.keyboard.type("1015");
+    await rendered();
+    assert.equal(await textOf("more-starts"), '"2026-10-29T10:15"');
+    assert.equal(await page.locator("#dtp-field [data-slot=field-error]").count(), 0);
+    await blur();
+
+    // Looks, dark then light: empty is muted; readonly dashed, unfilled and shadowless;
+    // disabled dims once; an invalid range is orange; the ring is 2px, 2px out; inside the
+    // popups, slice 1's chosen chips, range ends and band, and month chip.
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const moreLooks = async (tokens) => {
+      assert.equal((await styleOf(trigger("dpm-empty"), ["color"])).color, tokens.muted);
+      assert.equal((await styleOf(trigger("dmp-empty"), ["color"])).color, tokens.muted);
+
+      for (const id of moreReadonly) {
+        const look = await styleOf(trigger(id), [
+          "borderTopStyle",
+          "borderTopColor",
+          "backgroundColor",
+          "boxShadow",
+        ]);
+
+        assert.equal(look.borderTopStyle, "dashed", id);
+        assert.ok(transparent(look.backgroundColor), `${id} background ${look.backgroundColor}`);
+        assert.ok(shadowless(look.boxShadow), `${id} shadow ${look.boxShadow}`);
+      }
+
+      assert.equal((await styleOf(trigger("dpm-disabled"), ["opacity"])).opacity, "0.5");
+      assert.equal((await styleOf(trigger("dpr-disabled-focusable"), ["opacity"])).opacity, "0.5");
+      assert.equal((await styleOf("#dpm-disabled", ["opacity"])).opacity, "1");
+
+      await keyboardFocus(trigger("dpr-required"));
+      await page.keyboard.press("Tab");
+      await rendered();
+      assert.equal(await textOf("dpr-required-error"), "Choose your dates");
+      assert.equal(
+        (await styleOf(trigger("dpr-required"), ["borderTopColor"])).borderTopColor,
+        tokens.orange,
+      );
+      await keyboardFocus(trigger("dpr"));
+      assert.deepEqual(await outline(trigger("dpr")), ring(tokens.ring));
+      await blur();
+
+      await openWithKeyboard("dpm");
+      assert.deepEqual(
+        await styleOf(`${day("dpm", "2026-11-10")} > [data-slot=calendar-cell-label]`, [
+          "backgroundColor",
+          "color",
+        ]),
+        {
+          backgroundColor: tokens.foreground,
+          color: tokens.background,
+        },
+      );
+      await page.keyboard.press("Escape");
+      await closed("dpm");
+      await openWithKeyboard("dpr");
+      assert.equal(
+        (
+          await styleOf(`${day("dpr", "2026-11-03")} > [data-slot=calendar-cell-label]`, [
+            "backgroundColor",
+          ])
+        ).backgroundColor,
+        tokens.foreground,
+      );
+      assert.equal(
+        (
+          await styleOf(`${day("dpr", "2026-11-10")} > [data-slot=calendar-cell-label]`, [
+            "backgroundColor",
+          ])
+        ).backgroundColor,
+        tokens.foreground,
+      );
+      assert.equal(
+        (await styleOf(day("dpr", "2026-11-05"), ["backgroundColor"])).backgroundColor,
+        tokens.band,
+      );
+      await page.keyboard.press("Escape");
+      await closed("dpr");
+      await openWithKeyboard("dmp");
+      assert.equal(
+        (await styleOf(`${month("dmp", "October 2026")} > span`, ["backgroundColor"]))
+          .backgroundColor,
+        tokens.foreground,
+      );
+      await page.keyboard.press("Escape");
+      await closed("dmp");
+    };
+    const bandOf = (selector) =>
+      page.evaluate((selector) => {
+        const probe = document.createElement("span");
+
+        probe.style.backgroundColor = "color-mix(in oklab, var(--foreground) 8%, transparent)";
+        document.querySelector(selector).append(probe);
+
+        const color = getComputedStyle(probe).backgroundColor;
+
+        probe.remove();
+
+        return color;
+      }, selector);
+
+    await moreLooks({ ...dark, band: await bandOf("#more-date-pickers") });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    await page.evaluate(() => document.getElementById("more-date-pickers").classList.add("light"));
+
+    const moreLight = {
+      foreground: await tokenIn("#more-date-pickers", "foreground"),
+      background: await tokenIn("#more-date-pickers", "background"),
+      muted: await tokenIn("#more-date-pickers", "muted-foreground"),
+      ring: await tokenIn("#more-date-pickers", "ring"),
+      orange: await tokenIn("#more-date-pickers", "destructive-text"),
+      band: await bandOf("#more-date-pickers"),
+    };
+
+    assert.notEqual(moreLight.orange, dark.orange, "the light tokens apply");
+    await moreLooks(moreLight);
+    await page.evaluate(() =>
+      document.getElementById("more-date-pickers").classList.remove("light"),
+    );
+
+    // Reduced motion: a popup appears and leaves without animating.
+    await keyboardFocus(trigger("dpm"));
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector).matches(":popover-open"),
+      content("dpm"),
+    );
+    assert.equal(
+      await page.evaluate(
+        (selector) => document.querySelector(selector).getAnimations({ subtree: true }).length,
+        content("dpm"),
+      ),
+      0,
+    );
+    await page.keyboard.press("Escape");
+    await rendered();
+    assert.equal(await isOpen("dpm"), false, "the popup leaves at once");
+
+    // Right to left: Previous on the right with its chevron turned, the band's start rounded on
+    // the right, Done at the inline end on the left.
+    await openWithKeyboard("dpr-rtl");
+
+    const rtlPrevious = await rect(calendarPart("dpr-rtl", "previous"));
+    const rtlNext = await rect(calendarPart("dpr-rtl", "next"));
+
+    assert.ok(rtlPrevious.left > rtlNext.left, "Previous sits on the right");
+    assert.equal(
+      (await styleOf(`${calendarPart("dpr-rtl", "previous")} > svg`, ["rotate"])).rotate,
+      "180deg",
+    );
+    assert.equal(
+      (await styleOf(day("dpr-rtl", "2026-11-03"), ["borderTopRightRadius"])).borderTopRightRadius,
+      "8px",
+    );
+    assert.equal(
+      (await styleOf(day("dpr-rtl", "2026-11-03"), ["borderTopLeftRadius"])).borderTopLeftRadius,
+      "0px",
+    );
+    await page.keyboard.press("Escape");
+    await closed("dpr-rtl");
+    await openWithKeyboard("dpm-rtl");
+
+    const rtlCalendar = await rect(`${content("dpm-rtl")} [data-slot=calendar]`);
+    const rtlDone = await rect(`${content("dpm-rtl")} [data-slot=date-picker-footer] > button`);
+
+    assert.ok(Math.abs(rtlDone.left - rtlCalendar.left) <= 1, "Done at the Calendar's left end");
+    await page.keyboard.press("Escape");
+    await closed("dpm-rtl");
+
+    // Narrow, 320px: every trigger stays in its grid cell, an open popup in the viewport less
+    // 16px, and the list and the range truncate with their whole text in the name.
+    await page.setViewportSize({ width: 320, height: 720 });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    const narrowFits = await page.evaluate(() => {
+      const result = [];
+
+      for (const trigger of document.querySelectorAll(
+        "#more-date-pickers [data-slot=date-picker-trigger]",
+      )) {
+        const own = trigger.getBoundingClientRect();
+
+        if (own.width === 0) {
+          continue;
+        }
+
+        let item = trigger.closest("[data-slot=date-picker]");
+
+        while (getComputedStyle(item.parentElement).display !== "grid") {
+          item = item.parentElement;
+        }
+
+        const cell = item.getBoundingClientRect();
+
+        result.push({
+          id: trigger.closest("[data-slot=date-picker]").id,
+          inside:
+            own.left >= cell.left - 0.5 && own.right <= cell.right + 0.5 && own.right <= innerWidth,
+        });
+      }
+
+      return result;
+    });
+
+    assert.ok(narrowFits.length >= moreButtons.length, "the narrow triggers were measured");
+
+    for (const fit of narrowFits) {
+      assert.equal(fit.inside, true, `${fit.id}'s trigger in its cell at 320px`);
+    }
+
+    assert.equal(await truncated("dpm-list"), true);
+    assert.equal(await truncated("dpr-cross"), true);
+    assert.equal(
+      await page
+        .locator("#dpm-list")
+        .getByRole("button", { name: "3 Nov, 10 Nov, 17 Nov, 24 Nov, 1 Dec, 8 Dec", exact: true })
+        .count(),
+      1,
+    );
+
+    for (const id of ["dpr", "dpm-cross"]) {
+      await openWithKeyboard(id);
+
+      const popup = await rect(content(id));
+
+      assert.ok(popup.left >= 0 && popup.right <= 320, `${id}'s popup in the viewport`);
+      assert.ok(popup.width <= 304, `${id}'s popup within 100vw − 16px`);
+      await page.keyboard.press("Escape");
+      await closed(id);
+    }
+
+    // Narrow date-time rows: a pointer choice over an empty time focuses the hour, which the
+    // row reveals wholly, from a fresh row and from one a wheel step has rested. The value stays
+    // null and the page doesn't scroll sideways; the error shows once focus leaves.
+    const rowState = () =>
+      page.evaluate((id) => {
+        const row = document.querySelector(`#${id} [data-slot=date-field-segments]`);
+        const segments = row.querySelectorAll("[data-slot=date-field-segment]");
+        const outer = row.getBoundingClientRect();
+        const left = outer.left + row.clientLeft;
+        const visible = { left, right: left + row.clientWidth };
+        const pick = (element) => {
+          const { left, right } = element.getBoundingClientRect();
+
+          return { left, right };
+        };
+
+        return {
+          width: row.clientWidth,
+          overflow: row.scrollWidth - row.clientWidth,
+          scrollLeft: row.scrollLeft,
+          visible,
+          first: pick(segments[0]),
+          hour: pick(segments[3]),
+          last: pick(row.lastElementChild),
+          hourFocused: document.activeElement === segments[3],
+          page: [scrollX, scrollY],
+        };
+      }, "dtp-empty");
+    const wholly = (part, visible) =>
+      part.left >= visible.left - 0.5 && part.right <= visible.right + 0.5;
+    const chooseOverEmptyTime = async () => {
+      await pointAt(trigger("dtp-empty"));
+      await page.mouse.down();
+      await page.mouse.up();
+      await opened("dtp-empty");
+      await animationsDone("dtp-empty");
+      await pointAt(day("dtp-empty", "2026-10-15"));
+      await page.mouse.down();
+      await page.mouse.up();
+      await closed("dtp-empty");
+      await scrollSettled(row("dtp-empty"));
+    };
+    const narrowStart = async (width, expectedRow) => {
+      await page.setViewportSize({ width, height: 720 });
+      await fresh();
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() =>
+        document.getElementById("dtp-empty").scrollIntoView({ block: "center" }),
+      );
+
+      const start = await rowState();
+
+      assert.ok(Math.abs(start.width - expectedRow) <= 1, `the ${width}px row is ${start.width}`);
+      assert.ok(start.overflow > 0, `the ${width}px row overflows`);
+      assert.ok(
+        Math.abs(start.scrollLeft) <= 0.5,
+        `the ${width}px row starts at ${start.scrollLeft}`,
+      );
+      assert.ok(
+        start.first.left > start.visible.left && start.first.right < start.visible.right,
+        `the first segment inside the ${width}px row`,
+      );
+      assert.equal(wholly(start.hour, start.visible), false, `the hour hidden at ${width}px`);
+
+      return start;
+    };
+
+    for (const [width, expectedRow] of [
+      [320, 89],
+      [280, 69],
+    ]) {
+      const start = await narrowStart(width, expectedRow);
+
+      await chooseOverEmptyTime();
+
+      const after = await rowState();
+
+      assert.equal(after.hourFocused, true, `the hour focused at ${width}px`);
+      assert.ok(wholly(after.hour, after.visible), `the hour wholly shown at ${width}px`);
+      assert.ok(after.scrollLeft > 0, `the ${width}px row scrolled to the hour`);
+      assert.equal(await textOf("more-meeting"), "null");
+      assert.deepEqual(after.page, [0, start.page[1]], `the page held at ${width}px`);
+      assert.equal(await page.locator("#dtp-empty-field [data-slot=field-error]").count(), 0);
+      await tabOut("dtp-empty");
+      assert.equal(
+        await textIn("#dtp-empty-field [data-slot=field-error]"),
+        "Enter a complete date and time",
+      );
+    }
+
+    // From a row a wheel step has rested: the reveal still focuses the hour wholly. If the step
+    // already showed it, the row needn't move.
+    await narrowStart(320, 89);
+    await pointAt(row("dtp-empty"));
+    await page.mouse.wheel(40, 0);
+    await scrollSettled(row("dtp-empty"));
+
+    const wheeled = await rowState();
+
+    assert.ok(wheeled.scrollLeft > 0, "the wheel step rested the row");
+    await chooseOverEmptyTime();
+
+    const afterWheel = await rowState();
+
+    assert.equal(afterWheel.hourFocused, true);
+    assert.ok(wholly(afterWheel.hour, afterWheel.visible), "the hour wholly shown after a wheel");
+
+    if (!wholly(wheeled.hour, wheeled.visible)) {
+      assert.notEqual(afterWheel.scrollLeft, wheeled.scrollLeft, "the reveal moved the row");
+    }
+
+    // 280px: bounded 40px wheels reach the 69px row's true end, its last cell wholly shown, and
+    // come back to 0.
+    await narrowStart(280, 69);
+    await pointAt(row("dtp-empty"));
+
+    const rowEnd = await rowState();
+    const rowSteps = Math.ceil(rowEnd.overflow / 40) + 5;
+    let rowAt = rowEnd;
+
+    for (let step = 0; step < rowSteps && rowAt.scrollLeft !== rowAt.overflow; step += 1) {
+      await page.mouse.wheel(40, 0);
+      await scrollSettled(row("dtp-empty"));
+      rowAt = await rowState();
+    }
+
+    assert.equal(rowAt.scrollLeft, rowAt.overflow, "the 69px row reaches its end");
+    assert.ok(wholly(rowAt.last, rowAt.visible), "the last cell wholly shown at the row's end");
+
+    for (let step = 0; step < rowSteps && rowAt.scrollLeft !== 0; step += 1) {
+      await page.mouse.wheel(-40, 0);
+      await scrollSettled(row("dtp-empty"));
+      rowAt = await rowState();
+    }
+
+    assert.equal(rowAt.scrollLeft, 0, "the 69px row returns to its start");
+
+    // Short popups, with motion: the focused cell is revealed at open; bounded wheel steps reach
+    // the end, where the range's prompt, the footer or the last row rests in view, and the top;
+    // a key after either reveals the new cell with its whole focus outline.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+
+    const shortView = (id, end) =>
+      page.evaluate(
+        ([selector, end]) => {
+          const popup = document.querySelector(selector);
+          const outer = popup.getBoundingClientRect();
+          const top = outer.top + popup.clientTop;
+          const left = outer.left + popup.clientLeft;
+          const pick = (element) => {
+            const { left, top, right, bottom } = element.getBoundingClientRect();
+
+            return { left, top, right, bottom };
+          };
+          const focused = document.activeElement;
+          const style = getComputedStyle(focused);
+          let grow = 0;
+
+          if (style.outlineStyle !== "none") {
+            grow = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
+          }
+
+          const cell = pick(focused);
+          const ends = popup.querySelectorAll(end);
+
+          return {
+            label: focused.getAttribute("aria-label"),
+            isCell: focused.dataset.slot === "calendar-cell" && popup.contains(focused),
+            outlined: {
+              left: cell.left - grow,
+              top: cell.top - grow,
+              right: cell.right + grow,
+              bottom: cell.bottom + grow,
+            },
+            grow,
+            cell,
+            previous: pick(popup.querySelector("[data-slot=calendar-previous]")),
+            end: pick(ends[ends.length - 1]),
+            visible: {
+              left,
+              top,
+              right: left + popup.clientWidth,
+              bottom: top + popup.clientHeight,
+            },
+            scrollTop: popup.scrollTop,
+            max: popup.scrollHeight - popup.clientHeight,
+            page: [scrollX, scrollY],
+          };
+        },
+        [content(id), end],
+      );
+    const shortCases = [
+      {
+        name: "dpr",
+        id: "dpr",
+        end: "[data-slot=calendar-prompt]",
+        label: "Tuesday, November 3, 2026",
+        grow: 2,
+      },
+      {
+        name: "dpr-anchor",
+        id: "dpr",
+        end: "[data-slot=calendar-prompt]",
+        label: "Thursday, November 12, 2026",
+        grow: 2,
+        extra: async () => {
+          await page.keyboard.press("ArrowDown");
+          await page.keyboard.press("ArrowRight");
+          await page.keyboard.press("ArrowRight");
+          await page.keyboard.press("Enter");
+        },
+      },
+      {
+        name: "dpm",
+        id: "dpm",
+        end: "[data-slot=date-picker-footer]",
+        label: "Tuesday, November 3, 2026",
+        grow: 2,
+      },
+      { name: "dmp-months", id: "dmp", end: "tr", label: "October 2026", grow: 0 },
+      {
+        name: "dmp-years",
+        id: "dmp",
+        end: "tr",
+        label: "2026",
+        grow: 0,
+        // 2027 is past maxMonth, so the key after the end moves back a year.
+        key: "ArrowLeft",
+        extra: async () => {
+          await page.click(calendarPart("dmp", "view-switch"));
+          await rendered();
+          await page.keyboard.press("Tab");
+          await page.keyboard.press("Tab");
+        },
+      },
+    ];
+
+    for (const height of [390, 460]) {
+      for (const shortCase of shortCases) {
+        const label = `${shortCase.name} at ${height}px`;
+
+        await page.setViewportSize({ width: 844, height });
+        await fresh();
+        await page.evaluate(() => document.fonts.ready);
+        await page.evaluate(
+          (selector) => document.querySelector(selector).scrollIntoView({ block: "center" }),
+          trigger(shortCase.id),
+        );
+        await keyboardFocus(trigger(shortCase.id));
+
+        const pageBefore = await page.evaluate(() => [scrollX, scrollY]);
+
+        await page.keyboard.press("Enter");
+        await opened(shortCase.id);
+        await animationsDone(shortCase.id);
+
+        if (shortCase.extra) {
+          await shortCase.extra();
+          await animationsDone(shortCase.id);
+        }
+
+        await scrollSettled(content(shortCase.id));
+
+        const atOpen = await shortView(shortCase.id, shortCase.end);
+
+        assert.ok(atOpen.max > 0, `${label}: the popup scrolls (${atOpen.max})`);
+        assert.equal(atOpen.label, shortCase.label, `${label}: the focused cell`);
+        inside(atOpen.cell, 0, atOpen.visible, `${label}: the focused cell at open`);
+        assert.deepEqual(atOpen.page, pageBefore, `${label}: the page didn't scroll`);
+        assert.equal(atOpen.grow, shortCase.grow, `${label}: the focused cell's outline`);
+
+        const steps = Math.ceil(atOpen.max / 40) + 5;
+        let view = atOpen;
+
+        await pointAt(content(shortCase.id));
+
+        for (let step = 0; step < steps && view.scrollTop !== view.max; step += 1) {
+          await page.mouse.wheel(0, 40);
+          await scrollSettled(content(shortCase.id));
+          view = await shortView(shortCase.id, shortCase.end);
+        }
+
+        assert.equal(view.scrollTop, view.max, `${label}: the end is reachable`);
+        inside(view.end, 0, view.visible, `${label}: the end target at the end`);
+        assert.equal(view.label, atOpen.label, `${label}: the wheel moved focus`);
+        await scrollSettled(content(shortCase.id));
+
+        const held = await shortView(shortCase.id, shortCase.end);
+
+        assert.equal(held.scrollTop, view.scrollTop, `${label}: the end holds`);
+        inside(held.end, 0, held.visible, `${label}: the end target stays`);
+
+        await page.keyboard.press(shortCase.key ?? "ArrowRight");
+        await scrollSettled(content(shortCase.id));
+
+        const afterEnd = await shortView(shortCase.id, shortCase.end);
+
+        assert.notEqual(afterEnd.label, atOpen.label, `${label}: the key moved focus`);
+        assert.equal(afterEnd.isCell, true, `${label}: a cell is focused`);
+        inside(
+          afterEnd.outlined,
+          0,
+          afterEnd.visible,
+          `${label}: the cell and outline after the end`,
+        );
+
+        await pointAt(content(shortCase.id));
+        view = afterEnd;
+
+        for (let step = 0; step < steps && view.scrollTop !== 0; step += 1) {
+          await page.mouse.wheel(0, -40);
+          await scrollSettled(content(shortCase.id));
+          view = await shortView(shortCase.id, shortCase.end);
+        }
+
+        assert.equal(view.scrollTop, 0, `${label}: the top is reachable`);
+        inside(view.previous, 0, view.visible, `${label}: Previous at the top`);
+
+        for (let press = 0; press < 3; press += 1) {
+          await page.keyboard.press("ArrowDown");
+          await scrollSettled(content(shortCase.id));
+
+          const afterTop = await shortView(shortCase.id, shortCase.end);
+
+          assert.equal(afterTop.isCell, true, `${label}: a cell is focused after ArrowDown`);
+          inside(
+            afterTop.outlined,
+            0,
+            afterTop.visible,
+            `${label}: the cell and outline after ArrowDown ${press + 1}`,
+          );
+        }
+
+        // With a pending first day, the first Escape drops it and the second closes.
+        for (let presses = 0; presses < 2 && (await isOpen(shortCase.id)); presses += 1) {
+          await page.keyboard.press("Escape");
+          await rendered();
+        }
+
+        await closed(shortCase.id);
+      }
+    }
+
+    // Forced colors: the triggers keep the button shape, a focusable disabled one GrayText; the
+    // chosen chips, range ends and rails, and month are Highlight; Done is a Button; the focused
+    // date-time segment is Highlight with HighlightText.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    assert.equal(
+      (await styleOf(trigger("dpr-disabled-focusable"), ["color"])).color,
+      systemColors.grayText,
+    );
+    assert.equal((await styleOf(trigger("dpr"), ["borderTopStyle"])).borderTopStyle, "solid");
+    await openWithKeyboard("dpm");
+    assert.equal(
+      (
+        await styleOf(`${day("dpm", "2026-11-10")} > [data-slot=calendar-cell-label]`, [
+          "backgroundColor",
+        ])
+      ).backgroundColor,
+      systemColors.highlight,
+    );
+
+    const doneLook = await styleOf("#dpm-done", ["color", "backgroundColor", "borderTopColor"]);
+    const buttonLook = await styleOf("#df-clear-button", [
+      "color",
+      "backgroundColor",
+      "borderTopColor",
+    ]);
+
+    assert.deepEqual(doneLook, buttonLook, "Done follows Button's forced colors");
+    await page.keyboard.press("Escape");
+    await closed("dpm");
+    await openWithKeyboard("dpr");
+
+    for (const date of ["2026-11-03", "2026-11-10"]) {
+      assert.equal(
+        (
+          await styleOf(`${day("dpr", date)} > [data-slot=calendar-cell-label]`, [
+            "backgroundColor",
+          ])
+        ).backgroundColor,
+        systemColors.highlight,
+        `forced range end ${date}`,
+      );
+    }
+
+    assert.equal(
+      await page.evaluate(
+        (selector) => getComputedStyle(document.querySelector(selector), "::before").borderTopColor,
+        `${day("dpr", "2026-11-05")} > [data-slot=calendar-cell-label]`,
+      ),
+      systemColors.highlight,
+    );
+    await page.keyboard.press("Escape");
+    await closed("dpr");
+    await openWithKeyboard("dmp");
+    assert.equal(
+      (await styleOf(`${month("dmp", "October 2026")} > span`, ["backgroundColor"]))
+        .backgroundColor,
+      systemColors.highlight,
+    );
+    await page.keyboard.press("Escape");
+    await closed("dmp");
+    await keyboardFocus(segment("dtp", 3));
+    assert.deepEqual(await styleOf(segment("dtp", 3), ["color", "backgroundColor"]), {
+      color: systemColors.highlightText,
+      backgroundColor: systemColors.highlight,
+    });
+    await blur();
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
+
+  // Toggle, ToggleGroup and Toolbar: the server state and each root's own tab stop; Toggle's
+  // looks per state, sizes, focus ring, Field wiring and a focusable-disabled Toggle that stays
+  // pressed; the segmented control's geometry, dot (one per Single, reset by every root), keys
+  // and values; Toolbar roving, its wrappers' bindings and guarded Redo, layout and wrapping,
+  // one-line radio rows, popups, reduced motion and forced colors.
+  {
+    const toggleRect = (selector) =>
+      page.evaluate((selector) => {
+        const { left, top, right, bottom, width, height } = document
+          .querySelector(selector)
+          .getBoundingClientRect();
+
+        return { left, top, right, bottom, width, height };
+      }, selector);
+    const focusByKeyboard = async (selector) => {
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await page.keyboard.press("Shift");
+      await page.focus(selector);
+      await rendered();
+    };
+    const pressed = (id) => attribute(id, "aria-pressed");
+    const resultOf = async (id) => (await textOf(id)).replace(/\s+/g, " ");
+    // Origami writes the moved tab stop at the next render; a Tab before it lands on the old one.
+    const tabStopSettled = () =>
+      page.waitForFunction(() => document.activeElement?.getAttribute("tabindex") === "0");
+    const dotOf = (id) => `#${id} > [data-slot=toggle-group-indicator]`;
+    const dotDisplay = async (id) => (await styleOf(dotOf(id), ["display"])).display;
+    // Holds the pointer down on an element, reads it, and releases elsewhere, so nothing clicks.
+    const held = async (selector, properties) => {
+      await page.hover(selector);
+      await page.mouse.down();
+
+      const style = await styleOf(selector, properties);
+
+      await page.mouse.move(0, 0);
+      await page.mouse.up();
+
+      return style;
+    };
+    const backgroundOf = (value) =>
+      page.evaluate((value) => {
+        const probe = document.createElement("span");
+
+        probe.style.backgroundColor = value;
+        document.body.append(probe);
+
+        const color = getComputedStyle(probe).backgroundColor;
+
+        probe.remove();
+
+        return color;
+      }, value);
+    const palette = {
+      foreground: "rgb(237, 237, 235)",
+      mutedForeground: "rgb(163, 163, 160)",
+      muted: "rgb(42, 42, 42)",
+      surface: "rgb(28, 28, 28)",
+      input: "rgb(107, 107, 104)",
+      border: "rgb(46, 46, 46)",
+      ring: "rgb(76, 196, 111)",
+    };
+    const borderRing = `${palette.border} 0px 0px 0px 1px inset`;
+    const edge = "rgba(0, 0, 0, 0.4) 0px 1px 2px 0px";
+    const pressedInset = "rgba(0, 0, 0, 0.25) 0px 1px 2px 0px inset";
+
+    // #toolbar's own controls in DOM order, its Single group among them, and each one's tabindex:
+    // only the current control is "0", every other one "-1", so the Toolbar is one Tab stop.
+    const toolbarControls = [
+      "tb-undo",
+      "tb-redo",
+      "tb-bold",
+      "tb-italic",
+      "tb-spell",
+      "tb-week",
+      "tb-month",
+      "tb-left",
+      "tb-center",
+      "tb-right",
+      "tb-symbol",
+      "tb-more",
+      "tb-copy",
+    ];
+    const tabIndexesOf = (target, ids) =>
+      target.evaluate(
+        (ids) =>
+          Object.fromEntries(
+            ids.map((id) => [id, document.getElementById(id).getAttribute("tabindex")]),
+          ),
+        ids,
+      );
+    const oneTabStop = (current) =>
+      Object.fromEntries(
+        toolbarControls.map((id) => {
+          if (id === current) {
+            return [id, "0"];
+          }
+
+          return [id, "-1"];
+        }),
+      );
+
+    // Server HTML, parsed by a page without scripts.
+    const togglesPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await togglesPrerendered.goto(base);
+
+    const togglesServer = await togglesPrerendered.evaluate(() => {
+      const byId = (id) => document.getElementById(id);
+      const attributes = (id, names) =>
+        Object.fromEntries(names.map((name) => [name, byId(id).getAttribute(name)]));
+      // The buttons a root owns: its items, without those of a root nested inside it.
+      const ownedStops = (id, rootSelector) =>
+        [...byId(id).querySelectorAll("button")].filter(
+          (button) =>
+            button.closest(rootSelector) === byId(id) && button.getAttribute("tabindex") === "0",
+        ).length;
+      const groups = [
+        "tg-status",
+        "tg-marks",
+        "tg-density",
+        "tg-disabled",
+        "tg-billing",
+        "tg-outer",
+        "tg-nested",
+      ];
+      const toolbars = [
+        "toolbar",
+        "toolbar-narrow",
+        "toolbar-long",
+        "toolbar-vertical",
+        "toolbar-rtl",
+      ];
+      const indicated = [...groups, "tb-marks", "tb-view"].filter((id) =>
+        byId(id).hasAttribute("data-indicator"),
+      );
+      const items = [...document.querySelectorAll("#toggles [data-slot=toggle-group-item]")];
+
+      return {
+        off: attributes("toggle-mute", ["aria-pressed", "data-pressed", "data-slot"]),
+        on: attributes("toggle-lg", ["aria-pressed", "data-pressed", "data-slot"]),
+        status: attributes("tg-status", ["role", "data-orientation", "data-slot"]),
+        density: attributes("tg-density", ["role", "data-orientation"]),
+        indicated,
+        groupStops: Object.fromEntries(
+          groups.map((id) => [id, ownedStops(id, "[data-slot=toggle-group]")]),
+        ),
+        toolbarStops: Object.fromEntries(
+          toolbars.map((id) => [id, ownedStops(id, "[data-slot=toolbar]")]),
+        ),
+        hiddenDots: items.every(
+          (item) =>
+            item
+              .querySelector(":scope > [data-slot=toggle-group-indicator]")
+              ?.getAttribute("aria-hidden") === "true",
+        ),
+        toolbar: attributes("toolbar", ["role", "aria-orientation", "data-orientation"]),
+        vertical: attributes("toolbar-vertical", ["role", "aria-orientation"]),
+        separator: attributes("tb-sep-1", ["role", "aria-orientation", "data-slot"]),
+        verticalSeparator: attributes("vert-sep", ["role", "aria-orientation"]),
+        align: attributes("tb-align", ["role", "data-orientation", "data-slot"]),
+        verticalAlign: attributes("vert-align", ["data-orientation"]),
+        symbol: attributes("tb-symbol", ["aria-haspopup", "aria-expanded", "data-slot"]),
+        more: attributes("tb-more", ["aria-haspopup", "data-slot"]),
+        formLabel: byId("toggle-form-label").getAttribute("for"),
+        formId: byId("toggle-form").id,
+      };
+    });
+
+    const serverToolbarTabIndexes = await tabIndexesOf(togglesPrerendered, toolbarControls);
+
+    await togglesPrerendered.close();
+    assert.deepEqual(togglesServer.off, {
+      "aria-pressed": "false",
+      "data-pressed": null,
+      "data-slot": "toggle",
+    });
+    assert.deepEqual(togglesServer.on, {
+      "aria-pressed": "true",
+      "data-pressed": "",
+      "data-slot": "toggle",
+    });
+    assert.deepEqual(togglesServer.status, {
+      role: "group",
+      "data-orientation": "horizontal",
+      "data-slot": "toggle-group",
+    });
+    assert.deepEqual(togglesServer.density, { role: "group", "data-orientation": "vertical" });
+    assert.deepEqual(togglesServer.indicated, ["tg-status", "tg-disabled", "tg-outer", "tb-view"]);
+    // Every item of the root-disabled group is natively disabled, so it has no tab stop.
+    assert.deepEqual(togglesServer.groupStops, {
+      "tg-status": 1,
+      "tg-marks": 1,
+      "tg-density": 1,
+      "tg-disabled": 0,
+      "tg-billing": 1,
+      "tg-outer": 1,
+      "tg-nested": 1,
+    });
+    assert.deepEqual(togglesServer.toolbarStops, {
+      toolbar: 1,
+      "toolbar-narrow": 1,
+      "toolbar-long": 1,
+      "toolbar-vertical": 1,
+      "toolbar-rtl": 1,
+    });
+    assert.deepEqual(serverToolbarTabIndexes, oneTabStop("tb-undo"), "the server's Tab stop");
+    assert.ok(togglesServer.hiddenDots, "every item's dot is aria-hidden");
+    assert.deepEqual(togglesServer.toolbar, {
+      role: "toolbar",
+      "aria-orientation": "horizontal",
+      "data-orientation": "horizontal",
+    });
+    assert.deepEqual(togglesServer.vertical, { role: "toolbar", "aria-orientation": "vertical" });
+    assert.deepEqual(togglesServer.separator, {
+      role: "separator",
+      "aria-orientation": "vertical",
+      "data-slot": "toolbar-separator",
+    });
+    assert.deepEqual(togglesServer.verticalSeparator, {
+      role: "separator",
+      "aria-orientation": "horizontal",
+    });
+    assert.deepEqual(togglesServer.align, {
+      role: "radiogroup",
+      "data-orientation": "horizontal",
+      "data-slot": "toolbar-radio-group",
+    });
+    assert.deepEqual(togglesServer.verticalAlign, { "data-orientation": "vertical" });
+    assert.deepEqual(togglesServer.symbol, {
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false",
+      "data-slot": "toolbar-popover-trigger",
+    });
+    assert.deepEqual(togglesServer.more, {
+      "aria-haspopup": "menu",
+      "data-slot": "toolbar-menu-trigger",
+    });
+    assert.equal(togglesServer.formLabel, togglesServer.formId, "the Label names the Toggle");
+
+    // Looks: no motion, so each state reads settled.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fresh();
+
+    const lookProperties = [
+      "backgroundColor",
+      "boxShadow",
+      "color",
+      "fontWeight",
+      "translate",
+      "opacity",
+    ];
+    const ghostHover = await backgroundOf("color-mix(in oklab, var(--foreground) 8%, transparent)");
+    const ghostHeld = await backgroundOf("color-mix(in oklab, var(--foreground) 14%, transparent)");
+    const mutedHover = await backgroundOf(
+      "color-mix(in oklab, var(--foreground) 8%, var(--muted))",
+    );
+    const mutedHeld = await backgroundOf(
+      "color-mix(in oklab, var(--foreground) 14%, var(--muted))",
+    );
+    const off = await styleOf("#toggle-mute", lookProperties);
+    const on = await styleOf("#toggle-lg", lookProperties);
+    const offDisabled = await styleOf("#toggle-off-disabled", lookProperties);
+    const onDisabled = await styleOf("#toggle-on-disabled", lookProperties);
+
+    await page.hover("#toggle-mute");
+
+    const offHover = await styleOf("#toggle-mute", lookProperties);
+
+    await page.hover("#toggle-lg");
+
+    const onHover = await styleOf("#toggle-lg", lookProperties);
+    const offHeld = await held("#toggle-mute", lookProperties);
+    const onHeld = await held("#toggle-lg", lookProperties);
+
+    assert.ok(transparent(off.backgroundColor), `off background ${off.backgroundColor}`);
+    assert.ok(shadowless(off.boxShadow), `off shadow ${off.boxShadow}`);
+    assert.equal(off.color, palette.foreground);
+    assert.equal(off.fontWeight, "600");
+    assert.equal(offHover.backgroundColor, ghostHover);
+    assert.ok(shadowless(offHover.boxShadow), `off hover shadow ${offHover.boxShadow}`);
+    assert.equal(offHeld.backgroundColor, ghostHeld);
+    assert.ok(offHeld.boxShadow.includes(pressedInset), `off held shadow ${offHeld.boxShadow}`);
+    assert.equal(offHeld.translate, "0px 1px");
+    assert.equal(on.backgroundColor, palette.muted);
+    assert.ok(on.boxShadow.includes(borderRing), `on ring ${on.boxShadow}`);
+    assert.ok(on.boxShadow.includes(edge), `on edge ${on.boxShadow}`);
+    assert.equal(on.color, palette.foreground);
+    assert.equal(on.fontWeight, "600");
+    assert.equal(onHover.backgroundColor, mutedHover);
+    assert.ok(onHover.boxShadow.includes(edge), `on hover edge ${onHover.boxShadow}`);
+    assert.equal(onHeld.backgroundColor, mutedHeld);
+    assert.ok(onHeld.boxShadow.includes(borderRing), `on held ring ${onHeld.boxShadow}`);
+    assert.ok(onHeld.boxShadow.includes(pressedInset), `on held inset ${onHeld.boxShadow}`);
+    assert.equal(onHeld.boxShadow.includes(edge), false, `on held edge ${onHeld.boxShadow}`);
+    assert.equal(onHeld.translate, "0px 1px");
+    assert.equal(onDisabled.backgroundColor, palette.muted);
+    assert.ok(onDisabled.boxShadow.includes(borderRing), `on disabled ${onDisabled.boxShadow}`);
+    assert.equal(onDisabled.boxShadow.includes(edge), false, `on disabled ${onDisabled.boxShadow}`);
+    assert.equal(onDisabled.opacity, "0.5");
+    assert.ok(transparent(offDisabled.backgroundColor), offDisabled.backgroundColor);
+    assert.equal(offDisabled.opacity, "0.5");
+
+    const toggleSizes = await page.evaluate(() =>
+      Object.fromEntries(
+        ["toggle-wrap", "toggle-mute", "toggle-lg", "toggle-pin"].map((id) => {
+          const { width, height } = document.getElementById(id).getBoundingClientRect();
+
+          return [id, `${width}x${height}`];
+        }),
+      ),
+    );
+
+    assert.equal(toggleSizes["toggle-wrap"].split("x")[1], "28");
+    assert.equal(toggleSizes["toggle-mute"].split("x")[1], "32");
+    assert.equal(toggleSizes["toggle-lg"].split("x")[1], "36");
+    assert.equal(toggleSizes["toggle-pin"], "32x32");
+
+    await focusByKeyboard("#toggle-mute");
+    assert.deepEqual(await outline("#toggle-mute"), ringOutline(palette.ring));
+
+    // Behaviour: a click writes the model, the Field's Toggle writes the form and blur touches it,
+    // and a focusable-disabled Toggle stays pressed under Space and a click.
+    await page.click("#toggle-mute");
+    await until("toggle-mute", "aria-pressed", "true");
+    await page.click("#toggle-form");
+    await until("toggle-form", "aria-pressed", "true");
+    await page.evaluate(() => document.activeElement?.blur());
+    await rendered();
+    await focusByKeyboard("#toggle-focusable-disabled");
+    assert.deepEqual(
+      await page.evaluate(() => {
+        const locked = document.getElementById("toggle-focusable-disabled");
+
+        return {
+          nativeDisabled: locked.disabled,
+          ariaDisabled: locked.getAttribute("aria-disabled"),
+          focused: document.activeElement === locked,
+        };
+      }),
+      { nativeDisabled: false, ariaDisabled: "true", focused: true },
+      "the disabled Toggle stays natively enabled and takes focus",
+    );
+    await page.keyboard.press("Space");
+    await page.click("#toggle-focusable-disabled", { force: true });
+    await rendered();
+    assert.equal(await pressed("toggle-focusable-disabled"), "true");
+    assert.equal(await attribute("toggle-focusable-disabled", "data-disabled"), "");
+    assert.equal(await resultOf("toggle-result"), "true true true 0");
+
+    // Segmented geometry and looks.
+    const track = await styleOf("#tg-status", [
+      "height",
+      "paddingTop",
+      "paddingLeft",
+      "columnGap",
+      "borderTopWidth",
+      "borderTopColor",
+      "borderTopLeftRadius",
+      "backgroundColor",
+    ]);
+
+    assert.deepEqual(track, {
+      height: "32px",
+      paddingTop: "2px",
+      paddingLeft: "2px",
+      columnGap: "2px",
+      borderTopWidth: "1px",
+      borderTopColor: palette.input,
+      borderTopLeftRadius: "10px",
+      backgroundColor: palette.surface,
+    });
+
+    const segmentProperties = [
+      "height",
+      "borderTopLeftRadius",
+      "paddingLeft",
+      "color",
+      "fontWeight",
+      "backgroundColor",
+    ];
+    const unpressedSegment = await styleOf("#seg-all", segmentProperties);
+    const pressedSegment = await styleOf("#seg-active", [...segmentProperties, "boxShadow"]);
+
+    assert.deepEqual(unpressedSegment, {
+      height: "26px",
+      borderTopLeftRadius: "7px",
+      paddingLeft: "10px",
+      color: palette.mutedForeground,
+      fontWeight: "500",
+      backgroundColor: unpressedSegment.backgroundColor,
+    });
+    assert.ok(transparent(unpressedSegment.backgroundColor), unpressedSegment.backgroundColor);
+    assert.equal(pressedSegment.height, "26px");
+    assert.equal(pressedSegment.color, palette.foreground);
+    assert.equal(pressedSegment.fontWeight, "600");
+    assert.equal(pressedSegment.backgroundColor, palette.muted);
+    assert.ok(pressedSegment.boxShadow.includes(borderRing), pressedSegment.boxShadow);
+    assert.ok(pressedSegment.boxShadow.includes(edge), pressedSegment.boxShadow);
+
+    // The dot: on the pressed item of an indicator Single only; never in Multiple, and a root
+    // nested in an indicator root resets it. Without that reset the variable inherits.
+    assert.deepEqual(
+      {
+        status: await dotDisplay("seg-active"),
+        statusUnpressed: await dotDisplay("seg-all"),
+        outer: await dotDisplay("tg-outer-item"),
+        nested: await dotDisplay("tg-nested-item"),
+        disabled: await dotDisplay("tg-disabled-all"),
+        view: await dotDisplay("tb-month"),
+        multiple: await dotDisplay("tg-bold"),
+      },
+      {
+        status: "block",
+        statusUnpressed: "none",
+        outer: "block",
+        nested: "none",
+        disabled: "block",
+        view: "block",
+        multiple: "none",
+      },
+    );
+    assert.equal(
+      (await styleOf(dotOf("seg-active"), ["backgroundColor"])).backgroundColor,
+      palette.ring,
+    );
+    await page.evaluate(() =>
+      document.getElementById("tg-nested").classList.remove("[--toggle-group-indicator:none]"),
+    );
+    assert.deepEqual(
+      [await dotDisplay("tg-outer-item"), await dotDisplay("tg-nested-item")],
+      ["block", "block"],
+      "the nested dot inherits without its root's reset",
+    );
+    await page.evaluate(() =>
+      document.getElementById("tg-nested").classList.add("[--toggle-group-indicator:none]"),
+    );
+    assert.equal(await dotDisplay("tg-nested-item"), "none");
+
+    // Vertical: a column of full-width, start-aligned items, a Tooltip-wrapped one too. Root
+    // disabled: each item dims, not the track.
+    const densityLayout = await page.evaluate(() => {
+      const items = ["density-compact", "density-comfortable", "density-spacious"].map((id) =>
+        document.getElementById(id),
+      );
+
+      return {
+        direction: getComputedStyle(document.getElementById("tg-density")).flexDirection,
+        widths: new Set(items.map((item) => item.getBoundingClientRect().width)).size,
+        justify: items.map((item) => getComputedStyle(item).justifyContent),
+      };
+    });
+
+    assert.equal(densityLayout.direction, "column");
+    assert.equal(densityLayout.widths, 1, "every vertical item is full width");
+    assert.deepEqual(densityLayout.justify, ["flex-start", "flex-start", "flex-start"]);
+    assert.equal(await attribute("tg-disabled-all", "data-disabled"), "");
+    assert.equal((await styleOf("#tg-disabled-all", ["opacity"])).opacity, "0.5");
+    assert.equal((await styleOf("#tg-disabled", ["opacity"])).opacity, "1");
+
+    // Keys and values: arrows move and skip the disabled item, wrapping, and never press; Space
+    // presses. A Single keeps its pressed item on a second click unless deselectable; Multiple
+    // toggles each value.
+    await focusByKeyboard("#seg-active");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await activeId(), "seg-ending");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await activeId(), "seg-all");
+    assert.equal(await pressed("seg-all"), "false");
+    await page.keyboard.press("Space");
+    await until("seg-all", "aria-pressed", "true");
+    await page.click("#seg-all");
+    await rendered();
+    assert.equal(await pressed("seg-all"), "true");
+    await page.click("#density-compact");
+    await until("density-compact", "aria-pressed", "false");
+    await page.click("#tg-underline");
+    await page.click("#tg-bold");
+    await rendered();
+    assert.equal(await resultOf("tg-result"), "all italic,underline none");
+    await page.click("#focus-billing");
+    await rendered();
+    assert.equal(await activeId(), "billing-annual");
+
+    // Toolbar roving: one Tab stop; arrows walk every control in DOM order, through the groups'
+    // items and the focusable-disabled Redo, wrap, and never press or check; Home and End.
+    const toolbarStates = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#toolbar button")].map(
+          (button) =>
+            `${button.id}:${button.getAttribute("aria-pressed") ?? ""}${button.getAttribute("aria-checked") ?? ""}`,
+        ),
+      );
+    const statesBefore = await toolbarStates();
+
+    await focusByKeyboard("#tg-nested-item");
+    await page.keyboard.press("Tab");
+    assert.equal(await activeId(), "tb-undo");
+    assert.deepEqual(await outline("#tb-undo"), ringOutline(palette.ring));
+
+    assert.deepEqual(await tabIndexesOf(page, toolbarControls), oneTabStop("tb-undo"));
+
+    const walk = [];
+
+    for (let step = 0; step < toolbarControls.length; step += 1) {
+      await page.keyboard.press("ArrowRight");
+      walk.push(await activeId());
+    }
+
+    assert.deepEqual(walk, [...toolbarControls.slice(1), "tb-undo"]);
+    // Arrows enter and leave the Single group from its neighbours; inside it, the Toolbar's one
+    // stop moves to the item and Tab leaves the Toolbar. Once focus is outside, Origami resets the
+    // stop to the first enabled control (its K2), so Shift+Tab re-enters there.
+    await page.keyboard.press("Home");
+
+    for (let step = 0; step < toolbarControls.indexOf("tb-week"); step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+
+    assert.equal(await activeId(), "tb-week");
+    await tabStopSettled();
+    assert.deepEqual(await tabIndexesOf(page, toolbarControls), oneTabStop("tb-week"));
+    await page.keyboard.press("Tab");
+    assert.equal(
+      await page.evaluate(() =>
+        document.getElementById("toolbar").contains(document.activeElement),
+      ),
+      false,
+      `Tab from the group leaves the Toolbar: ${await activeId()}`,
+    );
+    await until("tb-undo", "tabindex", "0");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await activeId(), "tb-undo", "Shift+Tab re-enters on the first enabled control");
+    await page.keyboard.press("End");
+    assert.equal(await activeId(), "tb-copy");
+    await page.keyboard.press("Home");
+    assert.equal(await activeId(), "tb-undo");
+    await page.keyboard.press("End");
+    await tabStopSettled();
+    await page.keyboard.press("Tab");
+    assert.notEqual(await activeId(), "tb-copy");
+    await until("tb-undo", "tabindex", "0");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await activeId(), "tb-undo", "the Toolbar's stop resets once focus leaves it");
+    assert.deepEqual(await toolbarStates(), statesBefore, "arrows never press or check");
+    await focusByKeyboard("#rtl-first");
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await activeId(), "rtl-second", "ArrowLeft moves forward right to left");
+
+    // The wrappers forward their bindings: ToolbarToggle's checked, the radio group's value and
+    // the Single's deselectable. Redo, focusable while disabled, keeps the guard's count at 0.
+    await page.click("#tb-spell");
+    await until("tb-spell", "aria-pressed", "false");
+    await page.click("#tb-right");
+    await until("tb-right", "aria-checked", "true");
+    await page.click("#tb-italic");
+    await until("tb-italic", "aria-pressed", "true");
+    await page.click("#tb-week");
+    await until("tb-week", "aria-pressed", "true");
+    await page.click("#tb-week");
+    await until("tb-week", "aria-pressed", "false");
+    await focusByKeyboard("#tb-redo");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Space");
+    await page.click("#tb-redo", { force: true });
+    await rendered();
+    assert.equal(await attribute("tb-redo", "data-disabled"), "");
+    assert.equal(await resultOf("tb-result"), "false right none 0 false bold,italic");
+
+    // Layout: one row at the page's width, 8px apart; the 360px Toolbar wraps whole controls
+    // onto rows 8px apart without overflowing; 1×20px separators; registered heights; radio rows
+    // stay one 32px line, also inside a Tooltip and beside a long unbreakable label.
+    const toolbarLayout = await page.evaluate(() => {
+      const rectOf = (id) => document.getElementById(id).getBoundingClientRect();
+      const rows = (ids) =>
+        new Set(ids.map((id) => Math.round(rectOf(id).top + rectOf(id).height / 2))).size;
+      const wide = [
+        "tb-undo",
+        "tb-redo",
+        "tb-sep-1",
+        "tb-marks",
+        "tb-spell",
+        "tb-view",
+        "tb-align",
+        "tb-symbol",
+        "tb-more",
+        "tb-copy",
+      ];
+      const narrow = [
+        "n-undo",
+        "n-redo",
+        "n-marks",
+        "n-spell",
+        "n-align",
+        "n-symbol",
+        "n-more",
+        "n-copy",
+      ];
+      const narrowBox = rectOf("toolbar-narrow");
+      const radioRow = (id) => {
+        const item = document.getElementById(id);
+        const style = getComputedStyle(item);
+        const range = document.createRange();
+
+        range.selectNodeContents(item.lastElementChild);
+
+        return {
+          height: item.getBoundingClientRect().height,
+          shrink: style.flexShrink,
+          whiteSpace: style.whiteSpace,
+          lines: new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size,
+        };
+      };
+      const height = (id) => rectOf(id).height;
+      const radioItems = (id) => [
+        ...document.getElementById(id).querySelectorAll("[data-slot=radio-group-item]"),
+      ];
+      // The distinct rows a radio group's items sit on.
+      const itemRows = (id) =>
+        new Set(radioItems(id).map((item) => Math.round(item.getBoundingClientRect().top))).size;
+      const verticalItems = radioItems("vert-align").map((item) => item.getBoundingClientRect());
+      // The vertical Toolbar's own controls, in DOM order: one column, each below the last.
+      const verticalControls = ["vert-start", "vert-sep", "vert-align", "vert-end"].map(rectOf);
+
+      return {
+        wideRows: rows(wide),
+        wideGap: rectOf("tb-redo").left - rectOf("tb-undo").right,
+        columnGap: getComputedStyle(document.getElementById("toolbar")).columnGap,
+        narrowRows: rows(narrow),
+        rowGap: getComputedStyle(document.getElementById("toolbar-narrow")).rowGap,
+        narrowOverflow: Math.max(...narrow.map((id) => rectOf(id).right)) - narrowBox.right,
+        separator: [rectOf("tb-sep-1").width, rectOf("tb-sep-1").height],
+        verticalSeparator: [rectOf("vert-sep").width, rectOf("vert-sep").height],
+        separatorColor: getComputedStyle(document.getElementById("tb-sep-1")).backgroundColor,
+        heights: Object.fromEntries(
+          ["tb-undo", "tb-spell", "tb-marks", "tb-symbol", "tb-more", "tb-copy", "tb-bold"].map(
+            (id) => [id, height(id)],
+          ),
+        ),
+        alignRows: { narrow: itemRows("n-align"), long: itemRows("long-align") },
+        longOverflow: rectOf("long-right").right - rectOf("toolbar-long").right,
+        verticalStack: {
+          items: verticalItems.length,
+          sameLeft: verticalItems.every((item) => item.left === verticalItems[0].left),
+          stacked: verticalItems.every(
+            (item, index) => index === 0 || item.top >= verticalItems[index - 1].bottom,
+          ),
+        },
+        verticalColumn: verticalControls.every(
+          (rect, index) => index === 0 || rect.top >= verticalControls[index - 1].bottom,
+        ),
+        radios: Object.fromEntries(
+          ["tb-left", "tb-center", "tb-right", "long-left", "long-center", "long-right"].map(
+            (id) => [id, radioRow(id)],
+          ),
+        ),
+      };
+    });
+
+    assert.equal(toolbarLayout.wideRows, 1, "the Toolbar is one row at the page's width");
+    assert.equal(toolbarLayout.wideGap, 8);
+    assert.equal(toolbarLayout.columnGap, "8px");
+    assert.ok(toolbarLayout.narrowRows > 1, `the 360px Toolbar wraps: ${toolbarLayout.narrowRows}`);
+    assert.equal(toolbarLayout.rowGap, "8px");
+    assert.ok(toolbarLayout.narrowOverflow <= 0.5, `overflow ${toolbarLayout.narrowOverflow}`);
+    assert.deepEqual(toolbarLayout.separator, [1, 20]);
+    assert.deepEqual(toolbarLayout.verticalSeparator, [20, 1]);
+    assert.equal(toolbarLayout.separatorColor, palette.border);
+    assert.deepEqual(toolbarLayout.heights, {
+      "tb-undo": 32,
+      "tb-spell": 32,
+      "tb-marks": 32,
+      "tb-symbol": 32,
+      "tb-more": 32,
+      "tb-copy": 32,
+      "tb-bold": 26,
+    });
+
+    // A radio group moves whole: its items stay on one row, also when the long label overflows
+    // its 360px Toolbar, and stack in a column in a vertical Toolbar.
+    assert.deepEqual(toolbarLayout.alignRows, { narrow: 1, long: 1 });
+    assert.ok(
+      toolbarLayout.longOverflow > 0,
+      `the long group overflows: ${toolbarLayout.longOverflow}`,
+    );
+    assert.deepEqual(toolbarLayout.verticalStack, { items: 2, sameLeft: true, stacked: true });
+    assert.equal(toolbarLayout.verticalColumn, true, "a vertical Toolbar stacks its controls");
+
+    for (const [id, row] of Object.entries(toolbarLayout.radios)) {
+      assert.deepEqual(row, { height: 32, shrink: "0", whiteSpace: "nowrap", lines: 1 }, id);
+    }
+
+    // Popups: Enter opens the Popover 4px below its trigger; Tab reaches its content and Escape
+    // returns to the trigger, which keeps the Toolbar's tab stop. Enter opens the Menu on its
+    // first item and Escape returns; ArrowDown opens it too.
+    const popupOpen = (id) =>
+      page.waitForFunction((id) => document.getElementById(id).matches(":popover-open"), id);
+    const popupClosed = (id) =>
+      page.waitForFunction((id) => !document.getElementById(id).matches(":popover-open"), id);
+
+    await focusByKeyboard("#tb-symbol");
+    await page.keyboard.press("Enter");
+    await popupOpen("tb-symbol-content");
+    assert.equal(await attribute("tb-symbol", "aria-expanded"), "true");
+
+    const symbolGap =
+      (await toggleRect("#tb-symbol-content")).top - (await toggleRect("#tb-symbol")).bottom;
+
+    assert.ok(Math.abs(symbolGap - 4) <= 0.5, `the Popover's gap ${symbolGap}`);
+    await page.keyboard.press("Tab");
+    assert.equal(await activeId(), "tb-symbol-star");
+    await page.keyboard.press("Escape");
+    await popupClosed("tb-symbol-content");
+    assert.equal(await activeId(), "tb-symbol");
+    await rendered();
+    assert.equal(await attribute("tb-symbol", "tabindex"), "0");
+    await focusByKeyboard("#tb-more");
+    await page.keyboard.press("Enter");
+    await popupOpen("tb-more-content");
+    await page.waitForFunction(() => document.activeElement?.id === "tb-clear");
+    await page.keyboard.press("Escape");
+    await popupClosed("tb-more-content");
+    assert.equal(await activeId(), "tb-more");
+    await rendered();
+    await page.keyboard.press("ArrowDown");
+    await popupOpen("tb-more-content");
+    await page.keyboard.press("Escape");
+    await popupClosed("tb-more-content");
+
+    // Reduced motion: nothing to animate on the button looks.
+    assert.deepEqual(
+      await page.evaluate(() =>
+        ["#toggle-mute", "#seg-all", "#tb-undo", "#tb-spell"].map(
+          (selector) => getComputedStyle(document.querySelector(selector)).transitionProperty,
+        ),
+      ),
+      ["none", "none", "none", "none"],
+    );
+
+    // Forced colors, from a fresh page: a pressed control opts out and paints Highlight with
+    // HighlightText, also hovered, with no author shadow; projected text follows it; disabled is
+    // GrayText, or Canvas on GrayText while pressed; a pressed control's focus ring is
+    // CanvasText; the separator is GrayText; the dot takes its item's text color.
+    await page.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
+    await fresh();
+
+    const forced = await page.evaluate(() => {
+      const probe = document.createElement("span");
+      const read = (value) => {
+        probe.style.cssText = `position: fixed; forced-color-adjust: none; color: ${value}`;
+
+        return getComputedStyle(probe).color;
+      };
+
+      document.body.append(probe);
+
+      const result = {
+        canvas: read("Canvas"),
+        canvasText: read("CanvasText"),
+        highlight: read("Highlight"),
+        highlightText: read("HighlightText"),
+        grayText: read("GrayText"),
+        linkText: read("LinkText"),
+      };
+
+      probe.remove();
+
+      return result;
+    });
+    const forcedLook = (selector) =>
+      styleOf(selector, ["backgroundColor", "color", "boxShadow", "forcedColorAdjust"]);
+    const forcedPressed = {
+      backgroundColor: forced.highlight,
+      color: forced.highlightText,
+      boxShadow: "none",
+      forcedColorAdjust: "none",
+    };
+
+    for (const selector of ["#toggle-lg", "#seg-active", "#tb-spell", "#tb-bold"]) {
+      assert.deepEqual(await forcedLook(selector), forcedPressed, `forced ${selector}`);
+    }
+
+    const forcedInk = { backgroundColor: forced.highlight, color: forced.highlightText };
+
+    await page.hover("#toggle-lg");
+    assert.deepEqual(await styleOf("#toggle-lg", ["backgroundColor", "color"]), forcedInk, "hover");
+    assert.deepEqual(await held("#toggle-lg", ["backgroundColor", "color"]), forcedInk, "held");
+    assert.deepEqual(await held("#seg-active", ["backgroundColor", "color"]), forcedInk, "held");
+    assert.notEqual((await forcedLook("#toggle-mute")).backgroundColor, forced.highlight);
+    assert.equal((await forcedLook("#toggle-mute")).forcedColorAdjust, "auto");
+    assert.equal(
+      (await styleOf("#toggle-count-span", ["color"])).color,
+      (await styleOf("#toggle-count", ["color"])).color,
+    );
+    assert.equal((await styleOf("#toggle-off-disabled", ["color"])).color, forced.grayText);
+    assert.deepEqual(await styleOf("#toggle-on-disabled", ["backgroundColor", "color"]), {
+      backgroundColor: forced.grayText,
+      color: forced.canvas,
+    });
+    await focusByKeyboard("#toggle-count");
+    assert.equal(await activeId(), "toggle-count");
+    assert.deepEqual(await outline("#toggle-count"), ringOutline(forced.canvasText));
+    await focusByKeyboard("#tb-undo");
+    assert.equal(await activeId(), "tb-undo");
+
+    const undoForcedOutline = await outline("#tb-undo");
+
+    assert.deepEqual(
+      { ...undoForcedOutline, color: null },
+      ringOutline(null),
+      "an off control keeps the 2px ring",
+    );
+    assert.notEqual(undoForcedOutline.color, forced.canvasText);
+    assert.equal(
+      (await styleOf("#tb-sep-1", ["backgroundColor"])).backgroundColor,
+      forced.grayText,
+    );
+    assert.equal(
+      (await styleOf(dotOf("seg-active"), ["backgroundColor"])).backgroundColor,
+      forced.highlightText,
+    );
+    assert.equal(
+      (await styleOf(dotOf("tg-disabled-all"), ["backgroundColor"])).backgroundColor,
+      forced.canvas,
+    );
+    // Chromium's palettes have HighlightText equal to Canvas, so a probe color tells
+    // currentColor from a fixed system color.
+    await page.evaluate(() => {
+      document.getElementById("tg-disabled-all").style.color = "LinkText";
+    });
+    assert.equal(
+      (await styleOf(dotOf("tg-disabled-all"), ["backgroundColor"])).backgroundColor,
+      forced.linkText,
+    );
+    await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
+
+  // Table, Badge, Page and Empty: a BizneScript list view (#list-views). The server HTML and the
+  // page without scripts, the named scrollers and pagers, the Page header's wrap, every Badge tone's
+  // colors and contrast, the sort glyphs, alignment, sorting by keyboard and pointer with the rows
+  // it shows, the pager's guarded boundaries and the Empty states. Scrolling the tables by keyboard
+  // is consumer-scrolling.mjs's, in every engine.
+  {
+    const frame = "[data-slot=table-frame]";
+    const viewport = `${frame} > [data-slot=scroll-area] > [data-slot=scroll-area-viewport]`;
+    const near = (actual, expected, tolerance, label) =>
+      assert.ok(
+        Math.abs(actual - expected) <= tolerance,
+        `${label}: ${actual} isn't ${expected} ±${tolerance}`,
+      );
+
+    // Resolves any CSS color, oklab() included, to sRGB bytes by painting it.
+    const rgbaIn = (target, color) =>
+      target.evaluate((color) => {
+        const context = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+
+        return [...context.getImageData(0, 0, 1, 1).data];
+      }, color);
+
+    // WCAG 2 contrast of two sRGB colors.
+    const contrast = (first, second) => {
+      const linear = (value) => {
+        const channel = value / 255;
+
+        if (channel <= 0.04045) {
+          return channel / 12.92;
+        }
+
+        return ((channel + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = ([r, g, b]) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+      const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+
+      return (light + 0.05) / (dark + 0.05);
+    };
+
+    // Composites `top` over the opaque `bottom`, both as [r, g, b, a] bytes.
+    const over = (top, bottom) => {
+      const alpha = top[3] / 255;
+      const result = [];
+
+      for (let channel = 0; channel < 3; channel++) {
+        result.push(top[channel] * alpha + bottom[channel] * (1 - alpha));
+      }
+
+      return result;
+    };
+
+    // A pointer click at the box's center, which a locator click skips on an aria-disabled button.
+    const rawClick = async (target, locator) => {
+      await locator.scrollIntoViewIfNeeded();
+
+      const box = await locator.boundingBox();
+
+      await target.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    };
+
+    const lists = [
+      { root: "#budget-list", name: "Budgets", titleId: "budget-list-title" },
+      { root: "#budget-list-empty", name: "Archived budgets", titleId: "budget-list-empty-title" },
+      { root: "#wide-report", name: "Cost centres", titleId: "wide-report-title" },
+      {
+        root: "#wide-report-empty",
+        name: "Closed cost centres",
+        titleId: "wide-report-empty-title",
+      },
+    ];
+    const firstByName = ["Capital expenditure", "Facilities", "Hiring", "Legal"];
+
+    // Each TableFrame's name is on its viewport, a region and a Tab stop, and never on the frame;
+    // the exact-name region is that viewport. Each budget list's pager is named for its list and
+    // sits outside its scroller, right after it.
+    const assertNaming = async (target, phase) => {
+      for (const { root, name, titleId } of [
+        ...lists,
+        { root: "#badges-light", name: "Light budgets", titleId: null },
+      ]) {
+        const scroller = target.locator(`${root} ${viewport}`);
+        const host = target.locator(`${root} ${frame}`);
+        const region = target.getByRole("region", { name, exact: true });
+        let label = name;
+
+        if (titleId) {
+          label = null;
+        }
+
+        assert.equal(await region.count(), 1, `${phase} ${name} regions`);
+        assert.deepEqual(
+          {
+            matched: await region.getAttribute("data-slot"),
+            role: await scroller.getAttribute("role"),
+            tabindex: await scroller.getAttribute("tabindex"),
+            labelledby: await scroller.getAttribute("aria-labelledby"),
+            label: await scroller.getAttribute("aria-label"),
+            hostLabelledby: await host.getAttribute("aria-labelledby"),
+            hostLabel: await host.getAttribute("aria-label"),
+          },
+          {
+            matched: "scroll-area-viewport",
+            role: "region",
+            tabindex: "0",
+            labelledby: titleId,
+            label,
+            hostLabelledby: null,
+            hostLabel: null,
+          },
+          `${phase} ${root} naming`,
+        );
+      }
+
+      for (const name of ["Budgets", "Archived budgets"]) {
+        const pager = target.getByRole("navigation", { name: `${name} pages`, exact: true });
+
+        assert.equal(await pager.count(), 1, `${phase} ${name} pagers`);
+        assert.deepEqual(
+          await pager.evaluate((nav) => ({
+            insideViewport: nav.closest("[data-slot=scroll-area-viewport]") !== null,
+            after: nav.previousElementSibling.getAttribute("data-slot"),
+          })),
+          { insideViewport: false, after: "scroll-area" },
+          `${phase} ${name} pager place`,
+        );
+      }
+    };
+
+    // A table's headers, sort buttons and glyphs, its rows' names and its pager's range, if any:
+    // the budget table's by default.
+    const sortState = (target = page, selector = "#budget-list table") =>
+      target.locator(selector).evaluate((table) => {
+        const headers = [];
+        const rows = [];
+
+        for (const header of table.tHead.rows[0].cells) {
+          const button = header.querySelector("button");
+          const glyph = button?.querySelector("svg");
+          let icon = null;
+
+          if (glyph) {
+            for (const attribute of glyph.getAttributeNames()) {
+              if (/^lucidearrow/i.test(attribute)) {
+                icon = attribute.toLowerCase();
+              }
+            }
+          }
+
+          headers.push({
+            name: header.textContent.trim(),
+            sort: header.getAttribute("aria-sort"),
+            buttonSort: button?.getAttribute("data-sort") ?? null,
+            type: button?.getAttribute("type") ?? null,
+            icon,
+          });
+        }
+
+        for (const row of table.tBodies[0].rows) {
+          rows.push(row.cells[0].textContent.trim());
+        }
+
+        return {
+          headers,
+          rows,
+          range:
+            table.closest("[data-slot=table-frame]").querySelector("output")?.textContent.trim() ??
+            null,
+        };
+      });
+
+    // One sorted header at a time, its button's data-sort and glyph matching, ↕ on the others.
+    const assertSort = (state, sorted, direction, rows, range, label) => {
+      const names = [];
+
+      for (const header of state.headers) {
+        names.push(header.name);
+      }
+
+      assert.deepEqual(names, ["Name", "Status", "Submitted", "Amount", "Actions"], label);
+      assert.deepEqual(state.rows, rows, `${label} rows`);
+      assert.equal(state.range, range, `${label} range`);
+
+      for (const header of state.headers) {
+        if (header.name === "Actions") {
+          assert.deepEqual(
+            [header.sort, header.type, header.icon],
+            [null, null, null],
+            `${label} Actions`,
+          );
+          continue;
+        }
+
+        let sort = null;
+        let icon = "lucidearrowupdown";
+
+        if (header.name === sorted) {
+          sort = direction;
+          icon = "lucidearrowup";
+        }
+
+        if (header.name === sorted && direction === "descending") {
+          icon = "lucidearrowdown";
+        }
+
+        assert.deepEqual(
+          {
+            sort: header.sort,
+            buttonSort: header.buttonSort,
+            type: header.type,
+            icon: header.icon,
+          },
+          { sort, buttonSort: sort, type: "button", icon },
+          `${label} ${header.name}`,
+        );
+      }
+    };
+
+    // Before hydration: the native sections hold the slotted rows and cells, the sort and the
+    // named scrollers are in place, and the Page's title is the author's unnamed section's h2.
+    const listViewsPrerendered = await browser.newPage({
+      javaScriptEnabled: false,
+      deviceScaleFactor: 1,
+    });
+
+    await listViewsPrerendered.goto(base);
+    assert.deepEqual(
+      await listViewsPrerendered.locator("#budget-list table").evaluate((table) => {
+        const head = [];
+        const body = [];
+
+        for (const row of table.tHead.rows) {
+          const cells = [];
+
+          for (const cell of row.cells) {
+            cells.push([
+              cell.localName,
+              cell.getAttribute("data-slot"),
+              cell.getAttribute("scope"),
+            ]);
+          }
+
+          head.push([row.getAttribute("data-slot"), cells]);
+        }
+
+        for (const row of table.tBodies[0].rows) {
+          const cells = [];
+
+          for (const cell of row.cells) {
+            cells.push([cell.localName, cell.getAttribute("data-slot")]);
+          }
+
+          body.push([row.getAttribute("data-slot"), cells]);
+        }
+
+        const sections = [];
+
+        for (const child of table.children) {
+          sections.push([child.localName, child.getAttribute("data-slot")]);
+        }
+
+        return { slot: table.getAttribute("data-slot"), sections, head, body };
+      }),
+      {
+        slot: "table",
+        sections: [
+          ["thead", null],
+          ["tbody", null],
+        ],
+        head: [["table-row", Array(5).fill(["th", "table-column-header", "col"])]],
+        body: Array(4).fill(["table-row", Array(5).fill(["td", "table-cell"])]),
+      },
+      "native table structure",
+    );
+
+    // The server's sort, read as the hydrated checks read it: Name is the only sorted header, its
+    // button has data-sort and ArrowUp, the others ↕ and no data-sort, every button type="button",
+    // and the first page in name order. The light table's static sort too.
+    assertSort(
+      await sortState(listViewsPrerendered),
+      "Name",
+      "ascending",
+      firstByName,
+      "1–4 of 10",
+      "prerendered",
+    );
+    assert.deepEqual(
+      (await sortState(listViewsPrerendered, "#badges-light table:not(#nested-table)")).headers,
+      [
+        {
+          name: "Name",
+          sort: "ascending",
+          buttonSort: "ascending",
+          type: "button",
+          icon: "lucidearrowup",
+        },
+        { name: "Status", sort: null, buttonSort: null, type: "button", icon: "lucidearrowupdown" },
+      ],
+      "prerendered light table sort",
+    );
+    await assertNaming(listViewsPrerendered, "prerendered");
+    assert.deepEqual(
+      await listViewsPrerendered.locator("#budget-list-title").evaluate((title) => {
+        const section = title.closest("section");
+
+        return {
+          tag: title.localName,
+          slot: title.getAttribute("data-slot"),
+          fontSize: getComputedStyle(title).fontSize,
+          label: section.getAttribute("aria-label"),
+          labelledby: section.getAttribute("aria-labelledby"),
+        };
+      }),
+      { tag: "h2", slot: "page-title", fontSize: "20px", label: null, labelledby: null },
+      "prerendered page title",
+    );
+    await listViewsPrerendered.close();
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+    await assertNaming(page, "hydrated");
+
+    // The plain Empty in a full-span cell: centered muted text, the visible width less the
+    // cell's padding, no live region; the rich Empty's title is in the foreground color.
+    const archivedEmpty = await page
+      .locator("#budget-list-empty [data-slot=empty]")
+      .evaluate((empty) => {
+        const style = getComputedStyle(empty);
+
+        return {
+          text: empty.textContent.trim(),
+          textAlign: style.textAlign,
+          color: style.color,
+          position: style.position,
+          width: empty.getBoundingClientRect().width,
+          viewportWidth: empty.closest("[data-slot=scroll-area-viewport]").clientWidth,
+          colspan: empty.parentElement.getAttribute("colspan"),
+          role: empty.getAttribute("role"),
+          live: empty.getAttribute("aria-live"),
+          richTitle: getComputedStyle(document.querySelector("#empty-rich [data-slot=empty-title]"))
+            .color,
+        };
+      });
+
+    near(archivedEmpty.width, archivedEmpty.viewportWidth - 24, 1, "archived Empty width");
+    assert.deepEqual(
+      { ...archivedEmpty, width: 0, viewportWidth: 0 },
+      {
+        text: "No budgets match",
+        textAlign: "center",
+        color: "rgb(163, 163, 160)",
+        position: "sticky",
+        width: 0,
+        viewportWidth: 0,
+        colspan: "5",
+        role: null,
+        live: null,
+        richTitle: "rgb(237, 237, 235)",
+      },
+      "archived Empty",
+    );
+
+    // An Empty beside other cells in its row keeps its own layout: the full-span rule skips it.
+    assert.deepEqual(
+      await page.locator("#empty-beside-cells").evaluate((empty) => {
+        const cell = empty.parentElement.getBoundingClientRect();
+        const own = empty.getBoundingClientRect();
+
+        return {
+          position: getComputedStyle(empty).position,
+          fillsCell: Math.abs(own.width - (cell.width - 24)) <= 1,
+        };
+      }),
+      { position: "static", fillsCell: true },
+      "Empty beside other cells",
+    );
+
+    // A row's only cell beside a rowspan, without a colspan, isn't full-span: its Empty keeps its
+    // own layout and doesn't widen the table.
+    assert.deepEqual(
+      await page.locator("#empty-beside-rowspan").evaluate((empty) => {
+        const cell = empty.parentElement.getBoundingClientRect();
+        const own = empty.getBoundingClientRect();
+        const scroller = empty.closest("[data-slot=scroll-area-viewport]");
+
+        return {
+          position: getComputedStyle(empty).position,
+          fillsCell: Math.abs(own.width - (cell.width - 24)) <= 1,
+          fits: scroller.scrollWidth === scroller.clientWidth,
+        };
+      }),
+      { position: "static", fillsCell: true, fits: true },
+      "Empty alone in a row beside a rowspan",
+    );
+
+    // A table nested in the light frame's cell keeps its own layout: its full-span Empty isn't
+    // sticky and fills its own cell, and its last row keeps its border, while the frame's own
+    // table's last row drops it.
+    assert.deepEqual(
+      await page.locator("#empty-nested").evaluate((empty) => {
+        const cell = empty.parentElement.getBoundingClientRect();
+        const own = empty.getBoundingClientRect();
+        const nested = empty.closest("table");
+        const outer = nested.parentElement.closest("table");
+
+        return {
+          position: getComputedStyle(empty).position,
+          fillsCell: Math.abs(own.width - (cell.width - 24)) <= 1,
+          nestedLastRowBorder: getComputedStyle(nested.tBodies[0].rows[0]).borderBottomWidth,
+          outerLastRowBorder: getComputedStyle(
+            outer.tBodies[0].rows[outer.tBodies[0].rows.length - 1],
+          ).borderBottomWidth,
+        };
+      }),
+      {
+        position: "static",
+        fillsCell: true,
+        nestedLastRowBorder: "1px",
+        outerLastRowBorder: "0px",
+      },
+      "a table nested in a frame's cell",
+    );
+
+    // The Page header: PageActions beside the title block just above the threshold of 16rem, the
+    // gap and their width, and below it as a whole just under it; a long label wraps at phone
+    // width with the README's override. Default padding 20px; p-0 removes it.
+    const headerGeometry = (selector) =>
+      page.locator(selector).evaluate((section) => {
+        const header = section.querySelector("[data-slot=page-header]");
+        const box = (node) => {
+          const { x, y, width, height, right, bottom } = node.getBoundingClientRect();
+
+          return { x, y, width, height, right, bottom };
+        };
+        const { paddingLeft, paddingTop } = getComputedStyle(section);
+
+        return {
+          header: box(header),
+          title: box(header.children[0]),
+          actions: box(header.querySelector("[data-slot=page-actions]")),
+          button: box(header.querySelector("[data-slot=page-actions] button")),
+          clientWidth: header.clientWidth,
+          scrollWidth: header.scrollWidth,
+          paddingLeft,
+          paddingTop,
+        };
+      });
+    const setWidth = (width) =>
+      page.locator("#page-long").evaluate((section, width) => {
+        section.style.width = width;
+      }, width);
+    const budgetPage = "#budget-list [data-slot=page]";
+
+    await setWidth("1200px");
+
+    const unconstrained = await headerGeometry("#page-long");
+    const threshold = 256 + 24 + unconstrained.actions.width;
+
+    await setWidth(`${threshold + 2}px`);
+
+    const beside = await headerGeometry("#page-long");
+
+    await setWidth(`${threshold - 2}px`);
+
+    const below = await headerGeometry("#page-long");
+
+    await setWidth("");
+
+    const desktopBudget = await headerGeometry(budgetPage);
+
+    assert.ok(beside.title.width >= 255, `beside: title block ${beside.title.width}`);
+    near(beside.actions.x - beside.title.right, 24, 1, "beside: gap");
+    assert.ok(beside.actions.y < beside.title.bottom, "beside: actions beside the title block");
+    near(beside.actions.right, beside.header.right, 1, "beside: actions at the end");
+    near(beside.button.height, 32, 0.5, "beside: one-line button");
+    near(below.actions.y - below.title.bottom, 12, 1, "below: row gap");
+    near(below.actions.x, below.header.x, 1, "below: actions at the start");
+    near(below.title.width, below.header.width, 1, "below: full-width title block");
+    assert.ok(desktopBudget.actions.y < desktopBudget.title.bottom, "budget actions beside");
+
+    await page.setViewportSize({ width: 390, height: 720 });
+
+    const phoneBudget = await headerGeometry(budgetPage);
+    const phoneLong = await headerGeometry("#page-long");
+
+    near(phoneLong.header.width, 350, 0.5, "phone header width");
+    assert.ok(phoneLong.actions.y > phoneLong.title.bottom, "phone: actions below");
+    assert.ok(phoneLong.button.right <= phoneLong.header.right + 0.5, "phone: button inside");
+    assert.ok(phoneLong.button.height >= 40, `phone: wrapped label ${phoneLong.button.height}`);
+    assert.ok(phoneLong.scrollWidth <= phoneLong.clientWidth, "phone: header doesn't overflow");
+    assert.ok(phoneBudget.actions.y >= phoneBudget.title.bottom + 11, "phone budget actions below");
+
+    for (const { geometry, padding, label } of [
+      { geometry: desktopBudget, padding: "20px", label: "budget desktop" },
+      { geometry: phoneBudget, padding: "20px", label: "budget phone" },
+      { geometry: unconstrained, padding: "0px", label: "p-0 desktop" },
+      { geometry: phoneLong, padding: "0px", label: "p-0 phone" },
+    ]) {
+      assert.deepEqual(
+        [geometry.paddingTop, geometry.paddingLeft],
+        [padding, padding],
+        `${label} padding`,
+      );
+    }
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Badge: every tone's text and tint equal probes painted with the literal theme values, and
+    // the text reads at 4.5:1 or more over its tint on its backdrop, in the document's theme and in
+    // a light subtree; without --info, info looks like neutral.
+    const tones = ["neutral", "info", "success", "warning", "danger"];
+    const palettes = {
+      dark: {
+        foreground: "#ededeb",
+        neutral: "#a3a3a0",
+        info: "#82b4ec",
+        success: "#7fd49a",
+        warning: "#e9b86a",
+        danger: "#e0906f",
+      },
+      light: {
+        foreground: "#1b1b1b",
+        neutral: "#5b5b58",
+        info: "#1f5f9e",
+        success: "#1d6b37",
+        warning: "#80560a",
+        danger: "#b8421a",
+      },
+    };
+    const badgeColors = (id, palette, sampleTones, missingInfo) =>
+      page.locator(`#${id}`).evaluate(
+        (sample, { palette, sampleTones, missingInfo }) => {
+          const context = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true });
+          const rgba = (color) => {
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+
+            return [...context.getImageData(0, 0, 1, 1).data];
+          };
+          const result = [];
+
+          for (const tone of sampleTones) {
+            const badge = sample.querySelector(`[data-tone="${tone}"]`);
+
+            if (!badge) {
+              result.push({ tone, missing: true });
+              continue;
+            }
+
+            const style = getComputedStyle(badge);
+            let backdrop = null;
+
+            for (let node = badge.parentElement; node && !backdrop; node = node.parentElement) {
+              const ground = rgba(getComputedStyle(node).backgroundColor);
+
+              if (ground[3] === 255) {
+                backdrop = ground;
+              }
+            }
+
+            let token = palette[tone];
+
+            if (missingInfo && tone === "info") {
+              token = palette.neutral;
+            }
+
+            const probe = document.createElement("span");
+
+            probe.style.color = `color-mix(in oklab, ${token} 80%, ${palette.foreground})`;
+            probe.style.backgroundColor = `color-mix(in oklab, ${token} 12%, transparent)`;
+            badge.after(probe);
+
+            const expected = getComputedStyle(probe);
+            const entry = {
+              tone,
+              color: rgba(style.color),
+              tint: rgba(style.backgroundColor),
+              expectedColor: rgba(expected.color),
+              expectedTint: rgba(expected.backgroundColor),
+              backdrop,
+            };
+
+            probe.remove();
+            result.push(entry);
+          }
+
+          return result;
+        },
+        { palette, sampleTones, missingInfo },
+      );
+    const assertBadges = async (theme) => {
+      for (const [id, palette] of [
+        ["badges-background", palettes[theme]],
+        ["badges-surface", palettes[theme]],
+        ["badges-light-background", palettes.light],
+        ["badges-light-surface", palettes.light],
+        ["badges-no-info", palettes[theme]],
+      ]) {
+        const missingInfo = id === "badges-no-info";
+        let sampleTones = tones;
+
+        if (missingInfo) {
+          sampleTones = ["neutral", "info"];
+        }
+
+        const entries = await badgeColors(id, palette, sampleTones, missingInfo);
+
+        for (const entry of entries) {
+          const label = `${theme} ${id} ${entry.tone}`;
+
+          assert.equal(entry.missing, undefined, `${label} is rendered`);
+
+          for (let channel = 0; channel < 4; channel++) {
+            near(entry.color[channel], entry.expectedColor[channel], 1, `${label} text`);
+            near(entry.tint[channel], entry.expectedTint[channel], 1, `${label} tint`);
+          }
+
+          assert.ok(entry.tint[3] > 0, `${label} tint is painted`);
+
+          const ratio = contrast(entry.color, over(entry.tint, entry.backdrop));
+
+          assert.ok(ratio >= 4.5, `${label} contrast ${ratio.toFixed(2)}`);
+        }
+
+        if (missingInfo) {
+          assert.deepEqual(
+            [entries[1].color, entries[1].tint],
+            [entries[0].color, entries[0].tint],
+            `${theme} info without --info looks neutral`,
+          );
+        }
+      }
+    };
+
+    assert.equal(
+      await page.locator("#badges-no-info [data-tone=info]").count(),
+      1,
+      "the info Badge keeps its tone without --info",
+    );
+    await assertBadges("dark");
+    await page.evaluate(() => document.documentElement.classList.add("light"));
+    await assertBadges("light");
+    await page.evaluate(() => document.documentElement.classList.remove("light"));
+    await page.emulateMedia({ forcedColors: "active" });
+
+    const forcedBadge = await styleOf("#badges-background [data-tone=info]", [
+      "borderTopColor",
+      "borderTopStyle",
+      "borderTopWidth",
+    ]);
+
+    assert.notEqual(forcedBadge.borderTopColor, "rgba(0, 0, 0, 0)", "forced colors outline color");
+    assert.notEqual(forcedBadge.borderTopStyle, "none", "forced colors outline style");
+    assert.ok(
+      Number.parseFloat(forcedBadge.borderTopWidth) > 0,
+      `forced colors outline width ${forcedBadge.borderTopWidth}`,
+    );
+    await page.emulateMedia({ forcedColors: "none" });
+
+    // The unsorted ↕ glyph is the label's full muted color, 3:1 or more on the frame's surface, in
+    // the dark document, in a light subtree and in the light document. The sort button's color
+    // transition runs 120ms after a theme switch, so this waits up to 2s for the settled color.
+    await page.mouse.move(0, 0);
+
+    for (const [root, theme, expected] of [
+      ["#budget-list", "dark", "rgb(163, 163, 160)"],
+      ["#badges-light", "dark", "rgb(91, 91, 88)"],
+      ["#budget-list", "light", "rgb(91, 91, 88)"],
+    ]) {
+      await page.evaluate(
+        (light) => document.documentElement.classList.toggle("light", light),
+        theme === "light",
+      );
+
+      const glyph = page
+        .locator(root)
+        .getByRole("button", { name: "Status", exact: true })
+        .locator("svg");
+
+      // Polled from Node, each read raced against a Node timer, so a page that stops rendering or
+      // responding fails the run instead of holding the gate lock.
+      const readColor = () =>
+        Promise.race([
+          glyph.evaluate((svg) => getComputedStyle(svg).color),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`${root} ${theme} glyph color read timed out`)),
+              1000,
+            ),
+          ),
+        ]);
+      const deadline = Date.now() + 2000;
+      let settled = await readColor();
+
+      while (settled !== expected && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        settled = await readColor();
+      }
+
+      assert.equal(settled, expected, `${root} ${theme} glyph color settles`);
+
+      const look = await glyph.evaluate((svg) => ({
+        color: getComputedStyle(svg).color,
+        opacity: getComputedStyle(svg).opacity,
+        surface: getComputedStyle(svg.closest("[data-slot=table-frame]")).backgroundColor,
+      }));
+      const ratio = contrast(await rgbaIn(page, look.color), await rgbaIn(page, look.surface));
+
+      assert.equal(look.opacity, "1", `${root} ${theme} glyph opacity`);
+      assert.ok(ratio >= 3, `${root} ${theme} glyph contrast ${ratio.toFixed(2)}`);
+    }
+
+    await page.evaluate(() => document.documentElement.classList.remove("light"));
+
+    // Alignment: Amount is end-aligned with tabular figures, its sort icon leading; Name is
+    // start-aligned, also under an inherited text-end; the last body row has no bottom border.
+    const budgetTable = page.getByRole("table", { name: "Budgets", exact: true });
+
+    assert.equal(await budgetTable.count(), 1, "one Budgets table");
+    assert.deepEqual(
+      [...(await budgetTable.ariaSnapshot()).matchAll(/columnheader "([^"]+)"/g)].map(
+        (match) => match[1],
+      ),
+      ["Name", "Status", "Submitted", "Amount", "Actions"],
+      "accessible column headers",
+    );
+
+    const alignment = await budgetTable.evaluate((table) => {
+      const align = (cell) => {
+        const style = getComputedStyle(cell);
+
+        return {
+          dataAlign: cell.getAttribute("data-align"),
+          textAlign: style.textAlign,
+          fontSize: style.fontSize,
+          numeric: style.fontVariantNumeric,
+        };
+      };
+      const [name, , , amount] = table.tBodies[0].rows[0].cells;
+      const amountHeader = table.tHead.rows[0].cells[3];
+      const button = amountHeader.querySelector("button");
+      let label;
+
+      for (const node of button.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+          label = node;
+        }
+      }
+
+      const range = document.createRange();
+
+      range.selectNodeContents(label);
+
+      const inherited = document.querySelector("#badges-light table");
+
+      return {
+        name: align(name),
+        amount: align(amount),
+        amountHeader: align(amountHeader),
+        iconRight: button.querySelector("svg").getBoundingClientRect().right,
+        labelLeft: range.getBoundingClientRect().left,
+        lastRowBorder: getComputedStyle(table.tBodies[0].rows[3]).borderBottomWidth,
+        inheritedCell: align(inherited.tBodies[0].rows[0].cells[0]),
+        inheritedHeader: align(inherited.tHead.rows[0].cells[0]),
+      };
+    });
+
+    assert.deepEqual(
+      [alignment.name.dataAlign, alignment.name.textAlign],
+      ["start", "start"],
+      "Name cell",
+    );
+    assert.deepEqual(
+      [alignment.amount.dataAlign, alignment.amount.textAlign, alignment.amount.numeric],
+      ["end", "end", "tabular-nums"],
+      "Amount cell",
+    );
+    assert.deepEqual(
+      [
+        alignment.amountHeader.dataAlign,
+        alignment.amountHeader.textAlign,
+        alignment.amountHeader.fontSize,
+      ],
+      ["end", "end", "12px"],
+      "Amount header",
+    );
+    assert.ok(alignment.iconRight < alignment.labelLeft, "the end column's icon leads");
+    assert.equal(alignment.lastRowBorder, "0px", "the last body row has no bottom border");
+
+    // Rows grouped in several bodies keep the line between groups: only the last body's last row
+    // drops it. A copy of the body is appended for the measurement and removed again.
+    const grouped = await page.evaluate(() => {
+      const table = document.querySelector("#budget-list table");
+      const second = table.tBodies[0].cloneNode(true);
+
+      table.append(second);
+
+      const borders = {
+        firstGroupEnd: getComputedStyle(table.tBodies[0].rows[3]).borderBottomWidth,
+        lastGroupEnd: getComputedStyle(second.rows[3]).borderBottomWidth,
+      };
+
+      // An empty trailing body, a last group filtered to no rows, leaves the last row with rows
+      // borderless.
+      const empty = document.createElement("tbody");
+
+      table.append(empty);
+      borders.endBeforeEmptyBody = getComputedStyle(second.rows[3]).borderBottomWidth;
+      empty.remove();
+      second.remove();
+
+      return borders;
+    });
+
+    assert.deepEqual(
+      grouped,
+      { firstGroupEnd: "1px", lastGroupEnd: "0px", endBeforeEmptyBody: "0px" },
+      "grouped bodies keep the separator between groups, and an empty last body adds none",
+    );
+    assert.deepEqual(
+      [alignment.inheritedCell.dataAlign, alignment.inheritedCell.textAlign],
+      ["start", "start"],
+      "a start cell under an inherited text-end",
+    );
+    assert.equal(alignment.inheritedHeader.textAlign, "start", "a header under text-end");
+
+    // The caller's alignment utility wins over align="end", which stays in data-align.
+    assert.deepEqual(
+      await page.locator("#table-align-override").evaluate((table) => {
+        const read = (cell) => [cell.getAttribute("data-align"), getComputedStyle(cell).textAlign];
+
+        return {
+          header: read(table.tHead.rows[0].cells[0]),
+          cell: read(table.tBodies[0].rows[0].cells[0]),
+        };
+      }),
+      { header: ["end", "center"], cell: ["end", "center"] },
+      'a caller\'s text-center over align="end"',
+    );
+
+    // The approved badge names its status, not just its reference.
+    const approvedBadge = await page
+      .locator("#budget-list")
+      .getByRole("row")
+      .filter({ hasText: "Legal" })
+      .locator("[data-slot=badge]")
+      .textContent();
+
+    assert.equal(approvedBadge.trim(), "Approved · BUD-2026-0009", "the approved badge's text");
+
+    // Sorting by keyboard and pointer: each step shows its rows, the view returns to page 1 on a
+    // new sort, and missing names and dates sort last in both directions. Each step waits for the
+    // sort and the range it expects before reading.
+    const budgetList = page.locator("#budget-list");
+    const budgetButton = (name) => budgetList.getByRole("button", { name, exact: true });
+    const settledOn = (sorted, direction, range) =>
+      page.waitForFunction(
+        ({ sorted, direction, range }) => {
+          const header = document.querySelector("#budget-list th[aria-sort]");
+
+          return (
+            header?.textContent.trim() === sorted &&
+            header.getAttribute("aria-sort") === direction &&
+            document.querySelector("#budget-list output").textContent.trim() === range
+          );
+        },
+        { sorted, direction, range },
+      );
+
+    await budgetList.scrollIntoViewIfNeeded();
+    assertSort(await sortState(), "Name", "ascending", firstByName, "1–4 of 10", "initial");
+
+    for (const { action, sorted, direction, rows, range } of [
+      {
+        action: async () => {
+          await budgetButton("Name").focus();
+          await page.keyboard.press("Enter");
+        },
+        sorted: "Name",
+        direction: "descending",
+        rows: ["Travel", "Training", "Software licences", "Research"],
+        range: "1–4 of 10",
+      },
+      {
+        action: () => budgetButton("Amount").click(),
+        sorted: "Amount",
+        direction: "ascending",
+        rows: ["Untitled draft", "Facilities", "Training", "Legal"],
+        range: "1–4 of 10",
+      },
+      {
+        action: () => budgetButton("Submitted").click(),
+        sorted: "Submitted",
+        direction: "ascending",
+        rows: ["Legal", "Travel", "Marketing", "Hiring"],
+        range: "1–4 of 10",
+      },
+      {
+        action: () => budgetButton("Submitted").click(),
+        sorted: "Submitted",
+        direction: "descending",
+        rows: ["Research", "Facilities", "Hiring", "Marketing"],
+        range: "1–4 of 10",
+      },
+      {
+        action: async () => {
+          await budgetButton("Next").click();
+          await settledOn("Submitted", "descending", "5–8 of 10");
+          await budgetButton("Next").click();
+        },
+        sorted: "Submitted",
+        direction: "descending",
+        rows: ["Untitled draft", "Software licences"],
+        range: "9–10 of 10",
+      },
+      {
+        action: () => budgetButton("Name").click(),
+        sorted: "Name",
+        direction: "ascending",
+        rows: firstByName,
+        range: "1–4 of 10",
+      },
+    ]) {
+      const label = `${sorted} ${direction} ${range}`;
+
+      await action();
+      await settledOn(sorted, direction, range);
+      assertSort(await sortState(), sorted, direction, rows, range, label);
+
+      if (sorted === "Name" && direction === "descending") {
+        assert.equal(
+          await budgetButton("Name").evaluate((button) => document.activeElement === button),
+          true,
+          "Name keeps focus after Enter",
+        );
+      }
+    }
+
+    // The pager's boundaries: Previous and Next stay focusable while disabled, so a key or a raw
+    // pointer click still fires (click), and the view's guard keeps the range.
+    const previous = budgetButton("Previous");
+    const next = budgetButton("Next");
+    const range = budgetList.locator("output");
+    const atBoundary = async (button, press, text, label) => {
+      await button.focus();
+      await press();
+      await rendered();
+      assert.deepEqual(
+        {
+          text: (await range.textContent()).trim(),
+          ariaDisabled: await button.getAttribute("aria-disabled"),
+          disabled: await button.getAttribute("disabled"),
+          focused: await button.evaluate((node) => document.activeElement === node),
+        },
+        { text, ariaDisabled: "true", disabled: null, focused: true },
+        label,
+      );
+    };
+    const enter = () => page.keyboard.press("Enter");
+
+    await atBoundary(previous, enter, "1–4 of 10", "Previous by Enter on page 1");
+    await atBoundary(previous, () => rawClick(page, previous), "1–4 of 10", "Previous by pointer");
+    await next.focus();
+    await enter();
+    await settledOn("Name", "ascending", "5–8 of 10");
+    await enter();
+    await settledOn("Name", "ascending", "9–10 of 10");
+    assert.equal(
+      await next.evaluate((node) => document.activeElement === node),
+      true,
+      "Next keeps focus on reaching the last page",
+    );
+    await atBoundary(next, enter, "9–10 of 10", "Next by Enter on the last page");
+    await atBoundary(next, () => rawClick(page, next), "9–10 of 10", "Next by pointer");
+
+    const archivedPager = page.locator("#budget-list-empty nav");
+
+    assert.equal((await archivedPager.locator("output").textContent()).trim(), "No budgets");
+    assert.deepEqual(
+      await archivedPager.locator("button").evaluateAll((buttons) => {
+        const states = [];
+
+        for (const button of buttons) {
+          states.push(button.getAttribute("aria-disabled"));
+        }
+
+        return states;
+      }),
+      ["true", "true"],
+      "the archived pager's buttons",
+    );
   }
 
   // Accordion and Collapsible. Exact geometry and outline widths are DPR-1 values. Motion, native

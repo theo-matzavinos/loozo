@@ -152,7 +152,7 @@ export function validateRaw(
  * Runs one parser. A throw is invalid input; a thenable is a programming error,
  * thrown as a TypeError so it fails the navigation instead of reading as invalid.
  */
-function parse(codec: Job["codec"], raw: string): { value: unknown } | { cause: unknown } {
+export function parse(codec: Job["codec"], raw: string): { value: unknown } | { cause: unknown } {
   let value: unknown;
 
   try {

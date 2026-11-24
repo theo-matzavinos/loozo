@@ -78,8 +78,11 @@ export type SeedState =
   | { readonly kind: "none" }
   /** Observed: the app initializer checks the seed and loads its records. */
   | { readonly kind: "waiting"; readonly seed: ActiveRouteSeed }
-  /** Readers show it until the first terminal navigation outcome. */
-  | { readonly kind: "published"; readonly chain: SeededChain }
+  /**
+   * Readers show it until the first terminal navigation outcome. `url` is the browser URL it
+   * was checked against, serialized without its fragment.
+   */
+  | { readonly kind: "published"; readonly chain: SeededChain; readonly url: string }
   /** That navigation committed: readers may adopt their seeded handles at its commit. */
   | { readonly kind: "handedOver"; readonly navigation: number }
   /** Never shown again. */
@@ -416,7 +419,11 @@ async function publish(
       throw new NotSeeded("URL changed");
     }
 
-    control.settle({ kind: "published", chain: seededChain(seed.routes, records, current.tree) });
+    control.settle({
+      kind: "published",
+      chain: seededChain(seed.routes, records, current.tree),
+      url: current.url,
+    });
   } catch (error) {
     control.settle(retired);
 
