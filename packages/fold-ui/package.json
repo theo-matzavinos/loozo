@@ -20,8 +20,9 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json && node scripts/copy-assets.mjs && node ../../scripts/finish-package.mjs .",
-    "prepublishOnly": "echo \"Publish from dist/: pnpm build, then pnpm --dir dist publish\" >&2 && exit 1",
+    "prepublishOnly": "echo \"Publish fold-ui through the Publish workflow (root README, Releasing); it checks the Origami pin first\" >&2 && exit 1",
     "check": "vp check",
+    "check:origami-pin": "node scripts/check-origami-pin.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && ngc -p tsconfig.components.json --noEmit",
     "test": "pnpm run typecheck && pnpm run build && node --test tests/*.test.mjs",
     "test:consumer": "node tests/consumer.mjs"

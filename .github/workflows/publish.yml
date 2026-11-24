@@ -107,6 +107,10 @@ jobs:
         env:
           pnpm_config_pm_on_fail: error
           pnpm_config_verify_deps_before_run: error
+      # A fold release's ng add installs the Origami version pinned in its schematic; that version
+      # must be on npm and export every @loozo/origami-ui subpath fold's components import.
+      - if: inputs.package == 'fold-ui'
+        run: pnpm --dir packages/fold-ui run check:origami-pin
       # The trailing ... also builds the workspace packages it depends on.
       - run: pnpm --filter "${{ steps.bump.outputs.name }}..." run build
       - run: pnpm --filter "${{ steps.bump.outputs.name }}" run --if-present check
