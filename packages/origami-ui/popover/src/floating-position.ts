@@ -248,12 +248,20 @@ export function positionContent(
 
   const second = candidatesFor(opposite);
 
-  // The room check. The sizing pass, whose writes can resize Content and clamp a scroll offset
-  // inside it, runs only after the write-free pass finds a side that fits at the current size.
-  // Assumes a larger anchor width or available height never makes Content smaller: in a horizontal
-  // writing mode the inline values are at least the current ones, so a side that misses now also
-  // misses at its inline size. In a vertical mode a block side's cap is the larger one.
-  return inlineSideFits(reference, content, requested, second, configuration.gap, [])
+  // The room check. Assumes a larger anchor width or available height never makes Content
+  // smaller. In a horizontal writing mode an inline side's cap is the viewport's full height, at
+  // least the current one, so a side that misses at the current size also misses at its own: a
+  // write-free pass decides that first, and the sizing pass, whose writes would grow Content and
+  // clamp a scroll offset inside it, runs only when a side fits now. In a vertical mode a block
+  // side's cap is the larger one, so the sizing pass always runs: it can only shrink Content
+  // below the current block-side size, and the placement restores that size in the same READ.
+  let current: Promise<boolean> = Promise.resolve(true);
+
+  if (axes.writingMode === "horizontal-tb") {
+    current = inlineSideFits(reference, content, requested, second, configuration.gap, []);
+  }
+
+  return current
     .then((fitsNow) => {
       if (!fitsNow) {
         return false;

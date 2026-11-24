@@ -4587,6 +4587,35 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
         vertical.viewport.height,
     ),
   ).toBeLessThanOrEqual(1);
+
+  // Capped by its own --og-available-height, it fits beside Nested at an inline side's smaller
+  // cap: in a vertical writing mode the room check sizes it there, so a resize moves it beside.
+  await nestedContent.evaluate((node: HTMLElement) => {
+    node.style.maxHeight = "var(--og-available-height)";
+    node.style.overflow = "auto";
+  });
+  await page.setViewportSize({ width: 845, height: 390 });
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(nestedContent).toHaveAttribute("data-side", "inline-end");
+  await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
+
+  const verticalCapped = await geometry(page, "inline-end", "start", 4, nestedHosts);
+  const verticalCap = await ownPixels(
+    page,
+    "narrow-vertical-nested-content",
+    "--og-available-height",
+  );
+
+  await info.attach("MN57-vertical-capped", {
+    body: JSON.stringify({ capped: verticalCapped, cap: verticalCap }, null, 2),
+    contentType: "application/json",
+  });
+  expect(verticalCap).toBeLessThan(vertical.viewport.height);
+  expect(verticalCapped.content.height).toBeLessThanOrEqual(verticalCap + 1);
+  expect(verticalCapped.content.top).toBeGreaterThanOrEqual(-1);
+  expect(verticalCapped.content.bottom).toBeLessThanOrEqual(verticalCapped.viewport.height + 1);
+  expect(verticalCapped.content.left).toBeGreaterThanOrEqual(-1);
+  expect(verticalCapped.content.right).toBeLessThanOrEqual(verticalCapped.viewport.width + 1);
   await step(page, "Escape", nested);
   await step(page, "Escape", verticalTrigger);
 });
