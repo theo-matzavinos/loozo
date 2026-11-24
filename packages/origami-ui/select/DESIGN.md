@@ -46,7 +46,7 @@ Ownership and read timing. Usage is in the [README](README.md); the contract is 
 | Root form state (`FORM_FIELD.state()`) | the Trigger's membership: Field ARIA, the Field's State   | render       | both     | Read only once the Trigger has registered, in `ngOnInit`, after Angular set `[formField]` on the root's element, which precedes it; before that, the static values.     |
 | Root form state `readonly()`           | `choose`                                                  | event        | browser  | Without `[formField]`, not readonly.                                                                                                                                    |
 | Registered Trigger element             | the root's `focus()`                                      | event        | browser  | Nothing before the Trigger registers.                                                                                                                                   |
-| Floating readiness, the pending reveal | the listbox core's scroll, installed by Content           | after render | browser  | Waits until the list is revealed (`ready()`), so the list has its size and position; then reads the option's and the scrolling box's rectangles and writes `scrollTop`. |
+| Floating readiness, the pending reveal | the listbox core's scroll, installed by Content           | after render | browser  | Waits for `ready()` so the list has its size and position; reads both rectangles, scrolls instantly to an estimate, reads the offset and option back, then corrects it. |
 
 ## Refresh dependencies
 
