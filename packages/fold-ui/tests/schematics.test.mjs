@@ -453,6 +453,7 @@ describe("add", () => {
       progress: ["cn", "progress"],
       "radio-group": ["cn", "radio-group"],
       "scroll-area": ["cn", "scroll-area"],
+      "search-bar": ["cn", "input", "popup", "scroll-area", "search-bar"],
       select: ["cn", "popup", "scroll-area", "select"],
       sheet: ["button", "cn", "scroll-area", "sheet"],
       slider: ["cn", "slider"],
@@ -692,6 +693,20 @@ describe("add", () => {
     assert.match(meter, /exportAs: "zzMeter"/);
     assert.match(ring, /selector: "\[zzMeterRing\]"/);
     assert.match(ring, /exportAs: "zzMeterRing"/);
+  });
+
+  test("renames SearchBar's parts and exportAs with the prefix", async () => {
+    const { runner } = createRunner();
+    const tree = await runner.runSchematic("add", { names: ["search-bar"] }, await setUp(runner));
+    const bar = readText(tree, "src/ui/search-bar/search-bar.ts");
+
+    assert.match(bar, /selector: "\[zzSearchBar\]"/);
+    assert.match(bar, /exportAs: "zzSearchBar"/);
+    assert.match(bar, /<div\s+zzScrollArea\b/);
+    assert.match(
+      readText(tree, "src/ui/search-bar/search-bar-input.ts"),
+      /selector: "input\[zzSearchBarInput\]"/,
+    );
   });
 
   test("renames Table's, Badge's, Page's and Empty's parts with the prefix", async () => {
