@@ -12581,6 +12581,79 @@ try {
 
     // Disabled: the input is natively disabled.
     assert.equal(await page.locator("#search-bar-disabled-input").isDisabled(), true);
+
+    // A message long enough to wrap, in a list squeezed by a short viewport: it scrolls with the
+    // fixes, so the highlighted fix stays visible and under the pointer.
+    const overflowInput = "#search-bar-overflow-input";
+    const overflowContent = contentOf("search-bar-overflow");
+
+    await page.setViewportSize({ width: 360, height: 235 });
+    await page.evaluate((selector) => {
+      document.querySelector(selector).scrollIntoView({ block: "start" });
+      window.scrollBy(0, -100);
+    }, overflowInput);
+    await page.focus(overflowInput);
+    await page.keyboard.press("ControlOrMeta+a");
+    // A qualifier long enough that its message wraps past the list's room under the input.
+    await page.keyboard.type(
+      `report staus-with-a-${"very-long-hyphenated-".repeat(12)}qualifier-name-that-wraps:open`,
+    );
+    await page.keyboard.press("Escape");
+    // The new query's analysis renders first: a movement over stale tokens opens nothing.
+    await until(
+      () =>
+        document.querySelector("#search-bar-overflow [data-slot=search-bar-mark][data-invalid]") !==
+        null,
+    );
+    // Arrows from `report` into the invalid qualifier: a movement into another invalid token opens
+    // the list with its message and fixes.
+    await page.keyboard.press("Home");
+    await rendered();
+
+    for (let step = 0; step < 9; step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+
+    await until(() => {
+      const content = document.querySelector("#search-bar-overflow [data-slot=search-bar-content]");
+
+      return (
+        content.matches(":popover-open") &&
+        content
+          .querySelector("[data-slot=search-bar-message]")
+          ?.textContent.includes("«staus-with-a-very-long-hyphenated-") === true &&
+        content.querySelector("[data-slot=search-bar-suggestion]:not([hidden])") !== null
+      );
+    });
+    await page.keyboard.press("ArrowDown");
+    await until(() =>
+      document.getElementById("search-bar-overflow-input").getAttribute("aria-activedescendant"),
+    );
+
+    const squeezed = await page.evaluate(
+      ([input, content]) => {
+        const active = document.getElementById(
+          document.querySelector(input).getAttribute("aria-activedescendant"),
+        );
+        const viewport = document
+          .querySelector(content)
+          .querySelector("[data-slot=scroll-area-viewport]");
+        const box = viewport.getBoundingClientRect();
+        const row = active.getBoundingClientRect();
+        const hit = document.elementFromPoint(row.x + row.width / 2, row.y + row.height / 2);
+
+        return {
+          viewport: box.height > 0,
+          visible: row.top >= box.top - 0.5 && row.bottom <= box.bottom + 0.5,
+          underPointer: active.contains(hit),
+        };
+      },
+      [overflowInput, overflowContent],
+    );
+
+    assert.deepEqual(squeezed, { viewport: true, visible: true, underPointer: true });
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1280, height: 720 });
   }
 
   // Toggle, ToggleGroup and Toolbar: the server state and each root's own tab stop; Toggle's

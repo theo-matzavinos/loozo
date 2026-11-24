@@ -87,17 +87,18 @@ const METRICS =
       tabindex="-1"
       [class]="contentClasses"
     >
-      @if (state.caretToken()?.error; as error) {
-        <p ogQueryFieldMessage data-slot="search-bar-message" [class]="messageClasses">
-          {{ error }}
-        </p>
-      }
       <div
         fold__ScrollArea
         [viewportTabIndex]="-1"
         class="-m-1 min-h-0 [&>[data-slot=scroll-area-viewport]]:overscroll-contain"
       >
         <div class="p-1">
+          <!-- The message scrolls with the fixes, so a long one never squeezes them out of a short list. -->
+          @if (state.caretToken()?.error; as error) {
+            <p ogQueryFieldMessage data-slot="search-bar-message" [class]="messageClasses">
+              {{ error }}
+            </p>
+          }
           @for (suggestion of state.suggestions(); track $index) {
             <div
               ogQueryFieldSuggestion
@@ -191,9 +192,9 @@ export class SearchBar implements OrigamiQueryFieldOptions<SearchBarSuggestion> 
 
   protected readonly contentClasses = cn(popupClasses, popupListClasses);
 
-  // The caret token's message above the rows, lined up with their text.
+  // The caret token's message above the rows, in their scroll area, lined up with their text.
   protected readonly messageClasses =
-    "shrink-0 px-2 pt-1.5 pb-1 text-label font-normal text-muted-foreground forced-colors:text-[CanvasText]";
+    "px-2 pt-1.5 pb-1 text-label font-normal text-muted-foreground forced-colors:text-[CanvasText]";
 
   protected readonly suggestionClasses = cn(optionClasses);
 
