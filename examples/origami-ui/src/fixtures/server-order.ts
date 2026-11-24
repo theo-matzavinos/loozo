@@ -48,13 +48,19 @@ export class ServerOrderEvidence {
       @for (key of keys(); track key) {
         <span ogCollectionItem [value]="key" [attr.data-server-item]="key">{{ key }}</span>
       }
-      <output id="server-collection-order">{{ collection.state.items()[0]?.value() }},{{ collection.state.items()[1]?.value() }}</output>
+      <output id="server-collection-order"
+        >{{ collection.state.items()[0]?.value() }},{{
+          collection.state.items()[1]?.value()
+        }}</output
+      >
     </section>
     <section ogAccordionMultiple #accordion="ogAccordionMultiple">
       @for (key of keys(); track key) {
-        <article ogAccordionItem [value]="key" [attr.data-server-accordion-item]="key">{{ key }}</article>
+        <article ogAccordionItem [value]="key" [attr.data-server-accordion-item]="key">
+          {{ key }}
+        </article>
       }
-      <output id="server-accordion-order">{{ accordion.state.itemValues().join(',') }}</output>
+      <output id="server-accordion-order">{{ accordion.state.itemValues().join(",") }}</output>
     </section>
   `,
 })

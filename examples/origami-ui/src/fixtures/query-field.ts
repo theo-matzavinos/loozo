@@ -351,6 +351,7 @@ export class QueryFieldValidation {
       <output data-testid="report-caret">{{ caret() ?? "null" }}</output>
       <output data-testid="report-log">{{ log().join(",") }}</output>
       <output data-testid="report-searches">{{ searches().join(",") }}</output>
+      <output data-testid="report-state-query">{{ report.state.query() }}</output>
       <output data-testid="report-submits">{{ submits() }}</output>
       <output data-testid="report-open">{{ report.state.open() }}</output>
       <output data-testid="report-composing">{{ report.state.composing() }}</output>
@@ -544,6 +545,7 @@ export class QueryFieldValidation {
             A surface that keeps focus
           </div>
           <button
+            #dialogLoadingButton
             type="button"
             data-testid="dialog-loading"
             (click)="dialogLoading.set(!dialogLoading())"
@@ -557,12 +559,15 @@ export class QueryFieldValidation {
           >
             Keep the Message mounted
           </button>
+          <button type="button" data-testid="dialog-focus-at-11" (click)="dialogFocusAt.set(11)">
+            Focus Toggle loading when caretChange reports 11
+          </button>
           <div
             ogQueryField
             #inDialog="ogQueryField"
             class="field"
             [(query)]="dialogQuery"
-            (caretChange)="dialogCaret.set($event)"
+            (caretChange)="dialogCaretChanged($event)"
             [analysis]="dialogAnalysis()"
           >
             <input
@@ -988,6 +993,10 @@ export class QueryFieldFixture {
   readonly dialogMessageKept = signal(false);
   readonly dialogQuery = signal("report staus:open");
   readonly dialogCaret = signal<number | null>(null);
+  /** A caret at which `caretChange` focuses `dialog-loading`, inside the Dialog, once; null when disarmed. */
+  readonly dialogFocusAt = signal<number | null>(null);
+  private readonly dialogLoadingButton =
+    viewChild.required<ElementRef<HTMLButtonElement>>("dialogLoadingButton");
   readonly dialogLoading = signal(false);
   /** While loading, the same stamp's suggestions are `null`: presentation is suppressed. */
   readonly dialogAnalysis = computed((): ReportAnalysis => {
@@ -1109,6 +1118,15 @@ export class QueryFieldFixture {
 
   readonly strayResult = signal("");
 
+  dialogCaretChanged(caret: number | null): void {
+    this.dialogCaret.set(caret);
+
+    if (caret !== null && caret === this.dialogFocusAt()) {
+      this.dialogFocusAt.set(null);
+      this.dialogLoadingButton().nativeElement.focus();
+    }
+  }
+
   queryChanged(text: string): void {
     this.#record(`q:${text}`);
 
@@ -1117,8 +1135,10 @@ export class QueryFieldFixture {
       this.reportAfter().nativeElement.focus();
     }
 
+    // Written to the root's own model: the two-way binding re-applies only a changed expression,
+    // so it wouldn't restore the query an edit replaced.
     if (this.rewrite()) {
-      this.query.set(text.toLowerCase());
+      this.reportRoot()?.query.set(text.toLowerCase());
     }
   }
 

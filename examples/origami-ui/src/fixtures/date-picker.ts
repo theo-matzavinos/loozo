@@ -165,7 +165,9 @@ export class DatePickerLabel {
             >
               <button ogCalendarPrevious aria-label="Previous" data-testid="a-previous">‹</button>
               <span ogCalendarHeading data-testid="a-heading">{{ aCal.state.heading() }}</span>
-              <button type="button" data-testid="a-years" (click)="aView.set('years')">Choose a year</button>
+              <button type="button" data-testid="a-years" (click)="aView.set('years')">
+                Choose a year
+              </button>
               <button ogCalendarNext aria-label="Next" data-testid="a-next">›</button>
               <table
                 ogCalendarGrid
@@ -352,7 +354,9 @@ export class DatePickerLabel {
     <section>
       <h2>Calendar gated by Content's retention, month and view bound, authored elsewhere</h2>
       <div ogDatePicker data-testid="e-root" [(value)]="eValue" [(open)]="eOpen">
-        <button ogDatePickerTrigger data-testid="e-trigger">{{ eValue() ?? "Choose a date" }}</button>
+        <button ogDatePickerTrigger data-testid="e-trigger">
+          {{ eValue() ?? "Choose a date" }}
+        </button>
         <div
           ogDatePickerContent
           #eContent="ogDatePickerContent"
@@ -370,7 +374,9 @@ export class DatePickerLabel {
             >
               <button ogCalendarNext aria-label="Next" data-testid="e-next">›</button>
               <span ogCalendarHeading data-testid="e-heading">{{ eCal.state.heading() }}</span>
-              <button type="button" data-testid="e-years" (click)="eView.set('years')">Choose a year</button>
+              <button type="button" data-testid="e-years" (click)="eView.set('years')">
+                Choose a year
+              </button>
               <table
                 ogCalendarGrid
                 calendarViewRows
@@ -393,7 +399,13 @@ export class DatePickerLabel {
       <h2>Readonly and disabled by the form</h2>
       <div ogField>
         <span ogFieldLabel id="r-label">Readonly date</span>
-        <div ogDatePicker #r="ogDatePicker" data-testid="r-root" [formField]="dates.r" [(open)]="rOpen">
+        <div
+          ogDatePicker
+          #r="ogDatePicker"
+          data-testid="r-root"
+          [formField]="dates.r"
+          [(open)]="rOpen"
+        >
           <button ogDatePickerTrigger data-testid="r-trigger">{{ r.state.value() }}</button>
           <div ogDatePickerContent class="panel" data-testid="r-content">
             <div ogCalendar #rCal="ogCalendar" today="2026-10-27" locale="en-US">
@@ -414,7 +426,13 @@ export class DatePickerLabel {
       <output data-testid="r-open">{{ rOpen() }}</output>
       <div ogField>
         <span ogFieldLabel>Disabled date</span>
-        <div ogDatePicker #d="ogDatePicker" data-testid="d-root" [formField]="dates.d" [(open)]="dOpen">
+        <div
+          ogDatePicker
+          #d="ogDatePicker"
+          data-testid="d-root"
+          [formField]="dates.d"
+          [(open)]="dOpen"
+        >
           <button ogDatePickerTrigger data-testid="d-trigger">{{ d.state.value() }}</button>
           <div ogDatePickerContent class="panel" data-testid="d-content">
             <div ogCalendar #dCal="ogCalendar" today="2026-10-27" locale="en-US">
@@ -449,9 +467,7 @@ export class DatePickerLabel {
       </div>
       <span id="n3-name">Return date</span>
       <div ogDatePicker data-testid="n3-root">
-        <button ogDatePickerTrigger aria-labelledby="n3-name" data-testid="n3-trigger">
-          Pick
-        </button>
+        <button ogDatePickerTrigger aria-labelledby="n3-name" data-testid="n3-trigger">Pick</button>
         <div ogDatePickerContent class="panel" data-testid="n3-content"></div>
       </div>
     </section>
@@ -461,20 +477,22 @@ export class DatePickerLabel {
       <div ogDialog [(open)]="dialogOpen">
         <button ogDialogTrigger data-testid="dialog-trigger">Open dialog</button>
         <dialog ogDialogContent aria-label="Travel" data-testid="dialog-content">
-          <div ogDatePicker #g="ogDatePicker" data-testid="g-root" [(value)]="gValue" [(open)]="gOpen">
+          <div
+            ogDatePicker
+            #g="ogDatePicker"
+            data-testid="g-root"
+            [(value)]="gValue"
+            [(open)]="gOpen"
+          >
             <button ogDatePickerTrigger aria-label="Departure" data-testid="g-trigger">
               {{ g.state.value() ?? "Choose" }}
             </button>
             <div ogDatePickerContent class="panel" data-testid="g-content">
-              <div
-                ogCalendar
-                #gCal="ogCalendar"
-                today="2026-10-27"
-                locale="en-US"
-                [(view)]="gView"
-              >
+              <div ogCalendar #gCal="ogCalendar" today="2026-10-27" locale="en-US" [(view)]="gView">
                 <span ogCalendarHeading>{{ gCal.state.heading() }}</span>
-                <button type="button" data-testid="g-years" (click)="gView.set('years')">Choose a year</button>
+                <button type="button" data-testid="g-years" (click)="gView.set('years')">
+                  Choose a year
+                </button>
                 <table
                   ogCalendarGrid
                   calendarViewRows
@@ -522,7 +540,9 @@ export class DatePickerLabel {
           </div>
         </div>
         <output data-testid="m-value">{{ mValue() ?? "null" }}</output>
-        <output data-testid="m-range">{{ mRange()?.start ?? "null" }} {{ mRange()?.end ?? "null" }}</output>
+        <output data-testid="m-range"
+          >{{ mRange()?.start ?? "null" }} {{ mRange()?.end ?? "null" }}</output
+        >
         <output data-testid="m-open">{{ mOpen() }}</output>
       }
     </section>

@@ -366,11 +366,7 @@ export class DateFieldSeedCases {
       <button type="button" data-testid="typing-write-day" (click)="typingValue.set('2026-12-25')">
         Write 2026-12-25
       </button>
-      <button
-        type="button"
-        data-testid="typing-write-text"
-        (click)="typingValue.set('27/10/2026')"
-      >
+      <button type="button" data-testid="typing-write-text" (click)="typingValue.set('27/10/2026')">
         Write 27/10/2026
       </button>
       <button
@@ -396,11 +392,7 @@ export class DateFieldSeedCases {
           <date-segments />
         }
       </div>
-      <button
-        type="button"
-        data-testid="later-focus"
-        (click)="later.focus(); laterShown.set(true)"
-      >
+      <button type="button" data-testid="later-focus" (click)="later.focus(); laterShown.set(true)">
         Focus the field, then render its segments
       </button>
 

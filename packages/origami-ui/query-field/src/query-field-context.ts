@@ -720,6 +720,14 @@ export class QueryFieldContext {
     this.requested.set(false);
   }
 
+  /**
+   * Reads the root's own query signal, which a write back to the value it held still changes, so
+   * a reader reruns on every write; `query` settles to equal values and doesn't.
+   */
+  queryWritten(): string {
+    return this.#options().query();
+  }
+
   /** Emits `search` with the effective query. */
   search(): void {
     this.#searches.next(this.query());

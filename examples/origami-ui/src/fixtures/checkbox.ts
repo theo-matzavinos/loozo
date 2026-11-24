@@ -230,7 +230,11 @@ export class ExistingCheckbox implements OrigamiCheckboxOptions {
       <button type="button" data-testid="write-consent" (click)="writeConsent()">
         Write the consent model
       </button>
-      <button type="button" data-testid="focus-consent" (click)="account.consent().focusBoundControl()">
+      <button
+        type="button"
+        data-testid="focus-consent"
+        (click)="account.consent().focusBoundControl()"
+      >
         Focus the consent control
       </button>
       <button type="button" data-testid="reset-consent" (click)="account.consent().reset()">
@@ -291,10 +295,18 @@ export class ExistingCheckbox implements OrigamiCheckboxOptions {
       <button type="button" data-testid="disable-replaced" (click)="settings.disabled.update(flip)">
         Disable the replaced control
       </button>
-      <button type="button" data-testid="focusable-replaced" (click)="settings.focusable.update(flip)">
+      <button
+        type="button"
+        data-testid="focusable-replaced"
+        (click)="settings.focusable.update(flip)"
+      >
         Keep the replaced control focusable
       </button>
-      <button type="button" data-testid="rename-replaced" (click)="settings.id.set('replaced-checkbox-2')">
+      <button
+        type="button"
+        data-testid="rename-replaced"
+        (click)="settings.id.set('replaced-checkbox-2')"
+      >
         Rename the replaced control
       </button>
       <button existingCheckbox data-testid="existing" aria-label="Existing"></button>
@@ -369,8 +381,12 @@ export class ExistingCheckbox implements OrigamiCheckboxOptions {
           data-testid="newsletters"
           [formField]="mixedAccount.newsletters"
           [(mixed)]="newslettersMixed"
-          (mixedChange)="newslettersLog.update(append(newslettersEntry('mixedChange', newsletters)))"
-          (checkedChange)="newslettersLog.update(append(newslettersEntry('checkedChange', newsletters)))"
+          (mixedChange)="
+            newslettersLog.update(append(newslettersEntry('mixedChange', newsletters)))
+          "
+          (checkedChange)="
+            newslettersLog.update(append(newslettersEntry('checkedChange', newsletters)))
+          "
         ></button>
         <p ogFieldDescription id="newsletters-description">Some newsletters are selected.</p>
         @if (newslettersField.state.errorsShown()) {
@@ -386,7 +402,11 @@ export class ExistingCheckbox implements OrigamiCheckboxOptions {
       <button type="button" data-testid="reset-newsletters" (click)="resetNewsletters()">
         Reset the newsletters to partial
       </button>
-      <button type="button" data-testid="freeze-newsletters" (click)="newslettersFrozen.update(flip)">
+      <button
+        type="button"
+        data-testid="freeze-newsletters"
+        (click)="newslettersFrozen.update(flip)"
+      >
         Freeze the newsletters
       </button>
       <button type="button" data-testid="lock-newsletters" (click)="newslettersLocked.update(flip)">

@@ -120,21 +120,35 @@ export class PlanetPicker {
         </div>
         <p ogFieldDescription data-testid="planet-description">Where to?</p>
         @if (planetField.state.errorsShown()) {
-          <p ogFieldError data-testid="planet-error">{{ planetField.state.errors()[0]?.message }}</p>
+          <p ogFieldError data-testid="planet-error">
+            {{ planetField.state.errors()[0]?.message }}
+          </p>
         }
       </div>
       <button type="button" data-testid="planet-after">After the planet</button>
-      <output data-testid="planet-state">{{ describe(model().planet) }}|{{ planetQuery() }}|{{ trip.planet().touched() }}|{{ trip.planet().dirty() }}</output>
+      <output data-testid="planet-state"
+        >{{ describe(model().planet) }}|{{ planetQuery() }}|{{ trip.planet().touched() }}|{{
+          trip.planet().dirty()
+        }}</output
+      >
       <button type="button" data-testid="planet-write" (click)="writeMars()">Write Mars</button>
       <button type="button" data-testid="planet-focus" (click)="trip.planet().focusBoundControl()">
         Focus the bound control
       </button>
       <button type="button" data-testid="planet-reset" (click)="resetPlanet()">Reset</button>
       <button type="button" data-testid="planet-submit" (click)="submitTrip()">Submit</button>
-      <button type="button" data-testid="planet-readonly" (click)="planetFrozen.set(!planetFrozen())">
+      <button
+        type="button"
+        data-testid="planet-readonly"
+        (click)="planetFrozen.set(!planetFrozen())"
+      >
         Readonly
       </button>
-      <button type="button" data-testid="planet-disabled" (click)="planetLocked.set(!planetLocked())">
+      <button
+        type="button"
+        data-testid="planet-disabled"
+        (click)="planetLocked.set(!planetLocked())"
+      >
         Disabled
       </button>
     </section>
@@ -145,8 +159,14 @@ export class PlanetPicker {
         <label ogFieldLabel data-testid="wrapped-label">Wrapped planet</label>
         <div planetPicker [formField]="trip.wrapped" [(query)]="wrappedQuery"></div>
       </div>
-      <output data-testid="wrapped-state">{{ describe(model().wrapped) }}|{{ wrappedQuery() }}|{{ trip.wrapped().touched() }}</output>
-      <button type="button" data-testid="wrapped-focus" (click)="trip.wrapped().focusBoundControl()">
+      <output data-testid="wrapped-state"
+        >{{ describe(model().wrapped) }}|{{ wrappedQuery() }}|{{ trip.wrapped().touched() }}</output
+      >
+      <button
+        type="button"
+        data-testid="wrapped-focus"
+        (click)="trip.wrapped().focusBoundControl()"
+      >
         Focus the wrapped control
       </button>
     </section>

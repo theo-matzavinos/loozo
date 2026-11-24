@@ -8,11 +8,17 @@ import { injectRoute } from "./route.generated.js";
   imports: [RouterLink],
   template: `
     <section id="product">
-      <h2>Product <span id="product-id">{{ route.params().productId }}</span></h2>
+      <h2>
+        Product <span id="product-id">{{ route.params().productId }}</span>
+      </h2>
       <p>
-        <a id="next-product" [routerLink]="route.link({ params: { productId: next() } })">Next product</a>
+        <a id="next-product" [routerLink]="route.link({ params: { productId: next() } })"
+          >Next product</a
+        >
       </p>
-      <p>createUrl: <code id="create-url">{{ url() }}</code></p>
+      <p>
+        createUrl: <code id="create-url">{{ url() }}</code>
+      </p>
     </section>
   `,
 })

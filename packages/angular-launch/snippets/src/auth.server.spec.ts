@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { signedIn } from "./auth.server.js";
 import { todos } from "./todos.server.js";
 

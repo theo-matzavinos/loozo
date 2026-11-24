@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from "@angular/common
 import { TestBed } from "@angular/core/testing";
 import { provideRouter } from "@angular/router";
 import { RouterTestingHarness } from "@angular/router/testing";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { routes } from "../../../generated/routes.generated.js";
 import TodosPage from "./page.js";
 

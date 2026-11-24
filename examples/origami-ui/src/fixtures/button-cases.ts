@@ -118,7 +118,12 @@ export class ExistingButton implements OrigamiButtonOptions {
       <button factoryButton [disabled]="false" [focusableWhenDisabled]="false" data-role="factory">
         Factory
       </button>
-      <button existingButton [disabled]="false" [focusableWhenDisabled]="false" data-role="existing">
+      <button
+        existingButton
+        [disabled]="false"
+        [focusableWhenDisabled]="false"
+        data-role="existing"
+      >
         Existing
       </button>
       <button
@@ -279,7 +284,12 @@ export class ExistingButton implements OrigamiButtonOptions {
     <h2>Roving with focusable disabled items</h2>
     <div data-button-case="roving">
       <!-- A pressed focusable disabled item is not preferred; the first enabled item is. -->
-      <div ogToggleGroupSingle [(value)]="rovingAlignment" aria-label="Roving alignment" data-role="group">
+      <div
+        ogToggleGroupSingle
+        [(value)]="rovingAlignment"
+        aria-label="Roving alignment"
+        data-role="group"
+      >
         <button
           ogToggleGroupItem
           value="start"
@@ -312,7 +322,11 @@ export class ExistingButton implements OrigamiButtonOptions {
         </button>
       </div>
       <output data-role="value">{{ rovingAlignment() }}</output>
-      <button type="button" data-role="disable-all" (click)="rovingDisabled.set(['start', 'center', 'end'])">
+      <button
+        type="button"
+        data-role="disable-all"
+        (click)="rovingDisabled.set(['start', 'center', 'end'])"
+      >
         Disable every item
       </button>
       <button type="button" data-role="unfocusable-all" (click)="rovingFocusable.set([])">
@@ -339,12 +353,29 @@ export class ExistingButton implements OrigamiButtonOptions {
       </div>
       <output data-role="tabs-value">{{ endpointTab() }}</output>
 
-      <div ogRadioGroup [(value)]="endpointSpeed" aria-label="Endpoint delivery" data-role="radio-group">
-        <button ogRadioGroupItem value="ground" disabled focusableWhenDisabled data-role="radio-first">
+      <div
+        ogRadioGroup
+        [(value)]="endpointSpeed"
+        aria-label="Endpoint delivery"
+        data-role="radio-group"
+      >
+        <button
+          ogRadioGroupItem
+          value="ground"
+          disabled
+          focusableWhenDisabled
+          data-role="radio-first"
+        >
           Ground
         </button>
         <button ogRadioGroupItem value="air" data-role="radio-middle">Air</button>
-        <button ogRadioGroupItem value="courier" disabled focusableWhenDisabled data-role="radio-last">
+        <button
+          ogRadioGroupItem
+          value="courier"
+          disabled
+          focusableWhenDisabled
+          data-role="radio-last"
+        >
           Courier
         </button>
       </div>
@@ -371,7 +402,9 @@ export class ExistingButton implements OrigamiButtonOptions {
           >
             Insert
           </button>
-          <div ogPopoverContent role="group" aria-label="Endpoint insert options">Insert options</div>
+          <div ogPopoverContent role="group" aria-label="Endpoint insert options">
+            Insert options
+          </div>
         </span>
       </div>
       <output data-role="toolbar-first-value">{{ endpointBold() }}</output>

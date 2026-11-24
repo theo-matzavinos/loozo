@@ -93,7 +93,8 @@ interface Press {
  * beats a query written from outside meanwhile.
  *
  * Keys, with Ctrl and Meta ignored, as are keys already `defaultPrevented`, keys during a
- * composition and keys while disabled; Alt only with the arrows. ArrowDown and ArrowUp open the
+ * composition and keys while disabled; Alt only with the arrows; Shift with an arrow or a page key
+ * stays native selection. ArrowDown and ArrowUp open the
  * list with the first or last suggestion highlighted while it has current suggestions, else stay
  * native; Alt+ArrowDown opens it with nothing highlighted. In the open list ArrowDown, ArrowUp,
  * PageDown and PageUp move the highlight without wrapping, Alt+ArrowUp and Tab close it, Escape
@@ -266,6 +267,10 @@ export class OrigamiQueryFieldInput implements OrigamiQueryFieldInputOptions {
     // the reconcile, the one path that shows a query written from outside.
     afterRenderEffect(
       () => {
+        // The root's own query signal, read so a write back to the value it held before an edit,
+        // from `queryChange` or later before this render, still reruns the reconcile.
+        this.#context.queryWritten();
+
         const query = this.#context.query();
         const composing = this.#context.composing();
 
@@ -491,6 +496,14 @@ export class OrigamiQueryFieldInput implements OrigamiQueryFieldInputOptions {
       return;
     }
 
+    // Shift with an arrow or a page key extends the native selection, a native editing key.
+    if (
+      event.shiftKey &&
+      (key === "ArrowDown" || key === "ArrowUp" || key === "PageDown" || key === "PageUp")
+    ) {
+      return;
+    }
+
     // A dismissing key classifies the request before any caret read it brings (plan-4 R3-F04),
     // the waiting focus's included, then settles what that read finds, so a queued selection
     // notification or a focus read can't reopen what the key dismissed.
@@ -592,7 +605,8 @@ export class OrigamiQueryFieldInput implements OrigamiQueryFieldInputOptions {
    * interaction and whatever the subscriber did since owns the state, so the key changes none of
    * it and only settles its own event. Enter is consumed when a highlight was presented or lapsed
    * at its arrival, and otherwise still searches for the Input that received it, unless that Input
-   * was replaced; Escape and Alt+ArrowUp prevent as they classified.
+   * was replaced. Escape that classified a list Shown, Lapsed or Opening is consumed, as it would
+   * have been, so an enclosing layer doesn't take it; Alt+ArrowUp prevents as it classified.
    */
   #unfocused(
     event: KeyboardEvent,
@@ -613,7 +627,7 @@ export class OrigamiQueryFieldInput implements OrigamiQueryFieldInputOptions {
     }
 
     if (
-      (key === "Escape" && (presentation === "lapsed" || presentation === "opening")) ||
+      (key === "Escape" && presentation !== "closed" && presentation !== "pending") ||
       (key === "ArrowUp" && (presentation === "shown" || presentation === "lapsed"))
     ) {
       event.preventDefault();

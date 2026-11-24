@@ -88,7 +88,11 @@ const toppings: readonly Topping[] = [
       <output data-testid="toppings-selected">{{ labels(pick.state.selectedOptions()) }}</output>
       <output data-testid="toppings-outputs">{{ toppingsOutputs() }}</output>
       <output data-testid="toppings-open">{{ toppingsOpen() }} {{ pick.state.open() }}</output>
-      <button type="button" data-testid="write-toppings" (click)="toppingsValue.set(['garlic', 'olives'])">
+      <button
+        type="button"
+        data-testid="write-toppings"
+        (click)="toppingsValue.set(['garlic', 'olives'])"
+      >
         Write Garlic and Olives
       </button>
       <button type="button" data-testid="clear-toppings" (click)="toppingsValue.set([])">
@@ -166,7 +170,11 @@ const toppings: readonly Topping[] = [
       <button type="button" data-testid="clear-labels" (click)="clearLabels()">
         Clear the labels
       </button>
-      <button type="button" data-testid="focus-labels" (click)="filters.labels().focusBoundControl()">
+      <button
+        type="button"
+        data-testid="focus-labels"
+        (click)="filters.labels().focusBoundControl()"
+      >
         Focus the labels control
       </button>
       <button type="button" data-testid="freeze-labels" (click)="labelsFrozen.update(flip)">

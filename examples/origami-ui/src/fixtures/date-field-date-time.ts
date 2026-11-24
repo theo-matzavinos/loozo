@@ -284,11 +284,7 @@ function nextCycle(cycle: 12 | 24 | null): 12 | 24 | null {
       <button type="button" data-testid="us-write" (click)="usValue.set('2026-10-27T09:30')">
         Write 2026-10-27T09:30
       </button>
-      <button
-        type="button"
-        data-testid="us-write-zulu"
-        (click)="usValue.set('2026-10-27T09:30Z')"
-      >
+      <button type="button" data-testid="us-write-zulu" (click)="usValue.set('2026-10-27T09:30Z')">
         Write 2026-10-27T09:30Z
       </button>
       <button
@@ -329,12 +325,22 @@ function nextCycle(cycle: 12 | 24 | null): 12 | 24 | null {
       >
         Write 2026-10-27T09:30:15
       </button>
-      <button type="button" data-testid="gb-write-minutes" (click)="gbValue.set('2026-10-27T09:30')">
+      <button
+        type="button"
+        data-testid="gb-write-minutes"
+        (click)="gbValue.set('2026-10-27T09:30')"
+      >
         Write 2026-10-27T09:30
       </button>
 
       <h2>Typing, el</h2>
-      <div ogDateTimeField [(value)]="elValue" locale="el" #el="ogDateTimeField" data-testid="el-root">
+      <div
+        ogDateTimeField
+        [(value)]="elValue"
+        locale="el"
+        #el="ogDateTimeField"
+        data-testid="el-root"
+      >
         <date-segments group="el-group" />
       </div>
       <output data-testid="el-value">{{ elValue() ?? "null" }}</output>

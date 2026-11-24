@@ -10,7 +10,9 @@ import { injectRoute } from "./route.generated.js";
   template: `
     <section id="members" [attr.data-locale-urls]="urls()">
       <h2>Members of team {{ route.params().teamId }}</h2>
-      <a id="members-self" [routerLink]="route.link({ params: { teamId: route.params().teamId } })">This page</a>
+      <a id="members-self" [routerLink]="route.link({ params: { teamId: route.params().teamId } })"
+        >This page</a
+      >
     </section>
   `,
 })

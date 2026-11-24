@@ -39,13 +39,17 @@ const named = { home, products, overview, list, plain, teamList, profile, litera
   template: `
     <main>
       <h1>Router named outlets proof</h1>
-      <p>Active route: <strong id="active-route">{{ activeName() }}</strong></p>
+      <p>
+        Active route: <strong id="active-route">{{ activeName() }}</strong>
+      </p>
       <nav>
         <a id="shell-open" [routerLink]="active()?.link({ to: chat, params: { id: 8 } })">Chat 8</a>
         <a id="shell-open-computed" [routerLink]="openChat()">Chat 8 (computed)</a>
         <a id="shell-close" [routerLink]="active()?.link({ to: chat, close: true })">Close chat</a>
         <a id="shell-close-computed" [routerLink]="closeChat()">Close chat (computed)</a>
-        <a id="shell-list" [routerLink]="active()?.link({ to: list, search: { page: 2 } })">List page 2</a>
+        <a id="shell-list" [routerLink]="active()?.link({ to: list, search: { page: 2 } })"
+          >List page 2</a
+        >
         <a id="shell-list-computed" [routerLink]="listPage()">List page 2 (computed)</a>
         <a
           id="shell-products"

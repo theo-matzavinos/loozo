@@ -184,7 +184,11 @@ export class ExistingSwitch implements OrigamiSwitchOptions {
       <button type="button" data-testid="write-consent" (click)="writeConsent()">
         Write the consent model
       </button>
-      <button type="button" data-testid="focus-consent" (click)="account.consent().focusBoundControl()">
+      <button
+        type="button"
+        data-testid="focus-consent"
+        (click)="account.consent().focusBoundControl()"
+      >
         Focus the consent control
       </button>
       <button type="button" data-testid="reset-consent" (click)="account.consent().reset()">
@@ -245,10 +249,18 @@ export class ExistingSwitch implements OrigamiSwitchOptions {
       <button type="button" data-testid="disable-replaced" (click)="settings.disabled.update(flip)">
         Disable the replaced control
       </button>
-      <button type="button" data-testid="focusable-replaced" (click)="settings.focusable.update(flip)">
+      <button
+        type="button"
+        data-testid="focusable-replaced"
+        (click)="settings.focusable.update(flip)"
+      >
         Keep the replaced control focusable
       </button>
-      <button type="button" data-testid="rename-replaced" (click)="settings.id.set('replaced-switch-2')">
+      <button
+        type="button"
+        data-testid="rename-replaced"
+        (click)="settings.id.set('replaced-switch-2')"
+      >
         Rename the replaced control
       </button>
       <button existingSwitch data-testid="existing" aria-label="Existing"></button>

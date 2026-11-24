@@ -325,7 +325,11 @@ function parseKinds(state: OrigamiNumberFieldState): string {
       <button type="button" data-testid="direct-reset-null" (click)="amounts.direct().reset(null)">
         Reset to null
       </button>
-      <button type="button" data-testid="direct-focus" (click)="amounts.direct().focusBoundControl()">
+      <button
+        type="button"
+        data-testid="direct-focus"
+        (click)="amounts.direct().focusBoundControl()"
+      >
         Focus the bound control
       </button>
       <button type="button" data-testid="direct-write" (click)="write(7.25)">Write 7.25</button>
@@ -469,7 +473,12 @@ function parseKinds(state: OrigamiNumberFieldState): string {
       </button>
 
       <h2>Composer linkedSignal</h2>
-      <div linkedComposer #linked="linkedComposer" [formField]="amounts.linked" data-testid="linked-root">
+      <div
+        linkedComposer
+        #linked="linkedComposer"
+        [formField]="amounts.linked"
+        data-testid="linked-root"
+      >
         <input ogNumberFieldInput aria-label="Linked" data-testid="linked-input" />
       </div>
       <output data-testid="linked-value">{{ model().linked ?? "null" }}</output>
@@ -524,7 +533,12 @@ function parseKinds(state: OrigamiNumberFieldState): string {
       <ng-container #droppedHost />
       <ng-template #dropped>
         <div droppedComposer (touch)="dropDropped()">
-          <input ogNumberFieldInput aria-label="Dropped" data-testid="dropped-input" focusThenLeave />
+          <input
+            ogNumberFieldInput
+            aria-label="Dropped"
+            data-testid="dropped-input"
+            focusThenLeave
+          />
           <button type="button" ogNumberFieldIncrement clickOnInit>Αύξηση</button>
         </div>
       </ng-template>
@@ -535,11 +549,7 @@ function parseKinds(state: OrigamiNumberFieldState): string {
           <input ogNumberFieldInput aria-label="Later" data-testid="later-input" />
         }
       </div>
-      <button
-        type="button"
-        data-testid="later-focus"
-        (click)="later.focus(); laterShown.set(true)"
-      >
+      <button type="button" data-testid="later-focus" (click)="later.focus(); laterShown.set(true)">
         Focus the field, then render its Input
       </button>
     </section>

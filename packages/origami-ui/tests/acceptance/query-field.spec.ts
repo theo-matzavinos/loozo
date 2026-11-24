@@ -537,8 +537,21 @@ test("QF7: closed ArrowDown, ArrowUp and Alt+ArrowDown open on the first, last o
   // Closed with current rows: Content isn't aria-hidden; inert while closed.
   await expect(content).not.toHaveAttribute("aria-hidden", /.*/);
 
+  // Shift with an arrow or a page key is native selection: it opens nothing while closed and moves
+  // no highlight while open.
+  await page.keyboard.press("Shift+ArrowUp");
+  await page.keyboard.press("Shift+PageUp");
+  await frames(page);
+  await expectClosed(input, content);
+  await page.keyboard.press("End");
+  await frames(page);
+  await expectClosed(input, content);
+
   await page.keyboard.press("ArrowDown");
   await expectRows(input, content);
+  await expectHighlighted(input, row(0));
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Shift+PageDown");
   await expectHighlighted(input, row(0));
   await page.keyboard.press("ArrowDown");
   await expectHighlighted(input, row(1));
@@ -1702,6 +1715,32 @@ test("QF16: in a modal Dialog the first Escape closes only the list, keeping foc
   await page.keyboard.press("Escape");
   await expect(open).toHaveText("false");
 
+  // Shown, then in one task a caret move whose caretChange handler focuses another control in the
+  // Dialog, and Escape: the blur closes the list, the handler's focus stands, and the Escape that
+  // arrived for the Shown list is consumed, so the Dialog stays open until the next one.
+  await openDialog();
+  await intoInvalid();
+  await expectRows(input, content);
+  await script(page, "dialog-focus-at-11");
+
+  const consumed = await input.evaluate((node: HTMLInputElement) => {
+    node.setSelectionRange(11, 11);
+
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+
+    node.dispatchEvent(event);
+
+    return event.defaultPrevented;
+  });
+
+  expect(consumed).toBe(true);
+  await expect(page.getByTestId("dialog-loading")).toBeFocused();
+  await expect.poll(presented(content)).toBe(false);
+  await frames(page);
+  await expect(open).toHaveText("true");
+  await page.keyboard.press("Escape");
+  await expect(open).toHaveText("false");
+
   // Pending (requested without Content) + Escape: the request clears and the Dialog closes.
   await openDialog();
   await script(page, "dialog-toggle-content");
@@ -2086,6 +2125,17 @@ test("QF19: a query written from outside shows after render on a pristine or edi
   await page.keyboard.type("EPORT");
   await expect(input).toHaveValue("report");
   await expect(out(page, "report-query")).toHaveText("report");
+
+  // A rewrite back to the query the edit replaced: `R` over the first `r` is lower-cased to the
+  // same `report`, which the input shows again after render, with State and search agreeing.
+  await input.evaluate((node: HTMLInputElement) => node.setSelectionRange(0, 1));
+  await page.keyboard.type("R");
+  await expect(input).toHaveValue("report");
+  await expect(out(page, "report-query")).toHaveText("report");
+  await expect(out(page, "report-state-query")).toHaveText("report");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Enter");
+  await expect(out(page, "report-searches")).toHaveText(/(?:^|,)report$/);
   await script(page, "report-rewrite");
 
   // During a composition: held until its end, where the composition's edit wins.
