@@ -8,6 +8,8 @@
 //
 // Usage: node tests/consumer-scrolling.mjs <app directory> <chromium|firefox|webkit>
 import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { chromium, firefox, webkit } from "playwright";
 import { webkitLaunchOptions } from "../../origami-ui/tests/acceptance/webkit-launch.ts";
 import { startServer } from "./consumer-server.mjs";
@@ -1620,6 +1622,478 @@ async function run(browser, base, engine) {
 
     await prerendered("wide empty table, prerendered", phone, wideEmpty);
     await scenario("wide empty table, hydrated", phone, wideEmpty);
+  }
+
+  // 11. SearchBar, the narrow #search-bar-overflow over a long Greek query: the mark row's
+  // translate is the input's -scrollLeft; a pick past the right edge and one past the left edge
+  // each leave the caret inside the input's content box by both oracles (the mark row's caret
+  // position, and typing a glyph scrolls by at most its advance), and undo restores the text and
+  // the replaced selection; a range selection that scrolls the input keeps the translate; the mark
+  // row's mirror text inks like the input's own glyphs at Home and End, at DPR 1, DPR 2 and CSS
+  // zoom 2, within a whole-pixel shift of 1 CSS px per axis and a 3% interior residual after it,
+  // with both captures kept in the app's search-bar-evidence folder; and the keyboard reveals the
+  // highlighted row in the list.
+  {
+    const id = "search-bar-overflow";
+    const input = `#${id}-input`;
+    // The app directory's evidence folder, as the smoke's: the ink captures are kept there.
+    const inkEvidence = join(process.argv[2], "search-bar-evidence");
+    const surface = `#${id} [data-slot=search-bar-content]`;
+    const listViewport = `${surface} > ${VIEWPORT}`;
+    const rowAt = (index) =>
+      `${surface} [data-slot=scroll-area-content] > div > [data-slot=search-bar-suggestion]:nth-child(${index + 1})`;
+    const offsets = (page) =>
+      page.evaluate((input) => {
+        const node = document.querySelector(input);
+
+        return [node.selectionStart, node.selectionEnd];
+      }, input);
+    const valueOf = (page) => page.locator(input).inputValue();
+    // The row's translate follows the input's scroll offset after the next render.
+    const translateFollows = (page, label) =>
+      page
+        .waitForFunction(
+          ([input, id]) => {
+            const node = document.querySelector(input);
+            const row = document.querySelector(`#${id} [data-slot=search-bar-marks-row]`);
+            const translate = parseFloat(getComputedStyle(row).translate) || 0;
+
+            return Math.abs(translate + node.scrollLeft) <= 0.5;
+          },
+          [input, id],
+          { timeout: 2000 },
+        )
+        .catch(async () => {
+          const state = await page.evaluate(
+            ([input, id]) => ({
+              scrollLeft: document.querySelector(input).scrollLeft,
+              translate: getComputedStyle(
+                document.querySelector(`#${id} [data-slot=search-bar-marks-row]`),
+              ).translate,
+            }),
+            [input, id],
+          );
+
+          throw new Error(`${label}: translate ${JSON.stringify(state)}`);
+        });
+    const listShown = (page, open) =>
+      page.waitForFunction(
+        ([surface, open]) => {
+          const content = document.querySelector(surface);
+
+          if (!open) {
+            return !content.matches(":popover-open");
+          }
+
+          return content.matches(":popover-open") && getComputedStyle(content).opacity === "1";
+        },
+        [surface, open],
+        { timeout: 2000 },
+      );
+    // The list shown for `token`, the invalid token now at the caret: its message names it and its
+    // fixes have rendered. A list already open shows the previous token's rows until then, and an
+    // ArrowDown on those would highlight a row the new rows replace, which lapses (Enter is then
+    // consumed once, as designed).
+    const fixesFor = (page, token) =>
+      page.waitForFunction(
+        ([surface, token]) => {
+          const content = document.querySelector(surface);
+          const message = content.querySelector("[data-slot=search-bar-message]");
+
+          return (
+            content.matches(":popover-open") &&
+            !content.inert &&
+            getComputedStyle(content).opacity === "1" &&
+            message?.textContent.includes(`«${token}»`) === true &&
+            content.querySelector("[data-slot=search-bar-suggestion]:not([hidden])") !== null
+          );
+        },
+        [surface, token],
+        { timeout: 2000 },
+      );
+    // Both oracles find the caret inside the input's content box: the mark row's position of the
+    // caret's offset, and typing a glyph there scrolls by at most its advance (then undone).
+    const caretVisible = async (page, label) => {
+      const placed = await page.evaluate(
+        ([input, id]) => {
+          const node = document.querySelector(input);
+          const style = getComputedStyle(node);
+          const box = node.getBoundingClientRect();
+          const left = box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+          const right =
+            box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight);
+          let offset = node.selectionStart;
+          let x = Number.NaN;
+
+          for (const mark of document.querySelectorAll(`#${id} [data-slot=search-bar-mark]`)) {
+            const text = mark.firstChild;
+
+            if (offset <= text.length) {
+              const range = document.createRange();
+
+              range.setStart(text, offset);
+              range.setEnd(text, offset);
+              x = range.getBoundingClientRect().left;
+              break;
+            }
+
+            offset -= text.length;
+          }
+
+          return { left, right, x };
+        },
+        [input, id],
+      );
+
+      assert.ok(
+        placed.x >= placed.left - 2 && placed.x <= placed.right + 2,
+        `${label}: the mark row's caret ${JSON.stringify(placed)}`,
+      );
+
+      const before = await page.evaluate(
+        (input) => document.querySelector(input).scrollLeft,
+        input,
+      );
+
+      await page.keyboard.type("·");
+
+      const typed = await page.evaluate((input) => {
+        const node = document.querySelector(input);
+        const style = getComputedStyle(node);
+        const context = document.createElement("canvas").getContext("2d");
+
+        context.font = `${style.fontSize} ${style.fontFamily}`;
+
+        return {
+          scrollLeft: node.scrollLeft,
+          advance: context.measureText("·").width + (parseFloat(style.letterSpacing) || 0),
+        };
+      }, input);
+
+      assert.ok(
+        Math.abs(typed.scrollLeft - before) <= typed.advance + 1,
+        `${label}: typing scrolled ${typed.scrollLeft - before}px`,
+      );
+      await page.keyboard.press("ControlOrMeta+z");
+    };
+
+    await scenario("search bar scroll and picks", { width: 1280, height: 720 }, async (page) => {
+      const query = await valueOf(page);
+
+      await page.locator(input).scrollIntoViewIfNeeded();
+      await page.focus(input);
+      await page.keyboard.press("End");
+      await page.waitForFunction((input) => document.querySelector(input).scrollLeft > 0, input);
+      await translateFollows(page, "End");
+      await page.keyboard.press("Home");
+      await translateFollows(page, "Home");
+
+      // Past the right edge: the caret in `staus`, placed by script so the view stays left.
+      const right = query.indexOf("staus") + 3;
+
+      await page.evaluate(
+        ([input, at]) => {
+          const node = document.querySelector(input);
+
+          node.setSelectionRange(at, at);
+          node.scrollLeft = 0;
+        },
+        [input, right],
+      );
+      await fixesFor(page, "staus");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      assert.equal(await valueOf(page), query.replace("staus", "status"));
+      await translateFollows(page, "after the right pick");
+      await caretVisible(page, "right pick");
+      await page.keyboard.press("ControlOrMeta+z");
+      assert.equal(await valueOf(page), query);
+      assert.deepEqual(await offsets(page), [right - 3, right + 2]);
+      await translateFollows(page, "after the right undo");
+
+      // Past the left edge: the view at the end, the caret in `sta`.
+      await page.keyboard.press("End");
+      await page.waitForFunction((input) => document.querySelector(input).scrollLeft > 0, input);
+      await page.evaluate((input) => {
+        const node = document.querySelector(input);
+        const end = node.scrollLeft;
+
+        node.setSelectionRange(2, 2);
+        node.scrollLeft = end;
+      }, input);
+      await fixesFor(page, "sta");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      assert.equal(await valueOf(page), query.replace("sta:", "status:"));
+      await translateFollows(page, "after the left pick");
+      await caretVisible(page, "left pick");
+      await page.keyboard.press("ControlOrMeta+z");
+      assert.equal(await valueOf(page), query);
+      assert.deepEqual(await offsets(page), [0, 3]);
+      await translateFollows(page, "after the left undo");
+    });
+
+    // A range selection scrolls the input as the caret does, and the row follows: selecting from
+    // Home to the end, then from the end back to Home.
+    await scenario("search bar range selection", { width: 1280, height: 720 }, async (page) => {
+      const length = (await valueOf(page)).length;
+
+      await page.locator(input).scrollIntoViewIfNeeded();
+      await page.focus(input);
+      await page.keyboard.press("Home");
+      await page.keyboard.press("Shift+End");
+      await page.waitForFunction((input) => document.querySelector(input).scrollLeft > 0, input);
+      assert.deepEqual(await offsets(page), [0, length]);
+      await translateFollows(page, "a selection to the end");
+      await page.keyboard.press("End");
+      await page.keyboard.press("Shift+Home");
+      await page.waitForFunction((input) => document.querySelector(input).scrollLeft === 0, input);
+      assert.deepEqual(await offsets(page), [0, length]);
+      await translateFollows(page, "a selection back to Home");
+    });
+
+    // The interior ink difference between the input's own glyphs and the mark row's mirror text,
+    // both painted white alone on the surface, at the best whole-pixel shift of the mirror within
+    // 2 CSS px: the summed absolute difference over the summed ink of both, 0 for identical ink.
+    // The interior leaves out 12 CSS px at each inline edge and the border.
+    const inkAt = async (page, label) => {
+      const clip = await page.evaluate((input) => {
+        const node = document.querySelector(input);
+        const style = getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        // CSS zoom scales the box but not the computed lengths.
+        const scale = box.height / parseFloat(style.height);
+        const start =
+          box.left + (parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft)) * scale;
+        const end =
+          box.right - (parseFloat(style.borderRightWidth) + parseFloat(style.paddingRight)) * scale;
+        const border = parseFloat(style.borderTopWidth) * scale;
+
+        return {
+          x: Math.round(start + 12),
+          y: Math.round(box.top + border),
+          width: Math.round(end - start - 24),
+          height: Math.round(box.height - 2 * border),
+        };
+      }, input);
+      const paint = (mode) =>
+        page.evaluate(
+          ([input, id, mode]) => {
+            const node = document.querySelector(input);
+            const marks = document.querySelector(`#${id} [data-slot=search-bar-marks]`);
+            let style = document.getElementById("search-bar-ink");
+
+            if (style === null) {
+              style = document.createElement("style");
+              style.id = "search-bar-ink";
+              document.head.append(style);
+            }
+
+            node.style.caretColor = "transparent";
+
+            if (mode === "native") {
+              node.style.color = "#ffffff";
+              marks.style.visibility = "hidden";
+              style.textContent = "";
+            } else if (mode === "mirror") {
+              node.style.color = "transparent";
+              marks.style.visibility = "";
+              style.textContent = `#${id} [data-slot=search-bar-marks-row] { color: #ffffff !important }
+                #${id} [data-slot=search-bar-mark] { background: none !important; text-decoration: none !important }`;
+            } else {
+              node.style.color = "";
+              node.style.caretColor = "";
+              marks.style.visibility = "";
+              style.textContent = "";
+            }
+          },
+          [input, id, mode],
+        );
+
+      await paint("native");
+
+      const native = await page.screenshot({ clip });
+
+      await paint("mirror");
+
+      const mirror = await page.screenshot({ clip });
+
+      await paint("restore");
+
+      // Kept per engine, scale and endpoint, such as search-bar-ink-webkit-zoom-2-end-native.png.
+      const name = `search-bar-ink-${engine}-${label.toLowerCase().replaceAll(" ", "-")}`;
+
+      await mkdir(inkEvidence, { recursive: true });
+      await Promise.all([
+        writeFile(join(inkEvidence, `${name}-native.png`), native),
+        writeFile(join(inkEvidence, `${name}-mirror.png`), mirror),
+      ]);
+
+      const scale = await page.evaluate(() => window.devicePixelRatio);
+      const result = await page.evaluate(
+        async ({ native, mirror, reach }) => {
+          async function pixels(data) {
+            const image = new Image();
+
+            image.src = `data:image/png;base64,${data}`;
+            await image.decode();
+
+            const canvas = document.createElement("canvas");
+
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+
+            const context = canvas.getContext("2d");
+
+            context.drawImage(image, 0, 0);
+
+            return context.getImageData(0, 0, canvas.width, canvas.height);
+          }
+
+          const [a, b] = await Promise.all([pixels(native), pixels(mirror)]);
+          // The surface is uniform behind white glyphs, so the darkest red channel is its own.
+          let background = 255;
+
+          for (let index = 0; index < a.data.length; index += 4) {
+            background = Math.min(background, a.data[index], b.data[index]);
+          }
+
+          const inkOf = (image, x, y) => image.data[(y * image.width + x) * 4] - background;
+          let best = { dx: 0, dy: 0, residual: Number.POSITIVE_INFINITY };
+
+          for (let dy = -reach; dy <= reach; dy += 1) {
+            for (let dx = -reach; dx <= reach; dx += 1) {
+              let difference = 0;
+              let inkA = 0;
+              let inkB = 0;
+
+              for (let y = reach; y < a.height - reach; y += 1) {
+                for (let x = reach; x < a.width - reach; x += 1) {
+                  const first = inkOf(a, x, y);
+                  const second = inkOf(b, x + dx, y + dy);
+
+                  difference += Math.abs(first - second);
+                  inkA += first;
+                  inkB += second;
+                }
+              }
+
+              if (inkA === 0 || inkB === 0) {
+                throw new Error("The ink comparison needs two captures with ink");
+              }
+
+              const residual = difference / (inkA + inkB);
+
+              if (residual < best.residual) {
+                best = { dx, dy, residual };
+              }
+            }
+          }
+
+          return best;
+        },
+        { native: native.toString("base64"), mirror: mirror.toString("base64"), reach: 2 * scale },
+      );
+
+      assert.ok(
+        Math.abs(result.dx) <= scale && Math.abs(result.dy) <= scale && result.residual <= 0.03,
+        `${label}: ink ${JSON.stringify({ ...result, scale })}`,
+      );
+
+      return result;
+    };
+    const inkBothEnds = async (page, label) => {
+      await page.locator(input).scrollIntoViewIfNeeded();
+      await page.focus(input);
+      await page.keyboard.press("Home");
+      await translateFollows(page, `${label} Home`);
+
+      const home = await inkAt(page, `${label} Home`);
+
+      await page.keyboard.press("End");
+      await page.waitForFunction((input) => document.querySelector(input).scrollLeft > 0, input);
+      await translateFollows(page, `${label} End`);
+
+      const end = await inkAt(page, `${label} End`);
+
+      console.log(`${engine} · search bar ink ${label}: ${JSON.stringify({ home, end })}`);
+    };
+
+    await scenario("search bar ink at DPR 1", { width: 1280, height: 720 }, (page) =>
+      inkBothEnds(page, "DPR 1"),
+    );
+    await scenario("search bar ink at CSS zoom 2", { width: 1280, height: 720 }, async (page) => {
+      await page.evaluate((id) => {
+        document.getElementById(id).style.zoom = "2";
+      }, id);
+      await inkBothEnds(page, "zoom 2");
+    });
+
+    // DPR 2 needs a page of its own: openPage's pages are DPR 1.
+    const dense = await browser.newPage({
+      viewport: { width: 1280, height: 720 },
+      deviceScaleFactor: 2,
+      reducedMotion: "reduce",
+    });
+
+    dense.on("console", (message) => {
+      const text = message.text();
+
+      if (message.type() === "error" || /\bNG0\d+/.test(text)) {
+        errors.push(text);
+      }
+    });
+    dense.on("pageerror", (error) => errors.push(String(error)));
+
+    try {
+      await dense.goto(base, { waitUntil: "networkidle" });
+      await dense.waitForFunction(
+        () => document.querySelector("app-root") && !document.querySelector("[ngh]"),
+      );
+      await inkBothEnds(dense, "DPR 2");
+    } catch (error) {
+      error.message = `${engine} · search bar ink at DPR 2: ${error.message}`;
+      throw error;
+    } finally {
+      await dense.close();
+    }
+
+    // List reveal: after `city:`, 19 rows; each key's row is the list's only active row and inside
+    // its viewport, within 100ms in the open list and once placed for the key that opens it.
+    await scenario("search bar list reveal", { width: 1280, height: 720 }, async (page) => {
+      const query = await valueOf(page);
+      const reveal = (index, key, { opens = false } = {}) =>
+        revealAfter(page, {
+          key,
+          opens,
+          expect: { active: rowAt(index) },
+          surface,
+          viewport: listViewport,
+        });
+
+      await page.locator(input).scrollIntoViewIfNeeded();
+      await page.focus(input);
+      await page.evaluate(
+        ([input, at]) => document.querySelector(input).setSelectionRange(at, at),
+        [input, query.indexOf("city:") + 5],
+      );
+      await reveal(0, "ArrowDown", { opens: true });
+      assert.equal(await page.locator(`${surface} [data-slot=search-bar-suggestion]`).count(), 19);
+      assert.equal(await scrolls(page, listViewport), true);
+
+      for (let index = 1; index <= 18; index += 1) {
+        await reveal(index, "ArrowDown");
+      }
+
+      for (let index = 17; index >= 0; index -= 1) {
+        await reveal(index, "ArrowUp");
+      }
+
+      await reveal(10, "PageDown");
+      await reveal(0, "PageUp");
+      await page.keyboard.press("Escape");
+      await listShown(page, false);
+    });
   }
 
   assert.deepEqual(errors, [], "page or hydration errors");

@@ -34,6 +34,7 @@
       "@loozo/origami-ui/popover": ["../origami-ui/popover/src/public-api.ts"],
       "@loozo/origami-ui/presence": ["../origami-ui/presence/src/public-api.ts"],
       "@loozo/origami-ui/progress": ["../origami-ui/progress/src/public-api.ts"],
+      "@loozo/origami-ui/query-field": ["../origami-ui/query-field/src/public-api.ts"],
       "@loozo/origami-ui/radio-group": ["../origami-ui/radio-group/src/public-api.ts"],
       "@loozo/origami-ui/scroll-area": ["../origami-ui/scroll-area/src/public-api.ts"],
       "@loozo/origami-ui/select": ["../origami-ui/select/src/public-api.ts"],

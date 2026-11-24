@@ -11,6 +11,7 @@ import {
   inject,
   input,
   linkedSignal,
+  resource,
   signal,
 } from "@angular/core";
 import {
@@ -31,6 +32,7 @@ import { OrigamiAccordionSingleOptions } from "@loozo/origami-ui/accordion";
 import type { OrigamiDateRange } from "@loozo/origami-ui/calendar";
 import { OrigamiDialog, injectOrigamiDialogOpener } from "@loozo/origami-ui/dialog";
 import { OrigamiMeter, OrigamiMeterOptions } from "@loozo/origami-ui/meter";
+import type { OrigamiQueryRange, OrigamiQueryToken } from "@loozo/origami-ui/query-field";
 import { AccordionParts, AccordionSingle } from "#ui/accordion";
 import { AlertDialogParts } from "#ui/alert-dialog";
 import { AvatarParts } from "#ui/avatar";
@@ -81,6 +83,12 @@ import { PopoverParts } from "#ui/popover";
 import { Progress } from "#ui/progress";
 import { RadioGroup, RadioGroupItem } from "#ui/radio-group";
 import { ScrollArea } from "#ui/scroll-area";
+import {
+  SearchBar,
+  SearchBarInput,
+  type SearchBarAnalysis,
+  type SearchBarSuggestion,
+} from "#ui/search-bar";
 import { SelectParts } from "#ui/select";
 import { SheetParts } from "#ui/sheet";
 import { Slider, SliderThumb } from "#ui/slider";
@@ -291,6 +299,403 @@ export class OtpFields {
     if (this.codes.code().invalid()) {
       this.codes.code().focusBoundControl();
     }
+  }
+}
+
+// SearchBar: a report search fed by a small test parser, the Origami query field fixtures'
+// grammar. Tokens are runs of non-space text; `key:value` has the qualifier `key`. Known
+// qualifiers are `status`, `by`, `sort` and `city`; any other is invalid, with fixes by its first
+// letter (`staus` → `status`, `sort`, and a removal) or none (`zz`). Labels may be Greek; inserts
+// are the ASCII keys. `by:` users load asynchronously through resource().
+interface ReportValue {
+  readonly insert: string;
+  readonly label: string;
+  readonly detail: string;
+}
+
+interface ReportQualifier {
+  readonly name: string;
+  readonly greek: string;
+  readonly values: readonly ReportValue[];
+}
+
+const REPORT_USERS: readonly ReportValue[] = [
+  { insert: "@me", label: "@me", detail: "Εγώ" },
+  { insert: "alice", label: "Alice", detail: "alice@example.com" },
+  { insert: "bob", label: "Bob", detail: "bob@example.com" },
+];
+
+const REPORT_CITIES = [
+  ["athens", "Αθήνα"],
+  ["thessaloniki", "Θεσσαλονίκη"],
+  ["patra", "Πάτρα"],
+  ["heraklion", "Ηράκλειο"],
+  ["larisa", "Λάρισα"],
+  ["volos", "Βόλος"],
+  ["ioannina", "Ιωάννινα"],
+  ["chania", "Χανιά"],
+  ["kavala", "Καβάλα"],
+  ["serres", "Σέρρες"],
+  ["rhodes", "Ρόδος"],
+  ["kalamata", "Καλαμάτα"],
+  ["komotini", "Κομοτηνή"],
+  ["trikala", "Τρίκαλα"],
+  ["chalkida", "Χαλκίδα"],
+  ["agrinio", "Αγρίνιο"],
+  ["katerini", "Κατερίνη"],
+  ["lamia", "Λαμία"],
+  ["xanthi", "Ξάνθη"],
+  ["drama", "Δράμα"],
+].map(([insert, label]) => ({ insert, label, detail: insert }));
+
+const REPORT_QUALIFIERS: readonly ReportQualifier[] = [
+  {
+    name: "status",
+    greek: "κατάσταση",
+    values: [
+      { insert: "draft", label: "draft", detail: "Πρόχειρο" },
+      { insert: "submitted", label: "submitted", detail: "Υποβλήθηκε" },
+      { insert: "approved", label: "approved", detail: "Εγκρίθηκε" },
+    ],
+  },
+  { name: "by", greek: "από", values: [] },
+  {
+    name: "sort",
+    greek: "ταξινόμηση",
+    values: [
+      { insert: "submitted-asc", label: "submitted-asc", detail: "Παλαιότερα πρώτα" },
+      { insert: "submitted-desc", label: "submitted-desc", detail: "Νεότερα πρώτα" },
+    ],
+  },
+  { name: "city", greek: "πόλη", values: REPORT_CITIES },
+];
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function reportQualifier(name: string): ReportQualifier | null {
+  for (const qualifier of REPORT_QUALIFIERS) {
+    if (qualifier.name === name) {
+      return qualifier;
+    }
+  }
+
+  return null;
+}
+
+function reportTokens(query: string): OrigamiQueryToken[] {
+  const tokens: OrigamiQueryToken[] = [];
+
+  for (const match of query.matchAll(/\S+/g)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const colon = match[0].indexOf(":");
+
+    if (colon <= 0) {
+      tokens.push({ start, end });
+      continue;
+    }
+
+    const name = match[0].slice(0, colon);
+    const qualifier = { start, end: start + colon };
+
+    if (reportQualifier(name) === null) {
+      tokens.push({ start, end, qualifier, error: `Άγνωστο φίλτρο «${name}»` });
+    } else {
+      tokens.push({ start, end, qualifier });
+    }
+  }
+
+  return tokens;
+}
+
+/** Values starting with `prefix`, except the one the value already is. */
+function reportValues(
+  values: readonly ReportValue[],
+  range: OrigamiQueryRange,
+  prefix: string,
+  query: string,
+): SearchBarSuggestion[] {
+  const whole = query.slice(range.start, range.end);
+  const rows: SearchBarSuggestion[] = [];
+
+  for (const value of values) {
+    if (value.insert.startsWith(prefix) && value.insert !== whole) {
+      rows.push({ ...range, insert: value.insert, label: value.label, detail: value.detail });
+    }
+  }
+
+  return rows;
+}
+
+/** What completes the caret's token: rows now, `by:` users to look up for a range, or nothing. */
+type ReportCompletion =
+  | { readonly rows: readonly SearchBarSuggestion[] }
+  | { readonly users: OrigamiQueryRange; readonly prefix: string };
+
+function reportCompletion(
+  query: string,
+  tokens: readonly OrigamiQueryToken[],
+  caret: number,
+): ReportCompletion {
+  let token: OrigamiQueryToken | null = null;
+
+  for (const candidate of tokens) {
+    if (candidate.start <= caret && caret <= candidate.end) {
+      token = candidate;
+    }
+  }
+
+  if (token === null) {
+    return { rows: [] };
+  }
+
+  const range = { start: token.start, end: token.end };
+  const rows: SearchBarSuggestion[] = [];
+
+  // A free word completes to the qualifiers it starts, by their key or their Greek name.
+  if (token.qualifier === undefined) {
+    const prefix = query.slice(token.start, caret).toLowerCase();
+
+    for (const known of REPORT_QUALIFIERS) {
+      const insert = `${known.name}:`;
+
+      if (known.name.startsWith(prefix)) {
+        rows.push({ ...range, insert, label: known.name, detail: capitalized(known.greek) });
+      } else if (known.greek.startsWith(prefix)) {
+        rows.push({ ...range, insert, label: known.greek, detail: known.name });
+      }
+    }
+
+    return { rows };
+  }
+
+  const name = query.slice(token.qualifier.start, token.qualifier.end);
+  const qualifier = reportQualifier(name);
+
+  if (caret <= token.qualifier.end) {
+    for (const known of REPORT_QUALIFIERS) {
+      const matches = qualifier === null && known.name.charAt(0) === name.charAt(0);
+      const starts =
+        qualifier !== null && known.name.startsWith(name.slice(0, caret - token.start));
+
+      if (matches || starts) {
+        rows.push({
+          ...token.qualifier,
+          insert: known.name,
+          label: known.name,
+          detail: capitalized(known.greek),
+        });
+      }
+    }
+
+    // An unknown qualifier with fixes can also be removed, its separator included.
+    if (qualifier === null && rows.length > 0) {
+      rows.push({
+        start: token.start,
+        end: token.qualifier.end + 1,
+        insert: "",
+        label: "Αφαίρεση φίλτρου",
+        detail: "remove",
+      });
+    }
+
+    return { rows };
+  }
+
+  if (qualifier === null) {
+    return { rows: [] };
+  }
+
+  const value = { start: token.qualifier.end + 1, end: token.end };
+  const prefix = query.slice(value.start, caret);
+
+  if (qualifier.name === "by") {
+    return { users: value, prefix };
+  }
+
+  return { rows: reportValues(qualifier.values, value, prefix, query) };
+}
+
+/** A pretend user lookup that takes a moment. */
+async function lookUpUsers(signal: AbortSignal): Promise<readonly ReportValue[]> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, 40);
+
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    });
+  });
+
+  return REPORT_USERS;
+}
+
+/** One report search's state: the query, the caret it reports, and the analysis of both. */
+function reportSearch(initial: string) {
+  const query = signal(initial);
+  const caret = signal<number | null>(null);
+  const tokens = computed(() => reportTokens(query()));
+
+  // A caret held past the end, just after a shorter query was written from outside, isn't one.
+  const current = computed(() => {
+    const held = caret();
+
+    if (held === null || held > query().length) {
+      return null;
+    }
+
+    return held;
+  });
+  const completion = computed(() => {
+    const at = current();
+
+    if (at === null) {
+      return null;
+    }
+
+    return reportCompletion(query(), tokens(), at);
+  });
+  const users = resource({
+    params: () => {
+      const wanted = completion();
+      const at = current();
+
+      if (wanted === null || at === null || !("users" in wanted)) {
+        return undefined;
+      }
+
+      return { query: query(), caret: at, range: wanted.users, prefix: wanted.prefix };
+    },
+    loader: async ({ params, abortSignal }) => {
+      const { query, caret, range, prefix } = params;
+      const values = await lookUpUsers(abortSignal);
+
+      return { query, caret, items: reportValues(values, range, prefix, query) };
+    },
+  });
+  const analysis = computed((): SearchBarAnalysis => {
+    const text = query();
+    const at = current();
+    const wanted = completion();
+    let suggestions: readonly SearchBarSuggestion[] | null = [];
+
+    if (wanted !== null && "rows" in wanted) {
+      suggestions = wanted.rows;
+    } else if (wanted !== null) {
+      // Loading until a reply stamped for this query and caret.
+      suggestions = null;
+
+      if (users.hasValue()) {
+        const reply = users.value();
+
+        if (reply.query === text && reply.caret === at) {
+          suggestions = reply.items;
+        }
+      }
+    }
+
+    return { query: text, caret: at, tokens: tokens(), suggestions };
+  });
+
+  return { query, caret, analysis };
+}
+
+// Six SearchBars: a report search whose outputs are logged, an invalid query in a frame the
+// smoke switches to the light theme, one in a Field, a narrow one with a long Greek query that
+// scrolls, a disabled one, and one whose root has the title font.
+@Component({
+  selector: "app-search-bars",
+  imports: [Button, Field, FieldDescription, FieldLabel, SearchBar, SearchBarInput],
+  template: `
+    <section id="search-bars" class="grid w-[440px] gap-4 p-5">
+      <div
+        zzSearchBar
+        [(query)]="report.query"
+        (caretChange)="report.caret.set($event)"
+        [analysis]="report.analysis()"
+        (search)="searched($event)"
+        id="search-bar"
+      >
+        <input
+          zzSearchBarInput
+          aria-label="Αναζήτηση αναφορών"
+          placeholder="status:submitted by:@me"
+          id="search-bar-input"
+        />
+      </div>
+      <output id="search-bar-query">{{ report.query() }}</output>
+      <output id="search-bar-searches">{{ searches().join(" | ") }}</output>
+      <button zzButton id="search-bar-after">After the search</button>
+
+      <div class="bg-background p-2" id="search-bar-invalid-frame">
+        <div
+          zzSearchBar
+          [(query)]="invalid.query"
+          (caretChange)="invalid.caret.set($event)"
+          [analysis]="invalid.analysis()"
+          id="search-bar-invalid"
+        >
+          <input zzSearchBarInput aria-label="Άκυρη αναζήτηση" id="search-bar-invalid-input" />
+        </div>
+      </div>
+
+      <div zzField id="search-bar-field">
+        <label zzFieldLabel id="search-bar-field-label">Αναζήτηση</label>
+        <div
+          zzSearchBar
+          [(query)]="field.query"
+          (caretChange)="field.caret.set($event)"
+          [analysis]="field.analysis()"
+          id="search-bar-field-bar"
+        >
+          <input zzSearchBarInput id="search-bar-field-input" />
+        </div>
+        <p zzFieldDescription id="search-bar-field-description">Φίλτρα όπως status:submitted</p>
+      </div>
+
+      <div
+        zzSearchBar
+        [(query)]="overflow.query"
+        (caretChange)="overflow.caret.set($event)"
+        [analysis]="overflow.analysis()"
+        class="w-56"
+        id="search-bar-overflow"
+      >
+        <input zzSearchBarInput aria-label="Μεγάλη αναζήτηση" id="search-bar-overflow-input" />
+      </div>
+      <button zzButton id="search-bar-overflow-after">After the long search</button>
+
+      <div zzSearchBar [query]="'status:draft'" disabled id="search-bar-disabled">
+        <input zzSearchBarInput aria-label="Κλειδωμένη αναζήτηση" id="search-bar-disabled-input" />
+      </div>
+
+      <div
+        zzSearchBar
+        [(query)]="title.query"
+        (caretChange)="title.caret.set($event)"
+        [analysis]="title.analysis()"
+        class="text-title"
+        id="search-bar-title"
+      >
+        <input zzSearchBarInput aria-label="Αναζήτηση με τίτλο" id="search-bar-title-input" />
+      </div>
+    </section>
+  `,
+})
+export class SearchBars {
+  protected readonly report = reportSearch("report status:submitted by:@me");
+  protected readonly invalid = reportSearch("report staus:open");
+  protected readonly field = reportSearch("");
+  protected readonly overflow = reportSearch(
+    "sta:open αναφορά εξόδων ταξιδιού Θεσσαλονίκη city:athens staus:open by:@me sort:submitted-desc",
+  );
+  protected readonly title = reportSearch("report status:open");
+  protected readonly searches = signal<readonly string[]>([]);
+
+  protected searched(query: string): void {
+    this.searches.update((list) => [...list, query]);
   }
 }
 
@@ -3564,6 +3969,7 @@ export class ListParts {}
     RadioGroup,
     RadioGroupItem,
     ScrollArea,
+    SearchBars,
     SelectParts,
     SheetParts,
     Slider,
@@ -4236,6 +4642,7 @@ export class ListParts {}
     </form>
 
     <app-otp-fields />
+    <app-search-bars />
 
     <!-- Select and Combobox. -->
     <section id="lists" class="grid gap-6 p-5">

@@ -39,6 +39,7 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
 import { chromium } from "playwright";
+import { expect } from "playwright/test";
 import { disclosurePanelClasses } from "../components/disclosure/disclosure.ts";
 import { startServer } from "./consumer-server.mjs";
 
@@ -11611,6 +11612,975 @@ try {
     });
     await blur();
     await page.emulateMedia({ forcedColors: "none", reducedMotion: "no-preference" });
+  }
+
+  // SearchBar (#search-bars): the server state (a combobox seeded with its query, the marks and
+  // the errors, aria-invalid and the description, the icon and marks hidden from screen readers,
+  // the hidden Errors, the Field Label's `for`), then the shared metrics, forced colors, dark and
+  // light screenshots of an invalid query, the hydrated keyboard and pointer flows, the
+  // descriptions and the accessibility tree.
+  {
+    const searchEvidence = join(app, "search-bar-evidence");
+    const bar = (id) => page.locator(`#${id}`);
+    const valueOf = (id) => page.locator(`#${id}`).inputValue();
+    const contentOf = (id) => `#${id} [data-slot=search-bar-content]`;
+    const rowsOf = (id) => `${contentOf(id)} [data-slot=search-bar-suggestion]:not([hidden])`;
+    const listOpen = (id) =>
+      page.evaluate(
+        (selector) => document.querySelector(selector).matches(":popover-open"),
+        contentOf(id),
+      );
+    const until = (check) => page.waitForFunction(check, null, { timeout: 2000 });
+    const untilOpen = (id, open) =>
+      page.waitForFunction(
+        ([selector, open]) => {
+          const content = document.querySelector(selector);
+
+          if (!open) {
+            return !content.matches(":popover-open");
+          }
+
+          return content.matches(":popover-open") && getComputedStyle(content).opacity === "1";
+        },
+        [contentOf(id), open],
+        { timeout: 2000 },
+      );
+    const selectionOf = (id) =>
+      page.evaluate((id) => {
+        const input = document.getElementById(id);
+
+        return [input.selectionStart, input.selectionEnd];
+      }, id);
+    const focusedId = () => page.evaluate(() => document.activeElement?.id);
+    const rowTexts = (id) =>
+      page.evaluate((selector) => {
+        const texts = [];
+
+        // The label and the detail, each in its own span.
+        for (const row of document.querySelectorAll(selector)) {
+          const parts = [];
+
+          for (const span of row.children) {
+            parts.push(span.textContent.trim());
+          }
+
+          texts.push(parts.join(" "));
+        }
+
+        return texts;
+      }, rowsOf(id));
+    // The rows once they're `expected`: an edit, a pick or a reply renders its rows after the
+    // list opens, and a list already open shows the previous rows until then.
+    const untilRows = async (id, expected) => {
+      const deadline = Date.now() + 2000;
+      let texts = await rowTexts(id);
+
+      while (JSON.stringify(texts) !== JSON.stringify(expected) && Date.now() < deadline) {
+        await rendered();
+        texts = await rowTexts(id);
+      }
+
+      assert.deepEqual(texts, expected, `the rows of #${id}`);
+    };
+    // The list as you'd see it, read together until it all holds: Content open, shown and not
+    // inert (a closing list turns inert for its exit), the input expanded, the rows `expected`,
+    // all sampled in one call, then the visible listbox named `name`, then the same sample again,
+    // so the snapshot is bracketed by two samples of a usable list. Rows alone also render inside
+    // a closed Content.
+    const untilList = async (id, input, name, expected) => {
+      const sampled = { presented: true, expanded: "true", rows: expected };
+      const want = {
+        before: sampled,
+        listbox: [`- listbox "${name}":`, ...expected.map((row) => `  - option "${row}"`)].join(
+          "\n",
+        ),
+        after: sampled,
+      };
+      const sample = () =>
+        page.evaluate(
+          ([selector, input, rowSelector]) => {
+            const content = document.querySelector(selector);
+            const rows = [];
+
+            // The label and the detail, each in its own span.
+            for (const row of document.querySelectorAll(rowSelector)) {
+              const parts = [];
+
+              for (const span of row.children) {
+                parts.push(span.textContent.trim());
+              }
+
+              rows.push(parts.join(" "));
+            }
+
+            return {
+              presented:
+                content.matches(":popover-open") &&
+                !content.inert &&
+                getComputedStyle(content).opacity === "1",
+              expanded: document.getElementById(input).getAttribute("aria-expanded"),
+              rows,
+            };
+          },
+          [contentOf(id), input, rowsOf(id)],
+        );
+      const read = async () => ({
+        before: await sample(),
+        listbox: await page.locator(contentOf(id)).ariaSnapshot(),
+        after: await sample(),
+      });
+      const deadline = Date.now() + 2000;
+      let state = await read();
+
+      while (JSON.stringify(state) !== JSON.stringify(want) && Date.now() < deadline) {
+        await rendered();
+        state = await read();
+      }
+
+      assert.deepEqual(state, want, `the list of #${id}`);
+    };
+
+    await mkdir(searchEvidence, { recursive: true });
+
+    // Server HTML, parsed by a page without scripts.
+    const searchPrerendered = await browser.newPage({ javaScriptEnabled: false });
+
+    await searchPrerendered.goto(base);
+
+    const searchServer = await searchPrerendered.evaluate(() => {
+      const byId = (id) => document.getElementById(id);
+      const invalidRoot = byId("search-bar-invalid");
+      const invalidInput = byId("search-bar-invalid-input");
+      const describedBy = invalidInput.getAttribute("aria-describedby");
+      const errors = invalidRoot.querySelector("[data-slot=search-bar-errors]");
+      const invalidMarks = [];
+      const hidden = [];
+
+      for (const mark of invalidRoot.querySelectorAll(
+        "[data-slot=search-bar-mark][data-invalid]",
+      )) {
+        invalidMarks.push(mark.textContent);
+      }
+
+      for (const slot of ["search-bar-icon", "search-bar-marks"]) {
+        for (const id of ["search-bar", "search-bar-invalid", "search-bar-field-bar"]) {
+          hidden.push(byId(id).querySelector(`[data-slot=${slot}]`).getAttribute("aria-hidden"));
+        }
+      }
+
+      return {
+        input: {
+          role: byId("search-bar-input").getAttribute("role"),
+          value: byId("search-bar-input").getAttribute("value"),
+          invalid: byId("search-bar-input").getAttribute("aria-invalid"),
+          expanded: byId("search-bar-input").getAttribute("aria-expanded"),
+          slot: byId("search-bar-input").dataset.slot,
+        },
+        invalid: {
+          value: invalidInput.getAttribute("value"),
+          invalid: invalidInput.getAttribute("aria-invalid"),
+          describedByErrors: describedBy === errors.id,
+          description: errors.textContent.trim(),
+          errorsHidden: errors.hidden,
+          marks: invalidMarks.join(""),
+        },
+        hidden,
+        label: byId("search-bar-field-label").getAttribute("for"),
+        fieldInput: byId("search-bar-field-input").id,
+        fieldDescribedBy: byId("search-bar-field-input").getAttribute("aria-describedby"),
+        disabled: byId("search-bar-disabled-input").hasAttribute("disabled"),
+      };
+    });
+
+    await searchPrerendered.close();
+    assert.deepEqual(searchServer, {
+      input: {
+        role: "combobox",
+        value: "report status:submitted by:@me",
+        invalid: null,
+        expanded: "false",
+        slot: "search-bar-input",
+      },
+      invalid: {
+        value: "report staus:open",
+        invalid: "true",
+        describedByErrors: true,
+        description: "Άγνωστο φίλτρο «staus»",
+        errorsHidden: true,
+        marks: "staus:open",
+      },
+      hidden: ["true", "true", "true", "true", "true", "true"],
+      label: "search-bar-field-input",
+      fieldInput: "search-bar-field-input",
+      fieldDescribedBy: "search-bar-field-description",
+      disabled: true,
+    });
+
+    await fresh();
+    await page.evaluate(() => document.fonts.ready);
+
+    // Metrics: the root is the input's box, the mark layer's clip box is the input's content box,
+    // and the mark row has the input's font.
+    const searchMetrics = await page.evaluate(() => {
+      const root = document.getElementById("search-bar");
+      const input = document.getElementById("search-bar-input");
+      const clip = root.querySelector("[data-slot=search-bar-marks] > div");
+      const row = root.querySelector("[data-slot=search-bar-marks-row]");
+      const style = getComputedStyle(input);
+      const box = input.getBoundingClientRect();
+      const clipBox = clip.getBoundingClientRect();
+      const rootBox = root.getBoundingClientRect();
+      const font = (element) => {
+        const computed = getComputedStyle(element);
+
+        return {
+          fontFamily: computed.fontFamily,
+          fontSize: computed.fontSize,
+          fontWeight: computed.fontWeight,
+          lineHeight: computed.lineHeight,
+          letterSpacing: computed.letterSpacing,
+          fontFeatureSettings: computed.fontFeatureSettings,
+        };
+      };
+
+      return {
+        content: {
+          left: box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+          top: box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop),
+          right: box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight),
+          bottom:
+            box.bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom),
+        },
+        clip: {
+          left: clipBox.left,
+          top: clipBox.top,
+          right: clipBox.right,
+          bottom: clipBox.bottom,
+        },
+        input: { width: box.width, height: box.height },
+        root: { width: rootBox.width, height: rootBox.height },
+        inputFont: font(input),
+        rowFont: font(row),
+        paddingStart: style.paddingInlineStart,
+        overflow: getComputedStyle(clip).overflowX,
+      };
+    });
+
+    for (const side of ["left", "top", "right", "bottom"]) {
+      assert.ok(
+        Math.abs(searchMetrics.clip[side] - searchMetrics.content[side]) <= 0.5,
+        `the mark layer's clip box ${side}: ${JSON.stringify(searchMetrics)}`,
+      );
+    }
+
+    assert.ok(Math.abs(searchMetrics.root.width - searchMetrics.input.width) <= 0.5);
+    assert.ok(Math.abs(searchMetrics.root.height - searchMetrics.input.height) <= 0.5);
+    assert.equal(searchMetrics.input.height, 32);
+    assert.equal(searchMetrics.paddingStart, "32px");
+    assert.equal(searchMetrics.overflow, "hidden");
+    assert.deepEqual(searchMetrics.rowFont, searchMetrics.inputFont);
+
+    // A root font reaches the input as it reaches the mark row: with the title font on
+    // #search-bar-title's root, the qualifier after `report ` starts where the input draws it
+    // (the input's text start plus the prefix measured in the input's font), and the input, the
+    // row and the root have the same font.
+    const titleMetrics = await page.evaluate(() => {
+      const root = document.getElementById("search-bar-title");
+      const input = document.getElementById("search-bar-title-input");
+      const row = root.querySelector("[data-slot=search-bar-marks-row]");
+      const qualifier = root.querySelector("[data-slot=search-bar-mark][data-part=qualifier]");
+      const style = getComputedStyle(input);
+      const box = input.getBoundingClientRect();
+      const context = document.createElement("canvas").getContext("2d");
+      const font = (element) => {
+        const computed = getComputedStyle(element);
+
+        return {
+          fontFamily: computed.fontFamily,
+          fontSize: computed.fontSize,
+          fontWeight: computed.fontWeight,
+          lineHeight: computed.lineHeight,
+          letterSpacing: computed.letterSpacing,
+          fontFeatureSettings: computed.fontFeatureSettings,
+        };
+      };
+
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      context.letterSpacing = style.letterSpacing;
+
+      const textStart =
+        box.left +
+        parseFloat(style.borderLeftWidth) +
+        parseFloat(style.paddingLeft) -
+        input.scrollLeft;
+      const prefix = input.value.slice(0, input.value.indexOf("status"));
+
+      return {
+        native: textStart + context.measureText(prefix).width,
+        mark: qualifier.getBoundingClientRect().left,
+        rootFont: font(root),
+        inputFont: font(input),
+        rowFont: font(row),
+      };
+    });
+
+    assert.ok(
+      Math.abs(titleMetrics.native - titleMetrics.mark) <= 0.5,
+      `the title bar's qualifier offset: ${JSON.stringify(titleMetrics)}`,
+    );
+    assert.deepEqual(titleMetrics.inputFont, titleMetrics.rootFont);
+    assert.deepEqual(titleMetrics.rowFont, titleMetrics.inputFont);
+    assert.deepEqual(
+      [titleMetrics.inputFont.fontSize, titleMetrics.inputFont.fontWeight],
+      ["15px", "650"],
+    );
+
+    // The marks: a tint on the qualifier, a fainter one on a qualified value, none on free text,
+    // and a red wavy underline on the invalid token; the mirror text is transparent.
+    const searchMarks = await page.evaluate(() => {
+      const looks = {};
+
+      for (const id of ["search-bar", "search-bar-invalid"]) {
+        for (const mark of document.querySelectorAll(`#${id} [data-slot=search-bar-mark]`)) {
+          const style = getComputedStyle(mark);
+
+          looks[`${id}:${mark.textContent}`] = {
+            background: style.backgroundColor,
+            line: style.textDecorationLine,
+            wave: style.textDecorationStyle,
+            color: style.color,
+          };
+        }
+      }
+
+      return looks;
+    });
+    // Each mark's paint: its tint by its alpha (0.15 on a qualifier, 0.08 on a qualified value,
+    // none on free text and gaps) and its underline.
+    const paint = {};
+
+    for (const [key, look] of Object.entries(searchMarks)) {
+      let tint = "none";
+
+      if (look.background.endsWith("/ 0.15)")) {
+        tint = "qualifier";
+      } else if (look.background.endsWith("/ 0.08)")) {
+        tint = "value";
+      } else {
+        assert.equal(look.background, "rgba(0, 0, 0, 0)", `${key} background`);
+      }
+
+      assert.equal(look.color, "rgba(0, 0, 0, 0)", `${key} text`);
+      paint[key] = `${tint} ${look.line} ${look.wave}`;
+    }
+
+    assert.deepEqual(paint, {
+      "search-bar:report": "none none solid",
+      "search-bar: ": "none none solid",
+      "search-bar:status": "qualifier none solid",
+      "search-bar::submitted": "value none solid",
+      "search-bar:by": "qualifier none solid",
+      "search-bar::@me": "value none solid",
+      "search-bar-invalid:report": "none none solid",
+      "search-bar-invalid: ": "none none solid",
+      "search-bar-invalid:staus": "qualifier underline wavy",
+      "search-bar-invalid::open": "value underline wavy",
+    });
+
+    // The wave's color on each invalid mark, and the theme's destructive text color, in the frame.
+    const invalidFrame = bar("search-bar-invalid-frame");
+    const waveColors = () =>
+      invalidFrame.evaluate((frame) => {
+        const probe = document.createElement("span");
+        const waves = [];
+
+        probe.style.color = "var(--destructive-text)";
+        frame.append(probe);
+
+        const token = getComputedStyle(probe).color;
+
+        probe.remove();
+
+        for (const mark of frame.querySelectorAll("[data-slot=search-bar-mark][data-invalid]")) {
+          waves.push(getComputedStyle(mark).textDecorationColor);
+        }
+
+        return { token, waves };
+      });
+
+    // Dark and light screenshots of the invalid query; in each theme the wave is its
+    // destructive text color.
+    const darkWaves = await waveColors();
+
+    assert.deepEqual(darkWaves.waves, [darkWaves.token, darkWaves.token], "the dark wave");
+    await invalidFrame.screenshot({
+      path: join(searchEvidence, "search-invalid-dark.png"),
+      animations: "disabled",
+    });
+    await invalidFrame.evaluate((frame) => frame.classList.add("light"));
+    await rendered();
+
+    const lightWaves = await waveColors();
+
+    assert.deepEqual(lightWaves.waves, [lightWaves.token, lightWaves.token], "the light wave");
+    assert.notEqual(lightWaves.token, darkWaves.token);
+    await invalidFrame.screenshot({
+      path: join(searchEvidence, "search-invalid-light.png"),
+      animations: "disabled",
+    });
+    await invalidFrame.evaluate((frame) => frame.classList.remove("light"));
+
+    // Forced colors, in the light and the dark palette: the input is opted out, so no backplate
+    // covers the marks, and has the system colors fold's Input gets from forced colors; the mirror
+    // text stays transparent. A mark has no fill, since the input's CanvasText glyphs sit over it:
+    // a CanvasText outline inside its box, solid on the qualifier and dotted on its value, which
+    // leaves the marks' boxes where they were, and the CanvasText underline. The boxes are taken
+    // from the root's corner, whatever the page's scroll.
+    const markBoxes = () =>
+      page.evaluate(() => {
+        const root = document.getElementById("search-bar-invalid").getBoundingClientRect();
+        const marks = document.querySelectorAll("#search-bar-invalid [data-slot=search-bar-mark]");
+
+        return [...marks].map((mark) => {
+          const box = mark.getBoundingClientRect();
+
+          return [box.left - root.left, box.top - root.top, box.width, box.height];
+        });
+      });
+    const unforcedMarkBoxes = await markBoxes();
+    const system = (value) =>
+      page.evaluate((value) => {
+        const probe = document.createElement("span");
+
+        probe.style.forcedColorAdjust = "none";
+        probe.style.color = value;
+        document.body.append(probe);
+
+        const color = getComputedStyle(probe).color;
+
+        probe.remove();
+
+        return color;
+      }, value);
+    // An input's colors as forced colors leave them: at rest, focused by keyboard and disabled,
+    // each once its border transition ends.
+    const inputColors = async (id) => {
+      const read = () =>
+        page.evaluate(async (id) => {
+          const input = document.getElementById(id);
+
+          await Promise.all(input.getAnimations().map((animation) => animation.finished));
+
+          const style = getComputedStyle(input);
+
+          return {
+            color: style.color,
+            caret: style.caretColor,
+            border: style.borderTopColor,
+            outline: `${style.outlineStyle} ${style.outlineColor}`,
+          };
+        }, id);
+      const placeholder = await page.evaluate((id) => {
+        const input = document.getElementById(id);
+        const before = input.placeholder;
+
+        input.placeholder = "x";
+
+        const color = getComputedStyle(input, "::placeholder").color;
+
+        input.placeholder = before;
+
+        return color;
+      }, id);
+      const rest = await read();
+
+      // Focus that shows its ring: a key press first, then focus from script.
+      await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+      await page.keyboard.press("Shift");
+      await page.focus(`#${id}`);
+      await rendered();
+
+      const focused = await read();
+
+      await page.evaluate(() => document.activeElement.blur());
+      await page.evaluate((id) => {
+        document.getElementById(id).disabled = true;
+      }, id);
+
+      const disabled = await read();
+
+      await page.evaluate((id) => {
+        document.getElementById(id).disabled = false;
+      }, id);
+
+      return { rest, placeholder, focused, disabled };
+    };
+    // A crop of the page, decoded, with its size in CSS pixels (the smoke's page is DPR 1).
+    const crop = async (box) => {
+      const clip = {
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      };
+
+      return { ...clip, at: decodePng(await page.screenshot({ clip, animations: "disabled" })) };
+    };
+    // The same crop with the given style added, then without it: the pixels that differ by more
+    // than 96 are the ink of what the style removes.
+    const inkRemovedBy = async (box, content) => {
+      const before = await crop(box);
+
+      await page.addStyleTag({ content });
+      await rendered();
+
+      const after = await crop(box);
+
+      await page.evaluate(() => document.head.lastElementChild.remove());
+      await rendered();
+
+      let ink = 0;
+
+      for (let y = 0; y < before.height; y += 1) {
+        for (let x = 0; x < before.width; x += 1) {
+          const [r, g, b] = before.at(x, y);
+          const [r2, g2, b2] = after.at(x, y);
+
+          if (Math.abs(r - r2) + Math.abs(g - g2) + Math.abs(b - b2) > 96) {
+            ink += 1;
+          }
+        }
+      }
+
+      return ink;
+    };
+    // WCAG 2 contrast of two sRGB colors.
+    const luminance = (color) => {
+      const linear = (value) => {
+        const channel = value / 255;
+
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      };
+
+      return 0.2126 * linear(color[0]) + 0.7152 * linear(color[1]) + 0.0722 * linear(color[2]);
+    };
+    const contrast = (first, second) => {
+      const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+
+      return (light + 0.05) / (dark + 0.05);
+    };
+    const markRect = (selector) =>
+      page.evaluate(
+        (selector) =>
+          document
+            .querySelector(`#search-bar-invalid [data-slot=search-bar-mark]${selector}`)
+            .getBoundingClientRect()
+            .toJSON(),
+        selector,
+      );
+    const parts = {
+      qualifier: "[data-qualified][data-part=qualifier]",
+      value: "[data-qualified][data-part=value]",
+    };
+
+    // The dark palette first, and each palette's pixels before its computed paint: a Mark fill is
+    // legible in the light palette and fails on its pixels in the dark one.
+    for (const colorScheme of ["dark", "light"]) {
+      const label = `forced ${colorScheme}`;
+
+      await page.emulateMedia({ colorScheme, forcedColors: "active" });
+      await rendered();
+
+      const [canvas, canvasText, highlight, highlightText] = await Promise.all([
+        system("Canvas"),
+        system("CanvasText"),
+        system("Highlight"),
+        system("HighlightText"),
+      ]);
+
+      // The palette asked for: a light Canvas in the light one, a dark Canvas in the dark one.
+      assert.equal(
+        luminance(channels(canvas)) > 0.5,
+        colorScheme === "light",
+        `${label}: Canvas ${canvas}`,
+      );
+
+      const searchInputColors = await inputColors("search-bar-invalid-input");
+
+      assert.deepEqual(
+        searchInputColors,
+        await inputColors("search"),
+        `${label}: the input's system colors`,
+      );
+      assert.equal(searchInputColors.focused.outline, `solid ${highlight}`);
+
+      assert.deepEqual(await markBoxes(), unforcedMarkBoxes, `${label}: the marks' boxes`);
+      await invalidFrame.screenshot({
+        path: join(searchEvidence, `search-invalid-forced-${colorScheme}.png`),
+        animations: "disabled",
+      });
+
+      for (const [part, selector] of Object.entries(parts)) {
+        const rect = await markRect(selector);
+
+        // Legible: inside the outline, the glyphs of the input's text stand out from the local
+        // background, the band's most common color, by 4.5:1 or more. A Mark fill behind the
+        // dark palette's white glyphs gives about 1.07:1.
+        const band = await crop({
+          x: rect.left + 2,
+          y: rect.top + 2,
+          width: rect.width - 4,
+          height: rect.height - 4,
+        });
+        const counts = new Map();
+
+        for (let y = 0; y < band.height; y += 1) {
+          for (let x = 0; x < band.width; x += 1) {
+            const key = band.at(x, y).slice(0, 3).join();
+
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+          }
+        }
+
+        const [ground] = [...counts].sort((a, b) => b[1] - a[1])[0];
+        const groundColor = ground.split(",").map(Number);
+        let glyph = 0;
+        let best = 1;
+
+        for (let y = 0; y < band.height; y += 1) {
+          for (let x = 0; x < band.width; x += 1) {
+            const ratio = contrast(band.at(x, y), groundColor);
+
+            best = Math.max(best, ratio);
+
+            if (ratio >= 4.5) {
+              glyph += 1;
+            }
+          }
+        }
+
+        assert.ok(
+          glyph >= band.height,
+          `${label} ${part} glyphs on rgb(${ground}): ${glyph} px at 4.5:1 or more, best ${best.toFixed(2)}:1`,
+        );
+
+        // Visible: the outline's ink around the mark, at least half its perimeter.
+        const outlineInk = await inkRemovedBy(
+          { x: rect.left - 2, y: rect.top - 2, width: rect.width + 4, height: rect.height + 4 },
+          "#search-bar-invalid [data-slot=search-bar-mark] { outline: none !important }",
+        );
+        const perimeter = 2 * (rect.width + rect.height);
+
+        assert.ok(
+          outlineInk >= perimeter / 2,
+          `${label} ${part} outline ink: ${outlineInk} of a ${Math.round(perimeter)}px perimeter`,
+        );
+      }
+
+      // The wave under the invalid value: the same crop with and without the marks' decoration
+      // differs by the underline's ink alone.
+      const waveRect = await markRect("[data-part=value][data-invalid]");
+      const waveInk = await inkRemovedBy(
+        { x: waveRect.left, y: waveRect.bottom - 4, width: waveRect.width, height: 10 },
+        "#search-bar-invalid [data-slot=search-bar-mark] { text-decoration: none !important }",
+      );
+
+      assert.ok(waveInk >= waveRect.width / 2, `${label} underline ink: ${waveInk}`);
+
+      const forcedSearch = await page.evaluate((parts) => {
+        const root = document.getElementById("search-bar-invalid");
+        const input = document.getElementById("search-bar-invalid-input");
+        const selection = getComputedStyle(input, "::selection");
+        const look = (selector) => {
+          const style = getComputedStyle(
+            root.querySelector(`[data-slot=search-bar-mark]${selector}`),
+          );
+
+          return {
+            fill: style.backgroundColor,
+            outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
+            offset: style.outlineOffset,
+          };
+        };
+
+        return {
+          input: getComputedStyle(input).backgroundColor,
+          selection: [selection.backgroundColor, selection.color],
+          row: getComputedStyle(root.querySelector("[data-slot=search-bar-marks-row]")).color,
+          qualifier: look(parts.qualifier),
+          value: look(parts.value),
+          underline: getComputedStyle(
+            root.querySelector("[data-slot=search-bar-mark][data-invalid]"),
+          ).textDecorationColor,
+        };
+      }, parts);
+
+      assert.match(forcedSearch.input, /^rgba\(\d+, \d+, \d+, 0\)$/, `${label}: input background`);
+      assert.deepEqual(
+        {
+          selection: forcedSearch.selection,
+          row: forcedSearch.row,
+          qualifier: forcedSearch.qualifier,
+          value: forcedSearch.value,
+          underline: forcedSearch.underline,
+        },
+        {
+          selection: [highlight, highlightText],
+          row: "rgba(0, 0, 0, 0)",
+          qualifier: {
+            fill: "rgba(0, 0, 0, 0)",
+            outline: `solid 1px ${canvasText}`,
+            offset: "-1px",
+          },
+          value: { fill: "rgba(0, 0, 0, 0)", outline: `dotted 1px ${canvasText}`, offset: "-1px" },
+          underline: canvasText,
+        },
+        `${label}: the marks' paint`,
+      );
+    }
+
+    await page.emulateMedia({ colorScheme: "light", forcedColors: "none" });
+    await rendered();
+
+    // Closed, the root's tree is the named combobox and its query, without the marks' text.
+    assert.equal(
+      await bar("search-bar").ariaSnapshot(),
+      '- combobox "Αναζήτηση αναφορών": report status:submitted by:@me',
+    );
+
+    // Typing opens the named list; ArrowDown highlights the first row; Enter applies it in place
+    // and keeps the list for the value's rows; undo restores the typed text and its selection.
+    const typed = "report status:submitted by:@me st";
+
+    await page.focus("#search-bar-input");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" st");
+    await untilOpen("search-bar", true);
+    assert.equal(await valueOf("search-bar-input"), typed);
+    await expect(page.locator("#search-bar-query")).toHaveText(typed);
+    await untilRows("search-bar", ["status Κατάσταση"]);
+    assert.equal(
+      await page.locator(contentOf("search-bar")).ariaSnapshot(),
+      '- listbox "Αναζήτηση αναφορών":\n  - option "status Κατάσταση"',
+    );
+    assert.equal(await attribute("search-bar-input", "aria-activedescendant"), null);
+    await page.keyboard.press("ArrowDown");
+
+    const firstRow = await page.locator(rowsOf("search-bar")).first().getAttribute("id");
+
+    // Origami writes the highlight at the next render.
+    await page.waitForFunction(
+      (row) =>
+        document.getElementById("search-bar-input").getAttribute("aria-activedescendant") === row,
+      firstRow,
+      { timeout: 2000 },
+    );
+    assert.equal(await page.locator(`#${firstRow}`).getAttribute("data-active"), "");
+    await page.keyboard.press("Enter");
+
+    const picked = "report status:submitted by:@me status:";
+
+    await until(() => document.getElementById("search-bar-input").value.endsWith("status:"));
+    assert.equal(await valueOf("search-bar-input"), picked);
+    assert.deepEqual(await selectionOf("search-bar-input"), [picked.length, picked.length]);
+    await untilList("search-bar", "search-bar-input", "Αναζήτηση αναφορών", [
+      "draft Πρόχειρο",
+      "submitted Υποβλήθηκε",
+      "approved Εγκρίθηκε",
+    ]);
+    assert.equal(await textOf("search-bar-searches"), "");
+    await page.keyboard.press("ControlOrMeta+z");
+    await until(() => document.getElementById("search-bar-input").value.endsWith(" st"));
+    assert.equal(await valueOf("search-bar-input"), typed);
+    assert.deepEqual(await selectionOf("search-bar-input"), [typed.length - 2, typed.length]);
+
+    // Alt+ArrowDown on the closed list opens it with nothing highlighted; Escape closes it and
+    // keeps the text, the caret and focus.
+    await page.keyboard.press("End");
+    await page.keyboard.press("Escape");
+    await untilOpen("search-bar", false);
+    await page.keyboard.press("Alt+ArrowDown");
+    await untilOpen("search-bar", true);
+    assert.equal(await attribute("search-bar-input", "aria-activedescendant"), null);
+    assert.equal(await attribute("search-bar-input", "aria-expanded"), "true");
+    await page.keyboard.press("Escape");
+    await untilOpen("search-bar", false);
+    assert.equal(await valueOf("search-bar-input"), typed);
+    assert.deepEqual(await selectionOf("search-bar-input"), [typed.length, typed.length]);
+    assert.equal(await focusedId(), "search-bar-input");
+
+    // A Greek prefix offers the Greek-labelled row, which inserts the ASCII key; a click picks it
+    // and leaves focus in the input.
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type("κα");
+    await untilOpen("search-bar", true);
+    await untilRows("search-bar", ["κατάσταση status"]);
+    await page.locator(rowsOf("search-bar")).first().click();
+    await until(() => document.getElementById("search-bar-input").value.endsWith("status:"));
+    assert.equal(await valueOf("search-bar-input"), picked);
+    assert.equal(await focusedId(), "search-bar-input");
+
+    // Tab closes the list and moves focus on.
+    await page.keyboard.press("Tab");
+    await untilOpen("search-bar", false);
+    assert.equal(await focusedId(), "search-bar-after");
+
+    // Enter without a highlighted row searches once, with the query.
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await focusedId(), "search-bar-input");
+    assert.equal(await listOpen("search-bar"), false);
+    await page.keyboard.press("Enter");
+    await until(() => document.getElementById("search-bar-searches").textContent.trim() !== "");
+    assert.equal(await textOf("search-bar-searches"), picked);
+
+    // `by:` users load asynchronously, in the Field's SearchBar, which its Label names and its
+    // Description describes.
+    await page.focus("#search-bar-field-input");
+    await page.keyboard.type("by:");
+    await untilOpen("search-bar-field-bar", true);
+    await untilRows("search-bar-field-bar", [
+      "@me Εγώ",
+      "Alice alice@example.com",
+      "Bob bob@example.com",
+    ]);
+    await expect(page.locator("#search-bar-field-input")).toHaveAccessibleName("Αναζήτηση");
+    await expect(page.locator("#search-bar-field-input")).toHaveAccessibleDescription(
+      "Φίλτρα όπως status:submitted",
+    );
+    await page.keyboard.press("Escape");
+
+    // The caret moving into the invalid token opens its message above its fixes; the input and
+    // each fix are described by the message.
+    const invalidInput = page.locator("#search-bar-invalid-input");
+
+    await invalidInput.evaluate((input) => {
+      input.dataset.probe = "same";
+    });
+    await invalidInput.focus();
+    await page.keyboard.press("Home");
+
+    for (let step = 0; step < 9; step += 1) {
+      await page.keyboard.press("ArrowRight");
+    }
+
+    await untilOpen("search-bar-invalid", true);
+
+    const message = page.locator(
+      `${contentOf("search-bar-invalid")} [data-slot=search-bar-message]`,
+    );
+
+    await untilRows("search-bar-invalid", [
+      "status Κατάσταση",
+      "sort Ταξινόμηση",
+      "Αφαίρεση φίλτρου remove",
+    ]);
+    assert.equal((await message.textContent()).trim(), "Άγνωστο φίλτρο «staus»");
+    assert.ok(
+      (await message.boundingBox()).y + (await message.boundingBox()).height <=
+        (await page.locator(rowsOf("search-bar-invalid")).first().boundingBox()).y + 0.5,
+      "the message sits above the fixes",
+    );
+    await expect(invalidInput).toHaveAccessibleDescription("Άγνωστο φίλτρο «staus»");
+    await expect(page.locator(rowsOf("search-bar-invalid")).first()).toHaveAccessibleDescription(
+      "Άγνωστο φίλτρο «staus»",
+    );
+    assert.equal(
+      await page.locator(contentOf("search-bar-invalid")).ariaSnapshot(),
+      [
+        '- listbox "Άκυρη αναζήτηση":',
+        '  - option "status Κατάσταση"',
+        '  - option "sort Ταξινόμηση"',
+        '  - option "Αφαίρεση φίλτρου remove"',
+      ].join("\n"),
+    );
+    await page.screenshot({
+      path: join(searchEvidence, "search-invalid-open.png"),
+      clip: await page.evaluate(() => {
+        const box = document.getElementById("search-bar-invalid-frame").getBoundingClientRect();
+
+        return { x: box.left, y: box.top, width: box.width, height: 220 };
+      }),
+      animations: "disabled",
+    });
+
+    // Picking the fix makes the query valid: aria-invalid goes from the same input.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await until(
+      () => document.getElementById("search-bar-invalid-input").value === "report status:open",
+    );
+    await expect(invalidInput).not.toHaveAttribute("aria-invalid");
+    assert.equal(await attribute("search-bar-invalid-input", "data-probe"), "same");
+    await expect(
+      page.locator("#search-bar-invalid [data-slot=search-bar-mark][data-invalid]"),
+    ).toHaveCount(0);
+
+    // An unknown qualifier without fixes shows only its message: not a listbox, so the input
+    // isn't expanded and the popup is hidden from screen readers.
+    await page.keyboard.press("End");
+    await page.keyboard.type(" zz:");
+    await untilOpen("search-bar-invalid", true);
+    await until(() =>
+      document
+        .querySelector("#search-bar-invalid [data-slot=search-bar-message]")
+        ?.textContent.includes("«zz»"),
+    );
+    assert.equal((await message.textContent()).trim(), "Άγνωστο φίλτρο «zz»");
+    await untilRows("search-bar-invalid", []);
+    assert.equal(await attribute("search-bar-invalid-input", "aria-expanded"), "false");
+    assert.equal(
+      await page.locator(contentOf("search-bar-invalid")).getAttribute("aria-hidden"),
+      "true",
+    );
+    assert.equal(await attribute("search-bar-invalid-input", "aria-invalid"), "true");
+    await page.keyboard.press("Escape");
+    await untilOpen("search-bar-invalid", false);
+
+    // A native IME composition hides the marks, which would lag its preedit; they return with
+    // the committed text when it ends, and after a cancelled one with the text as it was.
+    const marksShown = (shown) =>
+      page.waitForFunction(
+        (shown) =>
+          (getComputedStyle(document.querySelector("#search-bar [data-slot=search-bar-marks]"))
+            .display !==
+            "none") ===
+          shown,
+        shown,
+        { timeout: 2000 },
+      );
+    const marksText = () =>
+      page.evaluate(
+        () => document.querySelector("#search-bar [data-slot=search-bar-marks-row]").textContent,
+      );
+    const ime = await page.context().newCDPSession(page);
+
+    await page.focus("#search-bar-input");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" ");
+    await marksShown(true);
+    await ime.send("Input.imeSetComposition", { text: "υ", selectionStart: 1, selectionEnd: 1 });
+    await ime.send("Input.imeSetComposition", { text: "υπ", selectionStart: 2, selectionEnd: 2 });
+    await marksShown(false);
+    await ime.send("Input.insertText", { text: "υπο" });
+    await marksShown(true);
+    await until(() =>
+      document
+        .querySelector("#search-bar [data-slot=search-bar-marks-row]")
+        .textContent.endsWith(" υπο"),
+    );
+    assert.equal(await marksText(), await valueOf("search-bar-input"));
+    await ime.send("Input.imeSetComposition", { text: "α", selectionStart: 1, selectionEnd: 1 });
+    await marksShown(false);
+    await ime.send("Input.imeSetComposition", { text: "", selectionStart: 0, selectionEnd: 0 });
+    await marksShown(true);
+    assert.equal(await valueOf("search-bar-input"), `${picked} υπο`);
+    assert.equal(await marksText(), `${picked} υπο`);
+    await ime.detach();
+    await page.keyboard.press("Escape");
+
+    // Disabled: the input is natively disabled.
+    assert.equal(await page.locator("#search-bar-disabled-input").isDisabled(), true);
   }
 
   // Toggle, ToggleGroup and Toolbar: the server state and each root's own tab stop; Toggle's

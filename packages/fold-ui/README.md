@@ -46,6 +46,7 @@ ng generate @loozo/fold-ui:add --names checkbox switch radio-group
 ng generate @loozo/fold-ui:add --names number-field slider
 ng generate @loozo/fold-ui:add --names otp-field
 ng generate @loozo/fold-ui:add --names select combobox
+ng generate @loozo/fold-ui:add --names search-bar
 ng generate @loozo/fold-ui:add --names tabs tooltip popover
 ng generate @loozo/fold-ui:add --names accordion collapsible
 ng generate @loozo/fold-ui:add --names menu
@@ -60,6 +61,8 @@ ng generate @loozo/fold-ui:add --names date-field date-picker
 NumberField, Slider, FileField, Combobox, OtpField, Menu, Toast, ScrollArea, Avatar, Progress and Meter import `@loozo/origami-ui/number-field`, `/slider`, `/file-field`, `/combobox`, `/otp-field`, `/menu`, `/toast`, `/scroll-area`, `/avatar`, `/progress` and `/meter`, which no published Origami has yet (npm has 0.0.4). Select, Popover, Dialog and Sheet scroll in a ScrollArea, so adding one adds `scroll-area` and needs `/scroll-area` too. So does Table, whose TableFrame scrolls in one. Tabs, Tooltip, Accordion and Collapsible import only what 0.0.4 has. An app set up with an older Origami needs its `@loozo/origami-ui` raised first, since `add` doesn't change dependencies.
 
 Toggle and ToggleGroup import only what 0.0.4 has. Toolbar imports `OrigamiToolbarMenuTrigger` from `@loozo/origami-ui/toolbar`, which no published Origami has yet, so `add toolbar` doesn't build on 0.0.4 even without a Menu; its popup triggers sit in fold's Popover and Menu, which need `/scroll-area` too. All three are tested with this repository's Origami, built from source, not with 0.0.4.
+
+SearchBar imports `@loozo/origami-ui/query-field`, which no published Origami has yet, so `add search-bar` needs the first Origami release that has it. Its input has Input's look and its list `popup`'s, scrolling in a ScrollArea, so adding `search-bar` adds `input`, `popup` and `scroll-area`, and needs `/scroll-area` too. It's tested with this repository's Origami, built from source.
 
 Calendar forwards Origami's `selectedDescription`, which no published Origami has yet: on 0.0.4 the build fails with `NG2017: Directive OrigamiCalendar does not have an input with a public name of selectedDescription.`, once per Calendar root.
 
@@ -174,6 +177,8 @@ A Calendar root's slot is `calendar`, whichever of the four it is; inside it are
 Toggle's slot is `toggle`. ToggleGroup's are `toggle-group`, for both roots, and `toggle-group-item`, with `toggle-group-indicator` (the dot) inside. Toolbar's are `toolbar`, `toolbar-separator`, `toolbar-button`, `toolbar-toggle`, `toolbar-toggle-group` (for both groups), `toolbar-radio-group`, `toolbar-popover-trigger` and `toolbar-menu-trigger`; the items inside its groups keep `toggle-group-item` and `radio-group-item`. A Toggle, ToolbarToggle or ToggleGroupItem has Origami's `aria-pressed` and, while on, `data-pressed`, plus `data-disabled`; a ToggleGroup root has `data-orientation` and `data-disabled`, and fold adds `data-indicator` to a Single root with `indicator`. A Toolbar has `data-orientation` and `aria-orientation`; its separator has the perpendicular `aria-orientation`, and fold mirrors the Toolbar's `data-orientation` onto ToolbarRadioGroup, which Origami gives none.
 
 Table's parts are `table-frame`, `table`, `table-row`, `table-column-header`, `table-sort-button` (with `table-sort-icon`, the arrow) and `table-cell`, and `table-pager`; TableFrame renders a ScrollArea, so its `scroll-area…` slots are there too. Badge's is `badge`. Page's are `page`, `page-header`, `page-title`, `page-description` and `page-actions`; Empty's are `empty`, `empty-title`, `empty-description` and `empty-actions`. A TableColumnHeader has `aria-sort` while sorted and `data-align`, its TableSortButton `data-sort` while its column is sorted, a TableCell `data-align`, and a Badge `data-tone`.
+
+SearchBar's parts are `search-bar` and `search-bar-input`, with, in its template, `search-bar-icon`, `search-bar-marks` (the layer behind the input) holding `search-bar-marks-row` with a `search-bar-mark` per run of the query, `search-bar-content` (the list) with `search-bar-message` and a `search-bar-suggestion` per row (with `search-bar-suggestion-detail`), and the hidden `search-bar-errors`. A mark has `data-part` (`qualifier`, `value` or `text`), `data-qualified` on a qualified token's runs and `data-invalid` on an invalid token's; the layer has `data-composing` during an IME composition; a row has `data-active` while highlighted; and the input has `aria-invalid` while a token is invalid.
 
 ## Button
 
@@ -1080,6 +1085,48 @@ Choosing an option puts its `label` in the input. Closing without a choice puts 
 - **A label click focuses the input**, unlike Select.
 
 [Origami's README](../origami-ui/combobox/README.md) describes the keys, typing, IME, hydration and the rest.
+
+## SearchBar
+
+```ts
+import { SearchBar, SearchBarInput, type SearchBarAnalysis } from "#ui/search-bar";
+
+readonly query = signal(this.route.search().q ?? "");
+readonly caret = signal<number | null>(null);
+// Your parser: query tokens, and suggestions for the token at the caret.
+readonly analysis = computed((): SearchBarAnalysis => analyseReportQuery(this.query(), this.caret()));
+```
+
+`SearchBar` is a query input, such as `report status:submitted by:@me`, over Origami's [query field](../origami-ui/query-field/README.md), which owns the behavior: it applies your analysis to the text and caret it was computed for, opens and closes the list, and edits the query in place when a suggestion is picked, through the browser's own insertion, so Ctrl+Z undoes it. You parse the query; fold draws what you report behind the input's text, from Origami's state: a soft tint behind each qualifier and a fainter one behind its value, and a red wavy underline under an invalid token. The input keeps its native glyphs, caret, selection and input methods, with a search icon at its start. Typing opens a list under it with a row per suggestion, its label and a muted detail; while the caret is in an invalid token, its message sits above its fixes:
+
+<!-- prettier-ignore -->
+```html
+<div foldSearchBar [(query)]="query" (caretChange)="caret.set($event)" [analysis]="analysis()" (search)="apply($event)">
+  <input foldSearchBarInput aria-label="Search reports" placeholder="status:submitted by:@me" />
+</div>
+
+<!-- In a Field, the Label names the input and the Descriptions describe it. -->
+<div foldField>
+  <label foldFieldLabel>Search reports</label>
+  <div foldSearchBar [(query)]="query" (caretChange)="caret.set($event)" [analysis]="analysis()" (search)="apply($event)">
+    <input foldSearchBarInput />
+  </div>
+  <p foldFieldDescription>Filters such as status:submitted</p>
+</div>
+```
+
+- `SearchBar`: the root, with the icon, the marks, the list and the hidden errors in its template. It takes `query` (two-way, the whole text, written on every edit), `analysis` (a `SearchBarAnalysis`, or `null` for no marks and no suggestions), `disabled` and `class`, and emits `queryChange`, `caretChange` (the caret in UTF-16 code units, `null` on blur and for a range selection) and `search` (the query, on Enter while no row is highlighted, except the one Enter right after a highlight you saw lapsed; see Searching). Its template reference, `#search="foldSearchBar"` with your prefix, has `state`, with `query`, `caret`, `tokens`, `segments`, `caretToken`, `invalid`, `suggestions`, `open`, `scrollLeft`, `composing` and `disabled` signals. Its `focus()` focuses the input.
+- `SearchBarInput`: the text box, with Input's look, and the list's anchor. It takes `id` and `class`. Keep it `type="text"`, the default: Chromium clears a `type="search"` input on Escape, which closes the list.
+- `SearchBarSuggestion`: Origami's suggestion, a range of the query and the `insert` that replaces it, plus the row's `label` and an optional `detail`. The label needn't be the insert: a Greek `κατάσταση` row can insert `status:`.
+
+- **The analysis** is yours, stamped with the query and caret it was computed for: parse synchronously, so marks and `aria-invalid` follow every keystroke, and load only suggestions asynchronously. While the caret you hold is past the query's end, as just after you write a shorter query, publish `caret: null` before computing completions or starting a lookup. Origami's [The analysis](../origami-ui/query-field/README.md#the-analysis) describes the shapes, freshness and an async lookup with `resource()`.
+- **Searching.** `query` follows every edit and `search` fires on Enter while no row is highlighted, so a page can search on Enter or, debounced, as you type. Two exceptions: when a highlight you saw lapses, because the caret moved or the rows changed under it, the next Enter does nothing, once; and Enter keeps its default, so the form's standard implicit submission still applies: if the form submits on Enter, wiring both its submit and `search` to the same action runs it twice. Origami's [The list](../origami-ui/query-field/README.md#the-list) has the key table and the lapse rules. To normalize edits, such as lower-casing them, see its [Editing and events](../origami-ui/query-field/README.md#editing-and-events).
+- **Keys.** While there are suggestions, ArrowDown and ArrowUp open the list and move the highlight while focus stays in the input, and Alt+ArrowDown opens it with nothing highlighted; Enter applies the highlighted row and a click applies the row you press, each leaving the caret after the inserted text; Escape closes the list and keeps the text; Tab closes it and moves on. The list never opens on focus alone. [The list](../origami-ui/query-field/README.md#the-list) has the whole table.
+- **Accessibility.** The input is a combobox and the highlighted row its `aria-activedescendant`. The icon and the marks are hidden from screen readers. While a token is invalid the input has `aria-invalid="true"`, and its description reads every token's error, from the hidden errors element; each fix is described by the message. A message without fixes isn't a listbox: the input stays `aria-expanded="false"`. Outside a Field, name the input with `aria-label`.
+- **Marks line up** because the input and the layer share the root's metrics: `--search-bar-pad-start` (2rem, the icon's room), `--search-bar-pad-end` (0.625rem) and `--search-bar-border` (1px), and the root's font. Change them on the root through `class`, such as `class="[--search-bar-pad-start:2.25rem]"`, not the input's padding, border or font, or the marks drift from the text. During an IME composition the marks hide. In forced-colors mode a mark has no fill, since `Mark` behind the dark palette's white text would hide it: it gets a 1px `CanvasText` outline inside its box instead, solid on a qualifier and dotted on its value, and the underline is `CanvasText`. The input opts out of forced colors, so no text backplate covers the marks, and sets its own system colors, as Input has them.
+- **Not included:** a clear button, chips, opening on focus, Tab completion, a loading row, Signal Forms binding (`[formField]`), right-to-left marks and multi-line queries.
+
+[Origami's README](../origami-ui/query-field/README.md) describes picks and undo, input methods, descriptions in a Field, hydration and the rest.
 
 ## Tabs
 
