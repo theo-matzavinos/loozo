@@ -4,17 +4,19 @@ The shared part of every bench in the repository: flags, the output directory, `
 
 These are plain ES modules imported by relative path. There's no `package.json`, and nothing here resolves Angular, TypeScript or a package by itself: a runner passes its directories in (`machine({ packages })`, `bin(require, …)`).
 
-| Module             | What it holds                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------------ |
-| `bench.mjs`        | `bench(config, argv)`: flags, output directory, `results.json`, phases, table, `--check`, exit code    |
-| `budgets.mjs`      | `readBudgets`, `checkBudgets`, `recordBudgets`, and the `record`/`check` CLI                           |
-| `statistics.mjs`   | `median` (midpoint average for an even count) and `percentile` (nearest rank)                          |
-| `table.mjs`        | `format(metric, value)` and `table(results, { label, layout })`                                        |
-| `machine.mjs`      | `load()` and `machine({ packages })`                                                                   |
-| `process.mjs`      | `node`, `bin`, `exists`, `files`, `outputDirectory`                                                    |
-| `typescript.mjs`   | `parseDiagnostics` for `tsc --extendedDiagnostics` output                                              |
-| `bundle.mjs`       | `measureBundle({ output, entryPoint, index })`: initial and lazy bytes from `browser-stats.json`       |
-| `budgets.test.mjs` | The check, record, validation and formatting rules: `node --test tools/bench/budgets.test.mjs` (in CI) |
+| Module               | What it holds                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------ |
+| `bench.mjs`          | `bench(config, argv)`: flags, output directory, `results.json`, phases, table, `--check`, exit code    |
+| `gate-lock.mjs`      | `assertGateLock(command, argv)`: refuses a run [the gate lock](#the-gate-lock) didn't start            |
+| `budgets.mjs`        | `readBudgets`, `checkBudgets`, `recordBudgets`, and the `record`/`check` CLI                           |
+| `statistics.mjs`     | `median` (midpoint average for an even count) and `percentile` (nearest rank)                          |
+| `table.mjs`          | `format(metric, value)` and `table(results, { label, layout })`                                        |
+| `machine.mjs`        | `load()` and `machine({ packages })`                                                                   |
+| `process.mjs`        | `node`, `bin`, `exists`, `files`, `outputDirectory`                                                    |
+| `typescript.mjs`     | `parseDiagnostics` for `tsc --extendedDiagnostics` output                                              |
+| `bundle.mjs`         | `measureBundle({ output, entryPoint, index })`: initial and lazy bytes from `browser-stats.json`       |
+| `budgets.test.mjs`   | The check, record, validation and formatting rules: `node --test tools/bench/budgets.test.mjs` (in CI) |
+| `gate-lock.test.mjs` | The gate lock's refusal and retry: `node --test tools/bench/gate-lock.test.mjs` (in CI)                |
 
 ## The gate lock
 
@@ -25,6 +27,16 @@ Every bench script runs under the machine-wide gate lock, outermost and exactly 
 ```
 
 While another run holds the lock, the script prints `origami gate: waiting for …` and starts once it's released. A runner spawns its tools (`ng`, `ngc`, `tsc`, Node) directly, never a `pnpm run` script or another command that takes the lock, which would wait on itself.
+
+`gate-lock.sh` exports `LOOZO_GATE_LOCK_HELD=1` to the step it starts. A runner opts in with `lockedCommand`, its script's repo-root command ending in pnpm's `--`, such as `"pnpm --dir packages/angular-router run bench --"`. Before anything runs, `bench()` refuses a run without the marker, such as a raw `node bench/run.mjs`, and exits 1 with that command and the run's arguments to paste:
+
+```text
+this run needs the machine-wide gate lock. Run it from the repo root as:
+  pnpm --dir packages/angular-router run bench -- --deterministic --out 'rel out'
+(relative paths resolve from packages/angular-router there; pass absolute paths)
+```
+
+The note appears when `--out` or `--check` names a relative path, which the pasted command resolves from the `--dir` package. Every bench script sets `lockedCommand`; only `budgets.test.mjs`'s synthetic runner leaves it out.
 
 ## Flags
 
@@ -61,6 +73,7 @@ import { bench } from "../../../tools/bench/bench.mjs";
 
 await bench(
   {
+    lockedCommand: "pnpm --dir packages/angular-router run bench --", // see The gate lock
     name: "angular-router-router", // results.bench and the temp-dir prefix
     metrics, // the registry
     scenarios: { default: ["100", "300"], validate, label, layout: "metric-rows", always: [] },

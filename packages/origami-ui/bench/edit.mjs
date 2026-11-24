@@ -1,9 +1,10 @@
-// The Origami edit bench: node bench/edit.mjs plus the shared flags ([--scenarios consumer,library]
-// [--out <dir>] [--samples edits=5,syncs=5] [--timeout <seconds>] [--check [file]]). The package's
-// bench:edit script runs it under the machine-wide gate lock. It times two inner development loops:
-// a consumer template edit until the dev server serves it, and a library source edit until
-// acceptance:sync has put it in the scratch consumer. See bench/README.md for what each number means
-// and tools/bench/README.md for the shared contract.
+// The Origami edit bench, from the repo root: pnpm --dir packages/origami-ui run bench:edit --
+// plus the shared flags ([--scenarios consumer,library] [--out <dir>] [--samples edits=5,syncs=5]
+// [--timeout <seconds>] [--check [file]]). The bench:edit script runs it under the machine-wide
+// gate lock; a raw node bench/edit.mjs refuses to start. It times two inner development loops: a
+// consumer template edit until the dev server serves it, and a library source edit until
+// acceptance:sync has put it in the scratch consumer. See bench/README.md for what each number
+// means and tools/bench/README.md for the shared contract.
 import { execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
@@ -748,6 +749,7 @@ async function measure(scenario, run) {
 
 await bench(
   {
+    lockedCommand: "pnpm --dir packages/origami-ui run bench:edit --",
     name: "origami-ui-edit",
     metrics,
     scenarios: { default: scenarios, validate, label: (key) => key, layout: "metric-rows" },

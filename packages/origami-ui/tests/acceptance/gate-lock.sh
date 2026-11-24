@@ -26,4 +26,5 @@ fi
 
 printf "%s %s: %s\n" "$(date +%T)" "$PWD" "$*" > "$lock"
 
+export LOOZO_GATE_LOCK_HELD=1
 exec "$@"
