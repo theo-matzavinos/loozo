@@ -246,29 +246,37 @@ export function positionContent(
     opposite = "inline-end";
   }
 
-  return inlineSideFits(
-    reference,
-    content,
-    requested,
-    candidatesFor(opposite),
-    configuration.gap,
-    sizing,
-  ).then((fits) => {
-    if (fits) {
-      return place(requested);
-    }
+  const second = candidatesFor(opposite);
 
-    return place(candidatesFor("block-end"));
-  });
+  // The room check. The sizing pass, whose writes can resize Content and clamp a scroll offset
+  // inside it, runs only after the write-free pass finds a side that fits at the current size.
+  // Assumes a larger anchor width or available height never makes Content smaller: in a horizontal
+  // writing mode the inline values are at least the current ones, so a side that misses now also
+  // misses at its inline size. In a vertical mode a block side's cap is the larger one.
+  return inlineSideFits(reference, content, requested, second, configuration.gap, [])
+    .then((fitsNow) => {
+      if (!fitsNow) {
+        return false;
+      }
+
+      return inlineSideFits(reference, content, requested, second, configuration.gap, sizing);
+    })
+    .then((fits) => {
+      if (fits) {
+        return place(requested);
+      }
+
+      return place(candidatesFor("block-end"));
+    });
 }
 
 /**
- * Whether the main edge of `first`, else of `second`, fits once Content is sized for that
- * placement: flip's own first test of each inline candidate. Runs the placement's `shift` and
- * `size`, so their guarded writes give Content the anchor width and available height that
- * placement would, and `size` measures again when they resize it. Then `detectOverflow` reads the
- * main side, which neither alignment nor the alignment-axis shift moves. Places nothing; when
- * neither fits, the block placement's own `size` replaces these writes in the same READ.
+ * Whether the main edge of `first`, else of `second`, fits: flip's own first test of each inline
+ * candidate, since neither alignment nor the alignment-axis shift moves the main side. `sizing`
+ * runs before the room test. Empty, the pass writes nothing and reads Content at its current size.
+ * With the placement's `shift` and `size`, their guarded writes give Content the anchor width and
+ * available height that placement would, and `size` measures again when they resize it. Places
+ * nothing; the placement that follows writes the final values in the same READ.
  */
 async function inlineSideFits(
   reference: HTMLElement,
@@ -276,7 +284,7 @@ async function inlineSideFits(
   first: { readonly side: Side; readonly placement: Placement },
   second: { readonly side: Side; readonly placement: Placement },
   gap: number,
-  sizing: Middleware[],
+  sizing: readonly Middleware[],
 ): Promise<boolean> {
   let probed = first;
   let fits = false;

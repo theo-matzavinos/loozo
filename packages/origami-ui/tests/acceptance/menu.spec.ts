@@ -4499,6 +4499,39 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
   expect(scrolled.scrollTop).toBeGreaterThan(0);
   expect(scrolled.visible).toBe(true);
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+
+  // A width change that keeps both inline sides missing repositions the submenu without resizing
+  // it, so its scroll offset and the focused row stay.
+  const cap = await ownPixels(page, "narrow-short-folders-content", "--og-available-height");
+
+  // WebKit sends a mouse move at the cursor's position after a resize; keep it off every menu, so
+  // it can't focus a row by hovering.
+  await page.mouse.move(385, 395);
+
+  for (const width of [391, 390]) {
+    await page.setViewportSize({ width, height: 400 });
+    await frames(page);
+    await settled(page, "narrow-short-folders", "narrow-short-folders-content");
+
+    const resized = await sub.evaluate((node) => {
+      const last = node.querySelector('[data-testid="narrow-short-folder-10"]')!;
+      const box = node.getBoundingClientRect();
+      const row = last.getBoundingClientRect();
+
+      return {
+        scrollTop: node.scrollTop,
+        visible: row.top >= box.top - 1 && row.bottom <= box.bottom + 1,
+      };
+    });
+
+    expect(resized).toEqual(scrolled);
+    await expect(page.getByTestId("narrow-short-folder-10")).toBeFocused();
+    await expect(sub).toHaveAttribute("data-side", "block-start");
+    expect(await ownPixels(page, "narrow-short-folders-content", "--og-available-height")).toBe(
+      cap,
+    );
+  }
+
   await step(page, "Escape", folders);
   await step(page, "Escape", trigger);
 
