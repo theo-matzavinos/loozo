@@ -4618,19 +4618,35 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
   expect(verticalCapped.content.right).toBeLessThanOrEqual(verticalCapped.viewport.width + 1);
 
   // A square tied to its cap, with a minimum above both inline caps, in a viewport as tall as the
-  // square, so every block candidate overflows along its alignment axis and flip ranks them all:
-  // neither inline side fits, and with Nested near the left only block-start, on the right, has
-  // room for the block-sized box. The block side is chosen at that box, not at the minimum size
-  // the room check's inline cap left, which would fit on the left.
-  const squareWidth = 250;
-  // Left of Nested, room for the 120 px minimum square but not the 250 px one it grows to.
-  const leftRoom = 190;
+  // square, beside a 20 px Nested centred in it: at the room check's 120 px minimum both block
+  // alignments overflow, so flip ranks every candidate, and only block-start, on the right, has
+  // room for the 200 px block-sized box. The block side is chosen at that box, not at overflow
+  // measured for the minimum, which would put it on the left, clipped.
+  const squareWidth = 200;
+  const leftRoom = 166;
+  const nestedBox = () =>
+    nested.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+
+      return { left: box.left, right: box.right, top: box.top };
+    });
 
   await page.setViewportSize({ width: 844, height: squareWidth });
   await verticalTrigger.evaluate((node: HTMLElement) => {
     node.closest<HTMLElement>(".narrow-vertical")!.style.direction = "ltr";
-    node.style.top = "20px";
+    node.style.inlineSize = "20px";
+    node.style.top = "85px";
     node.style.left = "400px";
+  });
+  await page.getByTestId("narrow-vertical-content").evaluate((node: HTMLElement) => {
+    node.style.inlineSize = "20px";
+    node.style.paddingBlock = "0";
+    node.style.paddingInline = "0";
+    node.style.borderWidth = "0";
+  });
+  await nested.evaluate((node: HTMLElement) => {
+    node.style.blockSize = "40px";
+    node.style.padding = "0";
   });
   await nestedContent.evaluate((node: HTMLElement) => {
     node.style.blockSize = "auto";
@@ -4641,18 +4657,18 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
   });
   await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
 
-  const shiftBy =
-    leftRoom + 4 - (await nested.evaluate((node) => node.getBoundingClientRect().left));
+  const nestedStart = await nestedBox();
 
-  await verticalTrigger.evaluate((node: HTMLElement, shiftBy) => {
-    node.style.left = `${400 + shiftBy}px`;
-  }, shiftBy);
+  await verticalTrigger.evaluate(
+    (node: HTMLElement, shift) => {
+      node.style.left = `${400 + shift.x}px`;
+      node.style.top = `${85 + shift.y}px`;
+    },
+    { x: leftRoom + 4 - nestedStart.left, y: 90 - nestedStart.top },
+  );
   await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
-
-  const nestedRight = await nested.evaluate((node) => node.getBoundingClientRect().right);
-
   await page.setViewportSize({
-    width: Math.ceil(nestedRight + 4 + squareWidth + 20),
+    width: Math.ceil((await nestedBox()).right + 4 + squareWidth + 20),
     height: squareWidth,
   });
   await settled(page, "narrow-vertical-nested", "narrow-vertical-nested-content");
@@ -4663,12 +4679,17 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
     body: JSON.stringify(square, null, 2),
     contentType: "application/json",
   });
-  // Preconditions: the left block room fits the minimum square but not the full one, the right
-  // one fits the full one, and neither inline side fits even the minimum.
-  expect(square.anchor.left - 4).toBeLessThan(squareWidth);
-  expect(square.anchor.left - 4).toBeGreaterThanOrEqual(130);
+  // Preconditions: Nested is 20 px tall at y 90; neither inline room fits the 120 px minimum; at
+  // that minimum both block alignments overflow; the left block room fits the minimum but not the
+  // full square, and the right one fits the full square.
+  expect(Math.abs(square.anchor.top - 90)).toBeLessThanOrEqual(1);
+  expect(Math.abs(square.anchor.height - 20)).toBeLessThanOrEqual(1);
   expect(square.anchor.top - 4).toBeLessThan(120);
   expect(square.viewport.height - square.anchor.bottom - 4).toBeLessThan(120);
+  expect(square.anchor.top + 120).toBeGreaterThan(square.viewport.height);
+  expect(square.anchor.bottom - 120).toBeLessThan(0);
+  expect(square.anchor.left - 4).toBeGreaterThanOrEqual(120);
+  expect(square.anchor.left - 4).toBeLessThan(squareWidth);
   expect(square.viewport.width - square.anchor.right - 4).toBeGreaterThanOrEqual(squareWidth);
   expect(square.content.width).toBeGreaterThanOrEqual(squareWidth - 1);
   await expect(nestedContent).toHaveAttribute("data-side", "block-start");
