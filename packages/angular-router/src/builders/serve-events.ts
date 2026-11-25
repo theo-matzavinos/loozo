@@ -127,13 +127,21 @@ export function watchConfigInputs({
   let baseline = new Map<string, string>();
 
   function refresh(): void {
+    // TypeScript can't list an input that's missing, such as an installed base or a package
+    // manifest deleted for a reinstall, so one the last refresh listed stays while it's absent: its
+    // return is a change. Looked at before the parse, so a return during it is one too.
+    const missing: string[] = [];
+
+    for (const path of baseline.keys()) {
+      if (signature(path) === "absent") {
+        missing.push(path);
+      }
+    }
+
     const inputs = configInputs(configFile, manifest);
 
-    // TypeScript can't list an input that's missing, such as an installed base or a package
-    // manifest deleted for a reinstall, so one the last refresh listed stays while it's absent:
-    // its return is a change.
-    for (const path of baseline.keys()) {
-      if (!inputs.has(path) && signature(path) === "absent") {
+    for (const path of missing) {
+      if (!inputs.has(path)) {
         inputs.set(path, "absent");
       }
     }

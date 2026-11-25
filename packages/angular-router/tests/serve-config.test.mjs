@@ -276,6 +276,57 @@ test("a package manifest TypeScript read to resolve a base is watched, and the b
   poll();
   assert.equal(watching.reports, 4, "The manifest restored");
 
+  // Restored during a refresh, right after TypeScript's parse finds it missing: the next check
+  // still reports it, and the refresh after that checks the base it chooses.
+  const manifestPath = resolve(directory, "shared-config/package.json");
+  // The spelling TypeScript reads it by.
+  const linkedManifest = resolve(directory, "node_modules/shared-config/package.json");
+
+  rmSync(manifestPath);
+  poll();
+  assert.equal(watching.reports, 5, "The manifest deleted again");
+
+  const stat = fs.statSync;
+  let parsing = false;
+  let restored = false;
+  const reads = mock.method(ts.sys, "readFile", (path) => {
+    parsing = true;
+
+    return readFileSync(path, "utf8");
+  });
+  const stats = mock.method(fs, "statSync", (path, options) => {
+    const entry = stat(path, options);
+
+    if (parsing && !restored && entry === undefined && resolve(String(path)) === linkedManifest) {
+      restored = true;
+      writeFileSync(manifestPath, packageManifest);
+    }
+
+    return entry;
+  });
+
+  syncBuiltinESMExports();
+
+  try {
+    watching.handle.refresh();
+  } finally {
+    stats.mock.restore();
+    reads.mock.restore();
+    syncBuiltinESMExports();
+  }
+
+  assert.ok(restored, "Restored during the refresh");
+
+  const reports = watching.reports;
+
+  poll();
+  assert.equal(watching.reports, reports + 1, "The restore is reported at the next check");
+  watching.handle.refresh();
+
+  write(resolve(directory, "shared-config/two.json"), { compilerOptions: { strict: true } });
+  poll();
+  assert.equal(watching.reports, reports + 2, "The chosen base is checked after the restore");
+
   watching.handle.close();
 });
 
@@ -300,7 +351,9 @@ test("refresh takes the current inputs: a base added to the chain is watched, a 
   poll();
   assert.equal(watching.reports, 2, "The added base's edit");
 
-  write(resolve(directory, "tsconfig.json"), app["tsconfig.json"]);
+  // A different size: two same-size writes within one timestamp tick (Windows ticks at ~1-16 ms)
+  // look the same to any stat.
+  write(resolve(directory, "tsconfig.json"), { ...app["tsconfig.json"], compilerOptions: {} });
   poll();
   assert.equal(watching.reports, 3, "The tsconfig edit");
   watching.handle.refresh();
@@ -364,11 +417,18 @@ test("a base replaced between TypeScript's probe and its read is read and not re
   const base = resolve(directory, "base.json");
   const watching = watch(directory);
   const stat = fs.statSync;
+  // From TypeScript's read of the tsconfig on, the next look at the base is its probe.
+  let parsing = false;
   let looks = 0;
+  const reads = mock.method(ts.sys, "readFile", (path) => {
+    parsing = true;
+
+    return readFileSync(path, "utf8");
+  });
   const stats = mock.method(fs, "statSync", (path, options) => {
     const entry = stat(path, options);
 
-    if (resolve(String(path)) === base && looks++ === 0) {
+    if (parsing && resolve(String(path)) === base && looks++ === 0) {
       write(base, { compilerOptions: { strict: false, noImplicitAny: false } });
     }
 
@@ -381,6 +441,7 @@ test("a base replaced between TypeScript's probe and its read is read and not re
     watching.handle.refresh();
   } finally {
     stats.mock.restore();
+    reads.mock.restore();
     syncBuiltinESMExports();
   }
 
