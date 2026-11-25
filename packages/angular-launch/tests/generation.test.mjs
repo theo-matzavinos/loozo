@@ -389,6 +389,54 @@ test("an application whose last server-only step goes away binds no entries and 
   assert.deepEqual(unused(), []);
 });
 
+test("an application with noUnusedLocals and a named-outlet route generates and type-checks, with and without tanstackQuery", async () => {
+  const root = await fixture();
+  const tsconfig = resolve(root, "tsconfig.json");
+  const native = JSON.parse(await readFile(tsconfig, "utf8"));
+
+  native.compilerOptions.noUnusedLocals = true;
+  await writeFile(tsconfig, JSON.stringify(native));
+  // A named-outlet route under left: its record lives in left's children table, and RouteTypes
+  // doesn't name it, so routes.generated.ts must not import its copy.
+  await put(
+    root,
+    "src/routes/left/detail/route.ts",
+    `${launch} import parent from '../route'; export default defineRoute('detail', {parent, outlet: 'detail'});`,
+  );
+  await put(
+    root,
+    "src/routes/left/detail/page.ts",
+    `import { Component } from '@angular/core'; @Component({selector:'fixture-detail',template:'ok'}) export default class Page {}`,
+  );
+
+  // The consumer's own check of every generated file, under its options.
+  const generatedDiagnostics = () => {
+    const config = ts.readConfigFile(tsconfig, ts.sys.readFile);
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
+    const program = ts.createProgram(parsed.fileNames, parsed.options);
+    const messages = [];
+
+    for (const source of program.getSourceFiles()) {
+      if (!source.fileName.includes(".generated.")) {
+        continue;
+      }
+
+      for (const diagnostic of ts.getPreEmitDiagnostics(program, source)) {
+        messages.push(
+          `${relative(root, source.fileName)}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+        );
+      }
+    }
+
+    return messages;
+  };
+
+  for (const tanstackQuery of [false, true]) {
+    await generate(root, { ...options, tanstackQuery });
+    assert.deepEqual(generatedDiagnostics(), [], `tanstackQuery: ${tanstackQuery}`);
+  }
+});
+
 test("the app identity is stable across route edits, relocation and a workspace move, and follows the package name", async () => {
   const root = await fixture();
 

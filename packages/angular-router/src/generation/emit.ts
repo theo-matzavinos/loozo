@@ -178,7 +178,7 @@ export function emit(
   }
 
   // A copy is imported at runtime only where a record reads it at evaluation; RouteTypes
-  // reads the other retained copies' types alone.
+  // reads the other retained primary-outlet copies' types alone.
   function readsCopy(declaration: Declaration): boolean {
     if (lazyRedirect(declaration)) {
       return false;
@@ -514,7 +514,14 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
   const memberTypes = new Map<string, string>();
 
   if (launch && launch.members.length > 0 && primary.some((declaration) => declaration.extension)) {
-    const types = typeImports(launch.types);
+    // Only the members' types: an import RouteTypes doesn't name fails noUnusedLocals.
+    const memberTypeNames = new Set<string>();
+
+    for (const member of launch.members) {
+      memberTypeNames.add(member.type);
+    }
+
+    const types = typeImports(launch.types, memberTypeNames);
 
     for (const member of launch.members) {
       const local = types.locals.get(member.type);
@@ -535,7 +542,8 @@ export const routes: Routes = [${children.map((child) => record(child, file)).jo
 
   const valueCopies = new Set(read);
 
-  for (const declaration of retained) {
+  // Only RouteTypes reads a type-only copy, and it names primary-outlet routes alone.
+  for (const declaration of primary) {
     if (!valueCopies.has(declaration)) {
       routes.push(copyImport(routesFile, declaration, true));
     }
