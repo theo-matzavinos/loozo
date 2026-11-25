@@ -125,6 +125,36 @@ function todoList(html) {
   return match[1];
 }
 
+// A page whose resolver's call redirects: to an existing todo it's a 302, and to a missing
+// one the server renders the not-found page with 404 at the requested URL. Angular's server
+// would answer a final URL other than the requested one with a redirect carrying the 404: a
+// development 500, a bodyless 404 with Location in production.
+async function verifyRedirectedNotFound(target, build) {
+  const existing = await fetch(`${target}/moved/alice-initial`, {
+    headers: { cookie: "proof-user=alice" },
+    redirect: "manual",
+  });
+
+  assert.equal(existing.status, 302, build);
+  assert.equal(existing.headers.get("location"), "/todo/alice-initial", build);
+
+  for (const path of ["/moved/missing", "/moved/missing?x=1"]) {
+    const missing = await fetch(`${target}${path}`, {
+      headers: { cookie: "proof-user=alice" },
+      redirect: "manual",
+    });
+    const text = await missing.text();
+
+    assert.equal(missing.status, 404, `${build} ${path}`);
+    assert.equal(missing.headers.get("location"), null, `${build} ${path}`);
+    assert.ok(text.includes('<h1 id="not-found-title">Not found</h1>'), `${build} ${path}`);
+  }
+
+  checks.push(
+    `${build}: a page whose resolver's call redirects answers 302 to an existing todo, and renders the not-found page with 404 and no Location at the requested URL for a missing one`,
+  );
+}
+
 function rpcPaths(entries) {
   const result = [];
 
@@ -412,6 +442,8 @@ try {
     "redirect() and notFound() are 303 and 404 frames over HTTP; server-rendered pages answer 302 to /sign-in for visitors without a user and the not-found page with 404 for foreign or missing todos",
   );
 
+  await verifyRedirectedNotFound(base, "production");
+
   const beforeRefused = await stats();
 
   for (const [headers, label] of [
@@ -596,11 +628,23 @@ try {
   await page.waitForSelector("#sign-in-title");
   assert.equal(new URL(page.url()).pathname, "/sign-in");
   await context.addCookies([{ name: "proof-user", value: "alice", url: base }]);
+
+  // A redirect, then a not-found: the server renders the not-found page at the requested URL,
+  // and hydration repeats the navigation, redirect included, ending at the todo's URL.
+  mark = requests.length;
+
+  const redirectedPage = await page.goto(`${base}/moved/missing`, { waitUntil: "networkidle" });
+
+  assert.equal(redirectedPage.status(), 404);
+  await page.waitForSelector("#not-found-title");
+  assert.deepEqual(rpcPaths(requests.slice(mark)), ["/_rpc/moved/find", "/_rpc/todo/get"]);
+  assert.equal(new URL(page.url()).pathname, "/todo/missing");
   page.off("console", onConsole);
   assert.deepEqual(consoleErrors, []);
-  assert.equal(notFoundResponses, 3);
+  // The two pages and three of the todo calls.
+  assert.equal(notFoundResponses, 5);
   checks.push(
-    "a server-rendered 404 page hydrates at its URL with one /_rpc/todo/get call; client navigation renders not-found at the requested URL and follows the sign-in redirect",
+    "a server-rendered 404 page hydrates at its URL with one /_rpc/todo/get call; client navigation renders not-found at the requested URL and follows the sign-in redirect; after a redirect, the server's rendered 404 hydrates through /_rpc/moved/find and /_rpc/todo/get to the todo's URL",
   );
 
   // identity declares nothing of its own: the active route's narrowed handle, read with the
@@ -1461,6 +1505,7 @@ try {
   );
 
   try {
+    await verifyRedirectedNotFound(development.base, "development");
     await verifyRemembered({
       base: development.base,
       build: "development",

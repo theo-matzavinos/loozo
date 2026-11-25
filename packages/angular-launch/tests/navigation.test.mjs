@@ -14,6 +14,14 @@ import {
   createEnvironmentInjector,
   runInInjectionContext,
 } from "@angular/core";
+import {
+  APP_BASE_HREF,
+  Location,
+  LocationStrategy,
+  PathLocationStrategy,
+  PlatformLocation,
+} from "@angular/common";
+import { MOCK_PLATFORM_LOCATION_CONFIG, MockPlatformLocation } from "@angular/common/testing";
 import { DefaultUrlSerializer, Router } from "@angular/router";
 
 let restore;
@@ -38,17 +46,36 @@ const { injectClient } = await import("../dist/remote-client.js");
 const { application } = await import("./fixtures/application.mjs");
 const serializer = new DefaultUrlSerializer();
 
-// Runs the handler for a navigation to `url` that failed with `cause`.
-function handle(cause, { url = "/todos?filter=50&origin=kept", state } = {}) {
+// Runs the handler for a navigation to `url` that failed with `cause`. With `request`, as on
+// the server: the page request's URL, with the server's location at `platform` and the app
+// under `baseHref`.
+function handle(
+  cause,
+  { url = "/todos?filter=50&origin=kept", state, request, platform = request, baseHref = "/" } = {},
+) {
   const response = { status: 200 };
   const router = {
     parseUrl: (text) => serializer.parse(text),
     currentNavigation: () => ({ extras: { state } }),
   };
+  const server = [];
+
+  if (request !== undefined) {
+    server.push(
+      { provide: REQUEST, useValue: new Request(request) },
+      { provide: MOCK_PLATFORM_LOCATION_CONFIG, useValue: { startUrl: platform } },
+      { provide: PlatformLocation, useClass: MockPlatformLocation },
+      { provide: APP_BASE_HREF, useValue: baseHref },
+      { provide: LocationStrategy, useClass: PathLocationStrategy },
+      { provide: Location, useClass: Location },
+    );
+  }
+
   const injector = createEnvironmentInjector(
     [
       { provide: Router, useValue: router },
       { provide: RESPONSE_INIT, useValue: response },
+      ...server,
     ],
     createEnvironmentInjector([]),
   );
@@ -85,6 +112,71 @@ test("a not-found without a restore renders not-found at the requested URL with 
     browserUrl: "/todos?filter=50&origin=kept",
   });
   assert.equal(response.status, 404);
+});
+
+test("on the server, a not-found at the requested URL writes nothing, so the URL stays as requested", () => {
+  restore = undefined;
+
+  const { command, response } = handle(new RpcNotFound(), {
+    url: "/todo/missing?x=1",
+    request: "http://test/todo/m%69ssing/?x=1",
+  });
+
+  assert.equal(serializer.serialize(command.redirectTo), "/not-found");
+  assert.deepEqual(command.navigationBehaviorOptions, { skipLocationChange: true });
+  assert.equal(response.status, 404);
+});
+
+test("on the server, a not-found after a redirect that skipped the location change writes nothing", () => {
+  restore = undefined;
+
+  // A guard redirected /hidden/m%69ssing to /todo/missing with skipLocationChange, so the
+  // server's location is still the request. Writing the canonical URL there would differ from
+  // the raw request Angular compares behind a trusted X-Forwarded-Prefix.
+  const { command, response } = handle(new RpcNotFound(), {
+    url: "/todo/missing",
+    request: "http://test/hidden/m%69ssing",
+  });
+
+  assert.equal(serializer.serialize(command.redirectTo), "/not-found");
+  assert.deepEqual(command.navigationBehaviorOptions, { skipLocationChange: true });
+  assert.equal(response.status, 404);
+});
+
+test("on the server, a not-found after a redirect moved the URL writes the requested URL back", () => {
+  restore = undefined;
+
+  const { command, response } = handle(new RpcNotFound(), {
+    url: "/todo/missing",
+    request: "http://test/app/moved/missing?x=1",
+    platform: "http://test/app/todo/missing",
+    baseHref: "/app/",
+  });
+
+  assert.equal(serializer.serialize(command.redirectTo), "/not-found");
+  // Without the base href, which the router adds back when it writes; and overriding a skip
+  // inherited from a guard's redirect.
+  assert.deepEqual(command.navigationBehaviorOptions, {
+    browserUrl: "/moved/missing?x=1",
+    skipLocationChange: false,
+  });
+  assert.equal(response.status, 404);
+});
+
+test("on the server, a not-found after a redirect that only added a fragment writes the requested URL back", () => {
+  restore = undefined;
+
+  // An eager URL update wrote the guard's #details; Angular's server compares the hash too.
+  const { command } = handle(new RpcNotFound(), {
+    url: "/todo/missing#details",
+    request: "http://test/todo/missing",
+    platform: "http://test/todo/missing#details",
+  });
+
+  assert.deepEqual(command.navigationBehaviorOptions, {
+    browserUrl: "/todo/missing",
+    skipLocationChange: false,
+  });
 });
 
 test("a redirect, or any other error, never asks for the restore", () => {
