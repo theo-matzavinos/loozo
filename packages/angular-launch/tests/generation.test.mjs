@@ -297,7 +297,11 @@ void result; void session; void resolved; void length; void context; void remote
 
   const drift = await snapshot(root);
 
-  await assert.rejects(generate(root, { ...options, check: true }), /Generated artifacts changed/);
+  // The router's regenerate hint reaches Launch's check failures (README "Versions").
+  await assert.rejects(
+    generate(root, { ...options, check: true }),
+    /Generated artifacts changed:\n[^]*\nRun ng build to update them and commit the result; this is expected after upgrading\.$/,
+  );
   assert.deepEqual(await snapshot(root), drift);
 });
 
