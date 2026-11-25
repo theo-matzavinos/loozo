@@ -213,6 +213,21 @@ test("bases resolved from packages, a package's own dependency included, are wat
   poll();
   assert.equal(watching.reports, 2, "The package base's own base");
 
+  // Deleted, TypeScript no longer resolves it, but its return is still a change.
+  const sharedBase = resolve(
+    directory,
+    `${store}/shared/node_modules/@configs/shared/tsconfig.json`,
+  );
+  const bytes = readFileSync(sharedBase);
+
+  rmSync(sharedBase);
+  poll();
+  assert.equal(watching.reports, 3, "The installed base deleted");
+  watching.handle.refresh();
+  writeFileSync(sharedBase, bytes);
+  poll();
+  assert.equal(watching.reports, 4, "The installed base restored");
+
   watching.handle.close();
 });
 
@@ -249,6 +264,17 @@ test("a package manifest TypeScript read to resolve a base is watched, and the b
   });
   poll();
   assert.equal(watching.reports, 2, "The newly selected base");
+
+  // Deleted, TypeScript can't read it, but its return is still a change.
+  const packageManifest = readFileSync(resolve(directory, "shared-config/package.json"));
+
+  rmSync(resolve(directory, "shared-config/package.json"));
+  poll();
+  assert.equal(watching.reports, 3, "The manifest deleted");
+  watching.handle.refresh();
+  writeFileSync(resolve(directory, "shared-config/package.json"), packageManifest);
+  poll();
+  assert.equal(watching.reports, 4, "The manifest restored");
 
   watching.handle.close();
 });

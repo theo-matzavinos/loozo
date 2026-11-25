@@ -129,6 +129,15 @@ export function watchConfigInputs({
   function refresh(): void {
     const inputs = configInputs(configFile, manifest);
 
+    // TypeScript can't list an input that's missing, such as an installed base or a package
+    // manifest deleted for a reinstall, so one the last refresh listed stays while it's absent:
+    // its return is a change.
+    for (const path of baseline.keys()) {
+      if (!inputs.has(path) && signature(path) === "absent") {
+        inputs.set(path, "absent");
+      }
+    }
+
     for (const catalog of catalogs) {
       const path = resolve(catalog);
 
