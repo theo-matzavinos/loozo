@@ -327,6 +327,46 @@ test("a package manifest TypeScript read to resolve a base is watched, and the b
   poll();
   assert.equal(watching.reports, reports + 2, "The chosen base is checked after the restore");
 
+  // Deleted during a refresh, as TypeScript's parse is about to probe it: it stays checked, so
+  // its return is reported.
+  let deleting = false;
+  let deleted = false;
+  const deletingReads = mock.method(ts.sys, "readFile", (path) => {
+    deleting = true;
+
+    return readFileSync(path, "utf8");
+  });
+  const deletingStats = mock.method(fs, "statSync", (path, options) => {
+    if (deleting && !deleted && resolve(String(path)) === linkedManifest) {
+      deleted = true;
+      rmSync(manifestPath);
+    }
+
+    return stat(path, options);
+  });
+
+  syncBuiltinESMExports();
+
+  try {
+    watching.handle.refresh();
+  } finally {
+    deletingStats.mock.restore();
+    deletingReads.mock.restore();
+    syncBuiltinESMExports();
+  }
+
+  assert.ok(deleted, "Deleted during the refresh");
+
+  const afterDeletion = watching.reports;
+
+  writeFileSync(manifestPath, packageManifest);
+  poll();
+  assert.equal(
+    watching.reports,
+    afterDeletion + 1,
+    "The manifest's return after a deletion during the refresh",
+  );
+
   watching.handle.close();
 });
 
