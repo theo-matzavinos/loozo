@@ -413,7 +413,7 @@ const consumerManifest = await readFile(join(consumer, "package.json"), "utf8");
 const queriesManifest = JSON.parse(consumerManifest);
 
 queriesManifest.name = "packed-launch-tanstack-query-consumer";
-queriesManifest.dependencies["@tanstack/angular-query"] = "5.0.0-rc.5";
+queriesManifest.dependencies["@tanstack/angular-query"] = "5.108.4";
 await writeFile(join(queriesConsumer, "package.json"), JSON.stringify(queriesManifest, null, 2));
 
 for (const file of [
@@ -481,7 +481,7 @@ for (const name of ['@loozo/angular-launch/tanstack-query','@tanstack/angular-qu
 assert.deepEqual(Object.keys(queries).sort(),['provideLaunchQueries']);
 const launchManifest=await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8');
 const launch=JSON.parse(launchManifest);
-assert.equal(launch.peerDependencies['@tanstack/angular-query'],'^5.0.0-rc.5');
+assert.equal(launch.peerDependencies['@tanstack/angular-query'],'^5.0.0');
 assert.deepEqual(launch.peerDependenciesMeta,{'@tanstack/angular-query':{optional:true}});
 // The entry's guide ships, and its relative links resolve inside the installed package.
 const installed=dirname(require.resolve('@loozo/angular-launch/package.json'));

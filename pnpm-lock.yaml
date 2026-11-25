@@ -264,8 +264,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/angular-router
       '@tanstack/angular-query':
-        specifier: 5.0.0-rc.5
-        version: 5.0.0-rc.5(@angular-devkit/schematics@22.3.0(chokidar@6.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@6.0.0))(typescript@6.0.3)
+        specifier: 5.108.4
+        version: 5.108.4(@angular-devkit/schematics@22.3.0(chokidar@6.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@6.0.0))(typescript@6.0.3)
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
@@ -433,8 +433,8 @@ importers:
         specifier: workspace:*
         version: link:../angular-router
       '@tanstack/angular-query':
-        specifier: 5.0.0-rc.5
-        version: 5.0.0-rc.5(@angular-devkit/schematics@22.3.0(chokidar@5.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@5.0.0))(typescript@6.0.3)
+        specifier: 5.108.4
+        version: 5.108.4(@angular-devkit/schematics@22.3.0(chokidar@5.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@5.0.0))(typescript@6.0.3)
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -2594,8 +2594,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tanstack/angular-query@5.0.0-rc.5':
-    resolution: {integrity: sha512-B5wAkztiMgY06K46Ec7ydpovfs4fGgETonk1egmYhNROxREbt55ncJCXMdeKpz/Op6bYgq9AZ75jov5xAKowFQ==}
+  '@tanstack/angular-query@5.108.4':
+    resolution: {integrity: sha512-jfBsHUqoBlCaKt9ohO8oPy1ScN4knfpgO5Qfc1FlHKnrzwY+zdohss8l6Qg/T/DVPntfO9GEeNqDiLZIZ5dROw==}
     peerDependencies:
       '@angular-devkit/schematics': '>=20.1.0'
       '@angular/common': '>=20.1.0'
@@ -2610,8 +2610,8 @@ packages:
       typescript:
         optional: true
 
-  '@tanstack/query-core@5.104.3':
-    resolution: {integrity: sha512-DZY9TuJAOgU3UyHUhXb4CcTYEHNZszlwkPg4VViIwTxOKzLprPUU+rbaPZQd3srqkGOtpaDdKpW972UV/LKlcg==}
+  '@tanstack/query-core@5.108.4':
+    resolution: {integrity: sha512-2Ks5dlLWz4eXJrthOyG0qW3SLt3xx0RrQmAmN0rnmogiaaOYuWiAe6HAm9KE2b2v8nig+vraNz8fsfZ6fF6zFg==}
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
@@ -6702,27 +6702,27 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tanstack/angular-query@5.0.0-rc.5(@angular-devkit/schematics@22.3.0(chokidar@5.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@5.0.0))(typescript@6.0.3)':
+  '@tanstack/angular-query@5.108.4(@angular-devkit/schematics@22.3.0(chokidar@5.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@5.0.0))(typescript@6.0.3)':
     dependencies:
       '@angular/common': 22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2)
       '@angular/core': 22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2)
-      '@tanstack/query-core': 5.104.3
+      '@tanstack/query-core': 5.108.4
     optionalDependencies:
       '@angular-devkit/schematics': 22.3.0(chokidar@5.0.0)
       '@schematics/angular': 22.3.0(chokidar@5.0.0)
       typescript: 6.0.3
 
-  '@tanstack/angular-query@5.0.0-rc.5(@angular-devkit/schematics@22.3.0(chokidar@6.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@6.0.0))(typescript@6.0.3)':
+  '@tanstack/angular-query@5.108.4(@angular-devkit/schematics@22.3.0(chokidar@6.0.0))(@angular/common@22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(@schematics/angular@22.3.0(chokidar@6.0.0))(typescript@6.0.3)':
     dependencies:
       '@angular/common': 22.3.0(@angular/core@22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2))(rxjs@7.8.2)
       '@angular/core': 22.3.0(@angular/compiler@22.3.0)(rxjs@7.8.2)
-      '@tanstack/query-core': 5.104.3
+      '@tanstack/query-core': 5.108.4
     optionalDependencies:
       '@angular-devkit/schematics': 22.3.0(chokidar@6.0.0)
       '@schematics/angular': 22.3.0(chokidar@6.0.0)
       typescript: 6.0.3
 
-  '@tanstack/query-core@5.104.3': {}
+  '@tanstack/query-core@5.108.4': {}
 
   '@testing-library/dom@10.4.1':
     dependencies:

@@ -15,7 +15,7 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
-- Optionally, `@tanstack/angular-query` `^5.0.0-rc.5` for the [TanStack Query integration](tanstack-query/README.md), and `@angular/localize` for [translated URLs](#translated-urls).
+- Optionally, `@tanstack/angular-query` `^5.0.0` for the [TanStack Query integration](tanstack-query/README.md), and `@angular/localize` for [translated URLs](#translated-urls).
 
 Install both packages:
 
