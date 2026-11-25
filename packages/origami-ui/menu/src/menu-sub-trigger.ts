@@ -22,6 +22,7 @@ import { injectDeferred, injectUniqueId } from "@loozo/origami-ui/utils";
 import { OrigamiMenuState } from "./menu";
 import { rtl } from "./menu-content-context";
 import { MenuContext } from "./menu-context";
+import type { MenuIntent } from "./menu-context";
 import { MenuItemContext } from "./menu-item-context";
 
 /**
@@ -158,10 +159,11 @@ export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
   readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
   /**
-   * The last touch press on this sub-trigger, until the next press, click or blur: whether its
-   * submenu was requested open when it began, and whether it was released on the sub-trigger.
+   * The last touch press on this sub-trigger, until the next press, click or blur: its Sub's open
+   * decision when it began, and whether its `pointerup` came.
    */
-  #touch: { readonly pointerId: number; readonly open: boolean; released: boolean } | null = null;
+  #touch: { readonly pointerId: number; readonly intent: MenuIntent; released: boolean } | null =
+    null;
   /** The Space press this sub-trigger handled and is still held on it: its keyup must not click. */
   #space = false;
 
@@ -282,7 +284,7 @@ export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
     if (event.pointerType === "touch" && event.isPrimary && event.button === 0) {
       this.#touch = {
         pointerId: event.pointerId,
-        open: untracked(this.#context.open),
+        intent: untracked(this.#context.intent),
         released: false,
       };
     }
@@ -296,9 +298,10 @@ export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
   }
 
   /**
-   * @internal The click after a touch press released on the sub-trigger closes the submenu that was
-   * requested open when the press began. The composed Popover Trigger's own click listener has
-   * already run, blocked while the submenu is open, so a tap that opens it closes nothing. Every
+   * @internal The click after a touch press released on the sub-trigger closes the submenu while
+   * the open decision in force when the press began still holds. The composed Popover Trigger's own
+   * click listener has already run, blocked while the submenu is open, so a tap that opens it, or
+   * reopens it after a close during the press, is a new decision and closes nothing. Every
    * click ends the press; one with no pointer press behind it (`detail` 0: a script's or a key's)
    * closes nothing. WebKit reports a tap's click as a mouse one, so the press's `pointerType`
    * decides, not the click's.
@@ -312,10 +315,10 @@ export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
       event.detail > 0 &&
       touch !== null &&
       touch.released &&
-      touch.open &&
+      touch.intent.open &&
+      untracked(this.#context.intent) === touch.intent &&
       !this.#destroyed &&
-      !this.#effectiveDisabled() &&
-      untracked(this.#context.open)
+      !this.#effectiveDisabled()
     ) {
       this.#context.close();
     }

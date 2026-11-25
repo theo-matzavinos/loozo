@@ -2959,7 +2959,7 @@ test.describe("touch", () => {
     );
   });
 
-  test("MN59: a script's click, a pen or mouse press's, a canceled touch press's and one after a touch press's click was taken or its blur keep an open submenu open; only a released touch press's click closes it", async ({
+  test("MN59: a script's click, a pen or mouse press's, a canceled touch press's and one after a touch press's click was taken or its blur keep an open submenu open, a click reopening it after it closed during the press doesn't close it again; only a released touch press's click closes it", async ({
     page,
   }, info) => {
     await fixture(page, "menu", info);
@@ -3023,11 +3023,21 @@ test.describe("touch", () => {
     });
     await pointerClick();
     await kept();
+    // A released touch press whose Sub closes before its click: the click's reopening is a new
+    // decision, which it doesn't close.
+    await press("touch", "pointerup");
+    await page.keyboard.press("Escape");
+    await expectClosed(parts.move, parts.moveContent);
+    await expect(parts.move).toBeFocused();
+    await pointerClick();
+    await frames(page);
+    await expectOpen(parts.move, parts.moveContent);
+    await expect(parts.changes).toHaveText("edit:true,move:true,move:false,move:true");
     // A released touch press's click closes it.
     await press("touch", "pointerup");
     await pointerClick();
     await expectClosed(parts.move, parts.moveContent);
-    await expect(parts.changes).toHaveText("edit:true,move:true,move:false");
+    await expect(parts.changes).toHaveText("edit:true,move:true,move:false,move:true,move:false");
     await expect(parts.move).toBeFocused();
   });
 

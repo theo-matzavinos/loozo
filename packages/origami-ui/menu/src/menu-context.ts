@@ -117,6 +117,8 @@ export class MenuContext {
     open: this.#root().open(),
   }));
 
+  /** The effective `open` decision in force: a new object for every write that changes it. */
+  readonly intent: Signal<MenuIntent> = this.#intent;
   /** Requested open state. */
   readonly open = computed(() => this.#intent().open);
   /**
