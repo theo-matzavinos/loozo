@@ -8,7 +8,8 @@
     "check": "ng run todos:build:check",
     "serve": "ng serve",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "verify": "ng run todos:build:verification && ng run todos:build:verification-development && node verify.mjs"
+    "verify": "ng run todos:build:verification && ng run todos:build:verification-development && node verify.mjs",
+    "verify:runtimes": "ng run todos:build:neutral && node verify-runtimes.mjs"
   },
   "dependencies": {
     "@angular/common": "22.3.0",
@@ -29,6 +30,7 @@
     "@angular/compiler-cli": "22.3.0",
     "@angular/localize": "22.3.0",
     "@types/node": "24.13.3",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "wrangler": "4.168.0"
   }
 }

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .angular/
+.wrangler/
 .scratch/
 .acceptance-evidence/
 .vite-hooks/_/
