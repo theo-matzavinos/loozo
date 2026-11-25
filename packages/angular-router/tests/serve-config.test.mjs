@@ -411,7 +411,12 @@ test("refresh takes the current inputs: a base added to the chain is watched, a 
   poll();
   assert.equal(watching.reports, 0, "Not an input yet");
 
-  write(resolve(directory, "tsconfig.json"), { extends: ["./tsconfig.base.json", "./extra.json"] });
+  // Each tsconfig write has a different size than the one before it: two same-size writes within
+  // one timestamp tick (Windows ticks at ~1-16 ms) look the same to any stat.
+  write(resolve(directory, "tsconfig.json"), {
+    extends: ["./tsconfig.base.json", "./extra.json"],
+    include: ["src"],
+  });
   poll();
   assert.equal(watching.reports, 1, "The tsconfig edit");
   watching.handle.refresh();
@@ -420,8 +425,6 @@ test("refresh takes the current inputs: a base added to the chain is watched, a 
   poll();
   assert.equal(watching.reports, 2, "The added base's edit");
 
-  // A different size: two same-size writes within one timestamp tick (Windows ticks at ~1-16 ms)
-  // look the same to any stat.
   write(resolve(directory, "tsconfig.json"), { ...app["tsconfig.json"], compilerOptions: {} });
   poll();
   assert.equal(watching.reports, 3, "The tsconfig edit");
