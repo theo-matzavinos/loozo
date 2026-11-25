@@ -1,6 +1,6 @@
-import { realpathSync, statSync, type Stats } from "node:fs";
+import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import ts from "typescript";
 import { contains } from "../generation/files.js";
 
@@ -180,14 +180,18 @@ export function watchConfigInputs({
 }
 
 // The config inputs of `configFile`: the tsconfig, every config its `extends` chain resolved to (a
-// package base at its real path), every other path TypeScript probed outside `node_modules` (a
-// candidate that would change the chain once created), and the manifest. Each has the state it had
+// package base at its real path), every other path TypeScript read (a package manifest whose
+// `exports` chose a base) or probed outside `node_modules` (a candidate that would change the
+// chain once created), and the manifest. Each has the state it had
 // just before TypeScript read it, or for a path it only probed, when it first probed it, so a
 // change after that, even during this parse, differs from the baseline. Generation reports config
 // errors, so diagnostics are ignored here, and a path that isn't a regular file is never opened:
 // generation's audit reports it.
 function configInputs(configFile: string, manifest: string): Map<string, string> {
   const seen = new Map<string, string>();
+  // Files TypeScript read, as opposed to probed: a package manifest it read to resolve an
+  // `extends` (its `exports` choose the base) is an input even under `node_modules`.
+  const read = new Set<string>();
 
   // A path's state now, kept as its baseline if it's TypeScript's first look at it (a read
   // replaces it with the state just before the read).
@@ -219,6 +223,8 @@ function configInputs(configFile: string, manifest: string): Map<string, string>
         return undefined;
       }
 
+      read.add(resolve(path));
+
       return ts.sys.readFile(path);
     },
   };
@@ -240,7 +246,7 @@ function configInputs(configFile: string, manifest: string): Map<string, string>
   }
 
   for (const [path, state] of seen) {
-    if (!path.split(/[\\/]/).includes("node_modules")) {
+    if (read.has(path) || !path.split(/[\\/]/).includes("node_modules")) {
       inputs.set(path, state);
     }
   }
@@ -256,30 +262,33 @@ function baselineOf(seen: Map<string, string>, path: string): string {
 }
 
 // Serve's watcher watches a scan root without following links, so it sees a path's changes only
-// when no link lies between the root and the path.
+// when no link lies between the root and the path, a dangling one included.
 function watchedBy(root: string, path: string): boolean {
   if (!contains(root, path)) {
     return false;
   }
 
-  return physical(path) === join(physical(root), relative(root, path));
-}
+  const top = resolve(root);
 
-// A path with every link along it resolved, as far as it exists.
-function physical(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    // Absent, or a link loop: resolve what's above it.
+  // Up to the root; the filesystem root's parent is itself, which ends the walk whatever spelling
+  // the root has.
+  for (
+    let current = path;
+    current !== top && dirname(current) !== current;
+    current = dirname(current)
+  ) {
+    try {
+      if (lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        return false;
+      }
+    } catch {
+      // Unreadable on the way (a file where a directory should be, a permission error): checked
+      // here rather than trusted to the watcher.
+      return false;
+    }
   }
 
-  const parent = dirname(path);
-
-  if (parent === path) {
-    return path;
-  }
-
-  return join(physical(parent), basename(path));
+  return true;
 }
 
 // A path's state: `absent`, `directory`, `other`, `error:<code>`, or a regular file's identity,

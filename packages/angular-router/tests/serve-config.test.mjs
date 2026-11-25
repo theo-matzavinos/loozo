@@ -216,6 +216,43 @@ test("bases resolved from packages, a package's own dependency included, are wat
   watching.handle.close();
 });
 
+// A linked workspace package's `exports` choose which of its configs `extends` resolves to, so its
+// manifest is an input although TypeScript reads it through `node_modules`.
+test("a package manifest TypeScript read to resolve a base is watched, and the base it switches to is", () => {
+  const directory = fixture("package-exports", {
+    "package.json": { name: "app" },
+    "tsconfig.json": { extends: "shared-config/base" },
+    "shared-config/package.json": { name: "shared-config", exports: { "./base": "./one.json" } },
+    "shared-config/one.json": { compilerOptions: { strict: true } },
+    "shared-config/two.json": { compilerOptions: { strict: false } },
+  });
+
+  mkdirSync(resolve(directory, "node_modules"), { recursive: true });
+  symlinkSync(
+    resolve(directory, "shared-config"),
+    resolve(directory, "node_modules/shared-config"),
+    "junction",
+  );
+
+  const watching = watch(directory);
+
+  write(resolve(directory, "shared-config/package.json"), {
+    name: "shared-config",
+    exports: { "./base": "./two.json" },
+  });
+  poll();
+  assert.equal(watching.reports, 1, "The exports switch");
+  watching.handle.refresh();
+
+  write(resolve(directory, "shared-config/two.json"), {
+    compilerOptions: { noUnusedLocals: true },
+  });
+  poll();
+  assert.equal(watching.reports, 2, "The newly selected base");
+
+  watching.handle.close();
+});
+
 test("refresh takes the current inputs: a base added to the chain is watched, a removed one isn't", () => {
   const directory = fixture("refresh", {
     ...app,
@@ -529,8 +566,9 @@ test("catalogs outside the scan roots are watched; inputs inside one are left to
   config.handle.close();
 });
 
-// Serve's watcher doesn't follow links, so it never sees an edit behind one inside the scan root.
-test("an input inside a scan root but behind a link is watched here", () => {
+// Serve's watcher doesn't follow links, so it never sees an edit behind one inside the scan root,
+// also while the link dangles.
+test("an input inside a scan root but behind a link is watched here, also while the link dangles", () => {
   const directory = fixture("linked-in-root", {
     ...app,
     "locale/messages.de.xlf": "<xliff/>\n",
@@ -545,7 +583,16 @@ test("an input inside a scan root but behind a link is watched here", () => {
 
   write(resolve(directory, "locale/messages.de.xlf"), "<xliff version='2.0'/>\n");
   poll();
-  assert.equal(watching.reports, 1);
+  assert.equal(watching.reports, 1, "An edit behind the link");
+
+  rmSync(resolve(directory, "locale"), { recursive: true });
+  poll();
+  assert.equal(watching.reports, 2, "The link's target removed");
+  watching.handle.refresh();
+
+  write(resolve(directory, "locale/messages.de.xlf"), "<xliff/>\n");
+  poll();
+  assert.equal(watching.reports, 3, "The target restored behind the dangling link");
 
   watching.handle.close();
 });
