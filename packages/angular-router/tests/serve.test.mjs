@@ -146,7 +146,7 @@ mock.module("node:fs/promises", {
 const { default: serveBuilder } = await import("../node/src/builders/serve.js");
 
 // The settle delay runs on these; until() and settle() wait on setImmediate instead.
-mock.timers.enable({ apis: ["setTimeout"] });
+mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 
 const devServerBuilder = createBuilder((options, context) => {
   return new Observable((subscriber) => {
@@ -229,6 +229,7 @@ async function settle() {
 // dev server job's end. holdTeardown makes the watcher's close and the dev server's teardown wait
 // for the test too.
 async function serve({
+  workspace = packageDirectory,
   optionsGate,
   workspaceGate,
   devServerGate,
@@ -243,7 +244,7 @@ async function serve({
   scenario.devServerEndGate = devServerEndGate;
   scenario.holdTeardown = holdTeardown;
 
-  const host = new TestingArchitectHost(packageDirectory, packageDirectory);
+  const host = new TestingArchitectHost(workspace, workspace);
   const resolveBuilder = host.resolveBuilder.bind(host);
   const getOptionsForTarget = host.getOptionsForTarget.bind(host);
 
@@ -816,12 +817,9 @@ test("with translated segments, serve watches the catalogs and checks them on ev
   });
   const watcher = watcherOf(state);
 
-  assert.deepEqual(watcher.roots, [
-    resolve(packageDirectory, "src/routes"),
-    resolve(packageDirectory, "src/locale/messages.de.xlf"),
-    resolve(packageDirectory, "src/locale/a.fr.json"),
-    resolve(packageDirectory, "src/locale/b.fr.json"),
-  ]);
+  // Catalogs outside the scan directory are checked by polling (the config-input tests below), not
+  // given to the watcher; an event for one, as for a catalog inside it, still runs a pass.
+  assert.deepEqual(watcher.roots, [resolve(packageDirectory, "src/routes")]);
   assert.equal(state.passes[0].router.translateSegments, true);
   assert.deepEqual(state.passes[0].router.localization, {
     sourceLocale: "en",
@@ -1201,7 +1199,7 @@ test("an event for a catalog runs a pass whatever its extension or case", async 
     },
   });
 
-  assert.deepEqual(watcherOf(state).roots, [resolve(packageDirectory, "src/routes"), catalog]);
+  assert.deepEqual(watcherOf(state).roots, [resolve(packageDirectory, "src/routes")]);
 
   await change(state, catalog);
   await until(() => state.passes.length === 2, "the catalog's pass");
@@ -1215,6 +1213,223 @@ test("an event for a catalog runs a pass whatever its extension or case", async 
   await settle();
 
   await run.stop();
+});
+
+// The builder's own inputs, in a scratch workspace: its generation tsconfig, the configs it
+// extends and its package.json.
+test("each config input's change runs one pass, also mixed with a source edit or during a pass, and stop ends the check", async () => {
+  const pollInterval = 500;
+  const workspace = resolve(packageDirectory, ".scratch/serve-workspace", String(process.pid));
+  const path = (name) => resolve(workspace, name);
+  const json = (value) => `${JSON.stringify(value)}\n`;
+
+  await rm(workspace, { recursive: true, force: true });
+  await mkdir(path("src/routes"), { recursive: true });
+  await writeFile(path("package.json"), json({ name: "app" }));
+  await writeFile(path("tsconfig.json"), json({ extends: "./tsconfig.base.json" }));
+  await writeFile(path("tsconfig.base.json"), json({ extends: "./tsconfig.root.json" }));
+  await writeFile(path("tsconfig.root.json"), json({ compilerOptions: { strict: true } }));
+  await writeFile(path("extra.json"), json({ compilerOptions: {} }));
+
+  const { run, scenario: state } = await serve({
+    workspace,
+    build: { tsconfig: "tsconfig.json", scanDirectories: ["src/routes"] },
+  });
+  // The check starts before the watcher, and no mocked time has passed since.
+  let elapsed = 0;
+
+  function advance(milliseconds) {
+    mock.timers.tick(milliseconds);
+    elapsed += milliseconds;
+  }
+
+  // Runs the next check, then the settle delay it may have started.
+  async function check() {
+    advance(pollInterval - (elapsed % pollInterval));
+    await settle();
+    advance(settleDelay);
+    await settle();
+  }
+
+  async function passed(count, description) {
+    await until(() => state.passes.length === count, description);
+    state.passes[count - 1].resolve();
+    await settle();
+  }
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  assert.deepEqual(watcherOf(state).roots, [path("src/routes")]);
+  // An edit before the initial pass is read by it, so no check reports it afterwards.
+  await writeFile(
+    path("tsconfig.json"),
+    json({ extends: "./tsconfig.base.json", include: ["src"] }),
+  );
+  watcherOf(state).emit("ready");
+  await passed(1, "the initial generation");
+  await until(() => state.servers.length === 1, "the dev server");
+  await check();
+  assert.equal(state.passes.length, 1, "The initial pass covered the earlier edit");
+
+  let passes = 1;
+
+  for (const { name, value } of [
+    { name: "tsconfig.json", value: { extends: "./tsconfig.base.json" } },
+    { name: "tsconfig.base.json", value: { extends: "./tsconfig.root.json", compilerOptions: {} } },
+    { name: "tsconfig.root.json", value: { compilerOptions: { strict: false } } },
+    { name: "package.json", value: { name: "renamed" } },
+  ]) {
+    await writeFile(path(name), json(value));
+    await check();
+    passes++;
+    await passed(passes, `the pass for ${name}`);
+  }
+
+  // A base named before it exists runs a pass once it's created.
+  await writeFile(
+    path("tsconfig.json"),
+    json({ extends: ["./tsconfig.base.json", "./later.json"] }),
+  );
+  await check();
+  passes++;
+  await passed(passes, "the pass naming a missing base");
+  await writeFile(path("later.json"), json({ compilerOptions: {} }));
+  await check();
+  passes++;
+  await passed(passes, "the created base's pass");
+
+  // A source edit and a config edit just after a check: the source edit's pass reads both, so the
+  // next check finds nothing new.
+  await writeFile(path("later.json"), json({ compilerOptions: { noUnusedLocals: true } }));
+  await touch(state, path("src/routes/page.ts"));
+  advance(settleDelay);
+  passes++;
+  await passed(passes, "the source edit's pass");
+  await check();
+  assert.equal(state.passes.length, passes, "The config edit the pass read runs no second pass");
+
+  // A change while a pass runs queues exactly one more.
+  await writeFile(path("tsconfig.root.json"), json({ compilerOptions: { strict: true } }));
+  await check();
+  passes++;
+  await until(() => state.passes.length === passes, "the root's pass");
+  await writeFile(
+    path("tsconfig.root.json"),
+    json({ compilerOptions: { strict: true, noImplicitAny: true } }),
+  );
+  await check();
+  assert.equal(state.passes.length, passes, "A running pass is never doubled");
+  state.passes[passes - 1].resolve();
+  passes++;
+  await passed(passes, "the rerun");
+  await check();
+  assert.equal(state.passes.length, passes, "The rerun read the change");
+
+  // A base added to the chain is checked from the pass that reads it; one removed isn't.
+  await writeFile(
+    path("tsconfig.json"),
+    json({ extends: ["./tsconfig.base.json", "./extra.json"] }),
+  );
+  await check();
+  passes++;
+  await passed(passes, "the pass adding a base");
+  await writeFile(path("extra.json"), json({ compilerOptions: { noUnusedParameters: true } }));
+  await check();
+  passes++;
+  await passed(passes, "the added base's pass");
+  await writeFile(path("tsconfig.json"), json({ extends: "./tsconfig.base.json" }));
+  await check();
+  passes++;
+  await passed(passes, "the pass removing it");
+  await writeFile(path("extra.json"), json({ compilerOptions: {} }));
+  await check();
+  assert.equal(state.passes.length, passes, "A removed base runs no pass");
+
+  // Stopping releases the check's timer.
+  const clears = mock.method(globalThis, "clearInterval");
+
+  try {
+    await run.stop();
+    assert.ok(clears.mock.callCount() >= 1, "The check's interval is cleared");
+  } finally {
+    clears.mock.restore();
+  }
+
+  await writeFile(path("tsconfig.json"), json({ compilerOptions: { strict: true } }));
+  await check();
+  assert.equal(state.passes.length, passes, "Stopping ends the check");
+});
+
+// Serve checks the tsconfig, its extends chain, the manifest and catalogs outside the scan
+// directory every 500 ms (serve-config.test.mjs covers what it detects); a change runs one pass,
+// and the pass takes the state it reads as the new baseline.
+test("a catalog outside the scan directory is checked by polling, and a pass's baseline is what it read", async () => {
+  const pollInterval = 500;
+  const directory = await scratchDirectory("polled-catalogs");
+  const catalog = resolve(directory, "messages.de.xlf");
+
+  await writeFile(catalog, "<xliff/>\n");
+
+  const { run, scenario: state } = await started({
+    build: { translateSegments: true, polyfills: ["@angular/localize/init"] },
+    metadata: {
+      i18n: {
+        sourceLocale: "en",
+        locales: {
+          de: `../../.scratch/router-serve/${process.pid}/polled-catalogs/messages.de.xlf`,
+        },
+      },
+    },
+  });
+  // The check started with the watcher, and no mocked time has passed since.
+  let elapsed = 0;
+
+  function advance(milliseconds) {
+    mock.timers.tick(milliseconds);
+    elapsed += milliseconds;
+  }
+
+  // Runs the next check, then the settle delay it may have started.
+  async function check() {
+    advance(pollInterval - (elapsed % pollInterval));
+    await settle();
+    advance(settleDelay);
+    await settle();
+  }
+
+  await writeFile(catalog, "<xliff version='2.0'/>\n");
+  await check();
+  await until(() => state.passes.length === 2, "the edited catalog's pass");
+  state.passes[1].resolve();
+  await settle();
+
+  await rm(catalog);
+  await check();
+  await until(() => state.passes.length === 3, "the deleted catalog's pass");
+  state.passes[2].resolve();
+  await settle();
+
+  await writeFile(catalog, "<xliff version='2.1'/>\n");
+  await check();
+  await until(() => state.passes.length === 4, "the recreated catalog's pass");
+  state.passes[3].resolve();
+  await settle();
+
+  // A source edit and a catalog edit just after a check: the source edit's pass reads both, so the
+  // next check finds nothing new.
+  await writeFile(catalog, "<xliff version='2.2'/>\n");
+  await touch(state);
+  advance(settleDelay);
+  await until(() => state.passes.length === 5, "the source edit's pass");
+  state.passes[4].resolve();
+  await settle();
+  await check();
+  assert.equal(state.passes.length, 5, "The catalog edit the pass read runs no second pass");
+
+  await run.stop();
+
+  await writeFile(catalog, "<xliff version='2.3'/>\n");
+  await check();
+  assert.equal(state.passes.length, 5, "Stopping ends the check");
 });
 
 // Generation reads a catalog through its symlink, so an edit of the file it resolves to is a
