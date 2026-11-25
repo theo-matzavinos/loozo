@@ -24,6 +24,11 @@ if (!evidence || extra !== undefined || !isAbsolute(evidence)) {
   throw new Error("Usage: node verify-runtimes.mjs /absolute/absent-evidence");
 }
 
+// Each runtime is stopped through its process group, which Node can't signal on Windows.
+if (process.platform === "win32") {
+  throw new Error("verify-runtimes.mjs runs on Linux and macOS only");
+}
+
 await mkdir(evidence);
 
 const here = fileURLToPath(new URL(".", import.meta.url));
