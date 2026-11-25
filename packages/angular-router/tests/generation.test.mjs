@@ -4870,7 +4870,7 @@ test("extension copies: typed from their declaration, with Launch's data, type e
   );
   assert.match(
     routes,
-    /\nimport type \{ RemoteOf as routegen\$t0, ContextOf as routegen\$t1 \} from "@fixture\/route-extension";\n/,
+    /\nimport type \{ RemoteOf as routegen\$t0 \} from "@fixture\/route-extension";\n/,
   );
 
   // Each record is stamped in the table that holds it: nested records in their parent's

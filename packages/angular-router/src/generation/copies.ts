@@ -53,9 +53,13 @@ export function seedsCopy(declaration: Declaration): boolean {
 
 /**
  * The type-only imports of a route extension's type descriptors, one per module in
- * descriptor order, and each descriptor's local name by its exported name.
+ * descriptor order, and each descriptor's local name by its exported name. With `only`,
+ * just the descriptors it names; a descriptor's local name stays its position either way.
  */
-export function typeImports(types: LaunchCopies["types"]): {
+export function typeImports(
+  types: LaunchCopies["types"],
+  only?: ReadonlySet<string>,
+): {
   readonly lines: string[];
   readonly locals: Map<string, string>;
 } {
@@ -63,6 +67,10 @@ export function typeImports(types: LaunchCopies["types"]): {
   const locals = new Map<string, string>();
 
   for (const [index, descriptor] of types.entries()) {
+    if (only && !only.has(descriptor.name)) {
+      continue;
+    }
+
     const local = `routegen$t${index}`;
     let names = byModule.get(descriptor.from);
 
