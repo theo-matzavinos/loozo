@@ -77,7 +77,8 @@ export abstract class OrigamiMenuSubTriggerOptions {
  * their default, so the button's own click doesn't run for them. ArrowDown, ArrowUp, Home, End and
  * typeahead treat it as any item of the enclosing menu: while that menu's search runs, Space joins
  * it instead of opening the submenu. A click opens the submenu and leaves focus
- * on the sub-trigger; a click on it while the submenu is open keeps it open. The mouse resting on
+ * on the sub-trigger; a click on it while the submenu is open keeps it open, except a touch tap's,
+ * which closes it, focus staying on the sub-trigger. The mouse resting on
  * it for 100 ms opens the submenu without moving focus into it; leaving it starts the wait over. It has no `(select)`: opening the
  * submenu isn't an activation.
  *
@@ -100,7 +101,7 @@ export abstract class OrigamiMenuSubTriggerOptions {
     OrigamiMenuSubTriggerOptions.provideExisting(() => OrigamiMenuSubTrigger),
     MenuItemContext,
     // The composed Popover Trigger only opens: it is blocked while the submenu is requested open,
-    // so a click on the open submenu's sub-trigger never closes it.
+    // so only the sub-trigger's own touch tap closes it.
     OrigamiPopoverTriggerOptions.provideFactory(() => {
       const options = inject(OrigamiMenuSubTriggerOptions);
       const context = inject(MenuContext);
@@ -135,6 +136,9 @@ export abstract class OrigamiMenuSubTriggerOptions {
     "(blur)": "blurred()",
     "(pointermove)": "hovered($event)",
     "(pointerout)": "departed($event)",
+    "(pointerdown)": "pressed($event)",
+    "(pointerup)": "released($event)",
+    "(click)": "clicked($event)",
   },
 })
 export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
@@ -153,6 +157,11 @@ export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
   readonly #element = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
   readonly #destroyRef = inject(DestroyRef);
   #destroyed = false;
+  /**
+   * The last touch press on this sub-trigger, until the next press, click or blur: whether its
+   * submenu was requested open when it began, and whether it was released on the sub-trigger.
+   */
+  #touch: { readonly pointerId: number; readonly open: boolean; released: boolean } | null = null;
   /** The Space press this sub-trigger handled and is still held on it: its keyup must not click. */
   #space = false;
 
@@ -266,14 +275,64 @@ export class OrigamiMenuSubTrigger implements OrigamiMenuSubTriggerOptions {
     }
   }
 
+  /** @internal Every press decides for itself: only a primary touch press can close the submenu. */
+  protected pressed(event: PointerEvent): void {
+    this.#touch = null;
+
+    if (event.pointerType === "touch" && event.isPrimary && event.button === 0) {
+      this.#touch = {
+        pointerId: event.pointerId,
+        open: untracked(this.#context.open),
+        released: false,
+      };
+    }
+  }
+
+  /** @internal */
+  protected released(event: PointerEvent): void {
+    if (this.#touch?.pointerId === event.pointerId) {
+      this.#touch.released = true;
+    }
+  }
+
+  /**
+   * @internal The click after a touch press released on the sub-trigger closes the submenu that was
+   * requested open when the press began. The composed Popover Trigger's own click listener has
+   * already run, blocked while the submenu is open, so a tap that opens it closes nothing. Every
+   * click ends the press; one with no pointer press behind it (`detail` 0: a script's or a key's)
+   * closes nothing. WebKit reports a tap's click as a mouse one, so the press's `pointerType`
+   * decides, not the click's.
+   */
+  protected clicked(event: MouseEvent): void {
+    const touch = this.#touch;
+
+    this.#touch = null;
+
+    if (
+      event.detail > 0 &&
+      touch !== null &&
+      touch.released &&
+      touch.open &&
+      !this.#destroyed &&
+      !this.#effectiveDisabled() &&
+      untracked(this.#context.open)
+    ) {
+      this.#context.close();
+    }
+  }
+
   /** @internal */
   protected focused(event: FocusEvent): void {
     this.#item.focused(event.relatedTarget);
   }
 
-  /** @internal A handled Space released after focus left, such as on the item it focused, ends there. */
+  /**
+   * @internal A handled Space released after focus left, such as on the item it focused, ends
+   * there, and so does a touch press whose click hasn't come.
+   */
   protected blurred(): void {
     this.#space = false;
+    this.#touch = null;
     this.#item.blurred();
   }
 
