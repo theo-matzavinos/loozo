@@ -1146,7 +1146,7 @@ Launch calls `/_rpc/<namespace>/<procedure>` from the root of the domain, even w
 
 Browser tabs opened before a deploy keep calling the procedures they were built with. After you rename a namespace or procedure, or change an input schema, those calls fail with `RPC_NOT_FOUND` or `INVALID_INPUT` until the page reloads. The same applies while old and new servers run side by side during a rolling deploy.
 
-Launch has been verified on Node, and with a platform-neutral server build (below) on Deno and Cloudflare's workerd, run locally. Streams have been verified on Node, under `ng serve` and on Deno. Channels have been verified on the built Node server and under `ng serve` in Chromium, Firefox and WebKit.
+Launch supports three server runtimes: Node, and Deno and Cloudflare's workerd with a [platform-neutral build](#deno-and-cloudflare-workers). CI checks each with the [example app](../../examples/angular-launch/README.md) in Chromium: pages, RPCs, streams and channels on its built Node server, and on its platform-neutral build on Deno, in Deno's default abort mode and with `--unstable-no-legacy-abort`, and on workerd under `wrangler dev`. Channels have also been checked by hand on the built Node server and under `ng serve` in Firefox and WebKit. Deployed Cloudflare Workers and Durable Objects aren't covered.
 
 ### Streams behind proxies
 
@@ -1209,14 +1209,14 @@ const rpc = await handleRequest(web, { allowedHosts, origins: ["https://app.exam
 
 List a sibling site's origin the same way to pass Launch's check. For HTTP RPCs and streams that isn't enough on its own: the browser sends a CORS preflight before the JSON `POST`, which Launch refuses, so your host must answer it and add CORS headers to responses. Channels need no CORS. Only HTTP requests are checked: calls made during server rendering carry the page request, whose `Sec-Fetch-Site` is `cross-site` or `none` on an ordinary navigation, and run without these checks.
 
-### Other runtimes
+### Deno and Cloudflare Workers
 
-`ng build` can also write a server bundle that doesn't depend on Node, for edge and serverless platforms: set `"platform": "neutral"` in the build target's `ssr` option, next to `entry`. Launch's server code uses only web `Request` and `Response`, so only your server entry changes:
+`ng build` can also write a server bundle that doesn't depend on Node, for Deno and Cloudflare Workers: set `"platform": "neutral"` in the build target's `ssr` option, next to `entry`. Launch's server code uses only web `Request`, `Response` and `WebSocket`, so only your server entry changes. It exports the request handler, and for channels a function that answers upgrades, for the runtime's handler to call:
 
 ```ts
 // src/server.ts
 import { AngularAppEngine, createRequestHandler } from "@angular/ssr";
-import { createRequestScope, handleRequest } from "../generated/server.generated";
+import { createRequestScope, handleRequest, handleUpgrade } from "../generated/server.generated";
 
 const allowedHosts = ["app.example.com"];
 const angular = new AngularAppEngine({ allowedHosts });
@@ -1233,12 +1233,115 @@ export const reqHandler = createRequestHandler(async (request: Request) => {
 
   return page ?? new Response("Not found", { status: 404 });
 });
+
+export function upgrade(request: Request) {
+  return handleUpgrade(request, { allowedHosts });
+}
 ```
 
-- Import from `@angular/ssr`, not `@angular/ssr/node`. `AngularAppEngine` doesn't read `NG_ALLOWED_HOSTS` or `NG_TRUST_PROXY_HEADERS`: pass `allowedHosts`, and `trustProxyHeaders` if you're behind a proxy (it's off by default), to its constructor, and the same hosts to `handleRequest`. List them in the entry as above, or read them from your platform's configuration.
-- The bundle neither serves the `browser` files nor starts a server. Point your platform's static hosting at `dist/<app>/browser` and its request handler at the exported `reqHandler`.
+- Import from `@angular/ssr`, not `@angular/ssr/node`. `AngularAppEngine` doesn't read `NG_ALLOWED_HOSTS` or `NG_TRUST_PROXY_HEADERS`: pass `allowedHosts`, and `trustProxyHeaders` if you're behind a proxy (it's off by default), to its constructor, and the same hosts to `handleRequest` and `handleUpgrade`. List them in the entry as above, or read them from your platform's configuration.
+- The bundle neither serves the `browser` files nor starts a server. Serve `dist/<app>/browser` as static files, and hand every other request to `reqHandler`, or to `upgrade` when it asks for a websocket, as below.
 - Nothing polyfills Node modules for you, so your stages, handlers and their dependencies must run on the platform. In-memory state lasts only as long as the platform keeps an instance alive.
-- `handleUpgrade` takes a web `Request` and runs a channel on any standard `WebSocket` the platform accepts, sending `headers` on its `101` response, but it hasn't been verified on Deno or workerd, and neither has workerd's `bufferedAmount`, which the server's flow control reads.
+- `upgrade` resolves to `null` for a path outside `/_rpc/`, which you leave to your other websocket routes, to a `Response` that refuses the upgrade, or to an `Upgrade`: accept a websocket with its `headers` on the `101` response, the call's cookies included, and pass the server side to its `accept`.
+
+The [example app](../../examples/angular-launch/runtimes/) runs its build this way on both runtimes.
+
+#### Deno
+
+```ts
+// main.ts, run with: deno run --allow-net --allow-read --allow-env main.ts
+import { reqHandler, upgrade } from "./dist/<app>/server/server.mjs";
+
+Deno.serve(async (request) => {
+  if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return reqHandler(request); // after serving dist/<app>/browser
+  }
+
+  // Launch's signal follows the request until the upgrade, and aborts if Deno can't finish it.
+  const leaving = new AbortController();
+  const follow = () => leaving.abort(request.signal.reason);
+
+  request.signal.addEventListener("abort", follow, { once: true });
+
+  const result = await upgrade(new Request(request, { signal: leaving.signal }));
+
+  request.signal.removeEventListener("abort", follow);
+
+  if (result === null || result instanceof Response) {
+    return result ?? new Response("Not found", { status: 404 });
+  }
+
+  let upgraded: ReturnType<typeof Deno.upgradeWebSocket>;
+
+  try {
+    upgraded = Deno.upgradeWebSocket(request);
+  } catch (error) {
+    leaving.abort(error);
+
+    return new Response("Bad websocket handshake", { status: 400 });
+  }
+
+  const { socket, response } = upgraded;
+
+  socket.addEventListener("open", () => result.accept(socket), { once: true });
+  socket.addEventListener("error", () => leaving.abort(), { once: true });
+
+  for (const [name, value] of result.headers) {
+    response.headers.append(name, value);
+  }
+
+  return response;
+});
+```
+
+By default, `Deno.serve` aborts `request.signal` once a request is answered, and calling `Deno.upgradeWebSocket` aborts it at once, so Launch, which follows that signal until `accept`, would close the channel as soon as it opens. Handing `upgrade` a copy whose signal follows the request only until `upgrade` settles keeps the client's leaving in view while the stages run, and is just as right under `--unstable-no-legacy-abort`, which Deno says becomes the default in an upcoming release. The rest makes sure the call ends when Deno can't finish the handshake: `Deno.upgradeWebSocket` throws for one that Launch doesn't check, such as a request without `Sec-WebSocket-Key`, and a handshake that fails after the `101` is only an `error` event, without `open` or `close`, so the socket goes to `accept` once it opens. Pages, RPCs and streams need nothing more: when a stream's client leaves, its handler's signal aborts, and the handler returns at its next step.
+
+#### Cloudflare Workers
+
+```ts
+// worker.ts
+import { reqHandler, upgrade } from "./dist/<app>/server/server.mjs";
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return reqHandler(request);
+    }
+
+    const result = await upgrade(request);
+
+    if (result === null || result instanceof Response) {
+      return result ?? new Response("Not found", { status: 404 });
+    }
+
+    const [client, server] = Object.values(new WebSocketPair());
+
+    server.accept();
+    result.accept(server);
+
+    return new Response(null, { status: 101, webSocket: client, headers: result.headers });
+  },
+};
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "main": "./worker.ts",
+  // From 2026-11-17, incoming requests' signal aborts when the client leaves.
+  "compatibility_date": "2026-11-20",
+  "assets": { "directory": "./dist/<app>/browser" },
+  // Angular's server platform imports xhr2 for HttpClient's XHR backend; with the fetch
+  // backend, the default since Angular 22, a module exporting `undefined` stands in.
+  "alias": { "xhr2": "./xhr2.js" },
+}
+```
+
+Wrangler serves the files under `assets` and hands every other request to the worker. Use a compatibility date of 2026-11-17 or later. With an older one, add the `enable_request_signal` flag, without which an incoming request's signal never aborts, so a channel whose client leaves while its stages run isn't noticed until the upgrade; and before 2026-04-07, add `web_socket_auto_reply_to_close` too, without which workerd doesn't answer a client's close frame and Launch doesn't either, so the socket stays closing.
+
+- **When a client leaves, the request's pending work can be dropped.** Its signal aborts and code already queued runs, but Cloudflare may cancel the timers and I/O the request started: locally, a timer set after the client left never fired. A handler waiting on one when its caller leaves then never resumes, so its `finally` blocks don't run, and neither does middleware after `next()`. Do a stream's cleanup in an `abort` listener on `signal`, without awaiting. A channel's handler waiting on `messages` isn't affected: the socket's close ends them. Cloudflare's `ctx.waitUntil` keeps a request's work alive for up to 30 seconds after the client leaves, but Launch doesn't hand it calls.
+- **Flow control:** workerd's `WebSocket` reports `bufferedAmount`, which the server's flow control reads, though Cloudflare doesn't document it.
+- The CI check runs `wrangler dev` locally. Deployed Workers and Durable Objects aren't covered.
 
 ### Aborted requests
 
@@ -1407,6 +1510,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
+- On Cloudflare Workers, a handler waiting on a timer or I/O when its caller leaves may never resume; see [Cloudflare Workers](#cloudflare-workers).
 - Streams and channels don't reconnect or resume on their own (`connect()` reconnects when asked or when its input changes), and HTTP interceptors don't see them. Channels carry strict JSON text only, one call per socket, with no acknowledgements.
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No server-side storage adapters; persistence is your handler's job. Remembered search keys use browser cookies through [`searchCookies()`](#remembered-search-keys).

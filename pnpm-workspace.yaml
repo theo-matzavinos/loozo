@@ -16,3 +16,6 @@ allowBuilds:
   ffmpeg-static: false
   lmdb: true
   msgpackr-extract: true
+  # Wrangler's workerd binary arrives as a platform optional dependency; its script only checks
+  # it, or downloads one when that dependency is missing.
+  workerd: false
