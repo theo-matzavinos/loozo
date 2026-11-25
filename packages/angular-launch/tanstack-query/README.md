@@ -11,7 +11,7 @@ Launch supports `@tanstack/angular-query` `^5.0.0`, TanStack's stable Angular ad
 Install the adapter:
 
 ```sh
-pnpm add @tanstack/angular-query
+pnpm add --save-exact @tanstack/angular-query@5.108.4
 ```
 
 Turn on the `tanstackQuery` generation option in your `@loozo/angular-launch:application` build target (or pass `tanstackQuery: true` to `generate`):
