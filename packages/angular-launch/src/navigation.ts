@@ -1,4 +1,5 @@
-import { inject, RESPONSE_INIT } from "@angular/core";
+import { Location, PlatformLocation } from "@angular/common";
+import { inject, REQUEST, RESPONSE_INIT } from "@angular/core";
 import { RedirectCommand, Router, type NavigationError } from "@angular/router";
 import { currentSearchRestore } from "@loozo/angular-router/_generated";
 import { RpcNotFound, RpcRedirect } from "./outcomes.js";
@@ -19,10 +20,15 @@ export interface RpcNavigationErrorsOptions {
  * @remarks
  * Pass it to Angular's `withNavigationErrorHandler`. When a guard or resolver fails with
  * an {@link RpcRedirect}, the navigation goes to its `to` instead; during server
- * rendering Angular then answers the page request with a 302. When it fails with an
- * {@link RpcNotFound}, the navigation renders `notFound` while the address bar keeps the
- * requested URL; during server rendering the page is answered with status 404. Any other
- * error is left to Angular, which fails the navigation as usual.
+ * rendering, when the URL the page ends at differs from the requested one, Angular answers
+ * the page request with a redirect to it (302, unless the matched server route sets another
+ * redirect status). When it fails with an {@link RpcNotFound}, the navigation renders
+ * `notFound` and the address bar shows the URL that failed, unless a guard's redirect
+ * skipped the location change.
+ * During server rendering the page is answered with the not-found page and status 404 at
+ * the requested URL, also when an earlier redirect moved the navigation elsewhere; the
+ * browser then repeats the navigation, redirect included. Any other error is left to
+ * Angular, which fails the navigation as usual.
  *
  * When the navigation restored a remembered search value (`remembered` from
  * `@loozo/angular-router`), the not-found may be that value's fault, such as a filter that no
@@ -79,6 +85,32 @@ export function rpcNavigationErrors({
       response.status = 404;
     }
 
-    return new RedirectCommand(router.parseUrl(notFound), { browserUrl: error.url });
+    const request = inject(REQUEST, { optional: true });
+
+    if (request === null) {
+      return new RedirectCommand(router.parseUrl(notFound), { browserUrl: error.url });
+    }
+
+    // Angular's server answers a final URL other than the requested one with a redirect, which
+    // can't carry this 404, so the server's URL must end where the request started. Read the
+    // request, not Location: an eager URL update has already moved Location to a redirect's
+    // target.
+    const { pathname, search, hash } = new URL(request.url);
+    const platform = inject(PlatformLocation);
+    const unmoved =
+      platform.pathname + platform.search + platform.hash === pathname + search + hash;
+
+    // No redirect moved it, or one skipped the location change: write nothing, so the URL
+    // stays exactly as requested.
+    if (unmoved) {
+      return new RedirectCommand(router.parseUrl(notFound), { skipLocationChange: true });
+    }
+
+    // Write the requested URL back, overriding a skipLocationChange the command would inherit
+    // from a guard's redirect.
+    return new RedirectCommand(router.parseUrl(notFound), {
+      browserUrl: inject(Location).normalize(pathname) + search + hash,
+      skipLocationChange: false,
+    });
   };
 }
