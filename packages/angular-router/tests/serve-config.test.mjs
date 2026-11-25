@@ -59,19 +59,48 @@ function write(path, contents) {
   writeFileSync(path, text);
 }
 
-// Starts the check on a fixture's tsconfig.json and package.json, counting its reports.
-function watch(directory, { catalogs = [], roots = [resolve(directory, "src/routes")] } = {}) {
+// Starts the check on a fixture's tsconfig.json (or `configFile`) and package.json, counting its
+// reports.
+function watch(
+  directory,
+  { catalogs = [], configFile = resolve(directory, "tsconfig.json") } = {},
+) {
   const watching = { reports: 0 };
 
   watching.handle = watchConfigInputs({
-    configFile: resolve(directory, "tsconfig.json"),
+    configFile,
     manifest: resolve(directory, "package.json"),
     catalogs,
-    roots,
     changed: () => watching.reports++,
   });
 
   return watching;
+}
+
+// Rewrites `path` with `text`, which has its current byte count, and puts back `seconds` as its
+// access and modification times, so only its change time differs from `before`. Retried while the
+// change time hasn't moved yet: the rewrite can share a timestamp tick with the times set before it.
+function rewriteKeepingTimes(path, text, seconds, before) {
+  let after;
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    writeFileSync(path, text);
+    utimesSync(path, seconds, seconds);
+    after = statSync(path);
+
+    if (after.ctimeMs !== before.ctimeMs) {
+      break;
+    }
+
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
+
+  assert.deepEqual(
+    [after.dev, after.ino, after.size, after.mtimeMs],
+    [before.dev, before.ino, before.size, before.mtimeMs],
+    "Only the change time differs",
+  );
+  assert.notEqual(after.ctimeMs, before.ctimeMs, "The change time moved");
 }
 
 // Runs one check.
@@ -606,7 +635,6 @@ test("a tsconfig that isn't a regular file is never opened", { skip: !posix }, (
     `  configFile: ${JSON.stringify(configFile)},`,
     `  manifest: ${JSON.stringify(resolve(directory, "package.json"))},`,
     "  catalogs: [],",
-    "  roots: [],",
     "  changed: () => {},",
     "});",
     "watching.close();",
@@ -648,7 +676,6 @@ test(
       `  configFile: ${JSON.stringify(resolve(directory, "tsconfig.json"))},`,
       `  manifest: ${JSON.stringify(resolve(directory, "package.json"))},`,
       "  catalogs: [],",
-      "  roots: [],",
       "  changed: () => {},",
       "}).close();",
       "if (!swapped) throw new Error('The base was never probed');",
@@ -659,43 +686,90 @@ test(
   },
 );
 
-test("catalogs outside the scan roots are watched; inputs inside one are left to serve's watcher", () => {
-  const directory = fixture("catalogs", {
-    ...app,
-    "locale/messages.de.xlf": "<xliff/>\n",
-    "src/routes/messages.fr.xlf": "<xliff/>\n",
-    "src/routes/tsconfig.json": { extends: "../../tsconfig.json" },
-  });
-  const outside = resolve(directory, "locale/messages.de.xlf");
-  const inside = resolve(directory, "src/routes/messages.fr.xlf");
-  const watching = watch(directory, { catalogs: [outside, inside] });
+test("a catalog deleted and recreated is reported each time", () => {
+  const directory = fixture("catalogs", { ...app, "locale/messages.de.xlf": "<xliff/>\n" });
+  const catalog = resolve(directory, "locale/messages.de.xlf");
+  const watching = watch(directory, { catalogs: [catalog] });
 
-  write(inside, "<xliff version='2.0'/>\n");
+  rmSync(catalog);
   poll();
-  assert.equal(watching.reports, 0, "The catalog inside the scan root");
-
-  rmSync(outside);
-  poll();
-  write(outside, "<xliff version='2.0'/>\n");
+  write(catalog, "<xliff version='2.0'/>\n");
   poll();
   assert.equal(watching.reports, 2, "The deleted and recreated catalog");
 
   watching.handle.close();
-
-  const config = watch(resolve(directory, "src/routes"), {
-    roots: [resolve(directory, "src/routes")],
-  });
-
-  write(resolve(directory, "src/routes/tsconfig.json"), { extends: "../../tsconfig.base.json" });
-  poll();
-  assert.equal(config.reports, 0, "A tsconfig inside the scan root");
-
-  config.handle.close();
 });
 
-// Serve's watcher doesn't follow links, so it never sees an edit behind one inside the scan root,
-// also while the link dangles.
-test("an input inside a scan root but behind a link is watched here, also while the link dangles", () => {
+const inScanDirectory = {
+  tsconfig: "src/routes/tsconfig.json",
+  base: "src/routes/base.json",
+  catalog: "src/routes/messages.de.xlf",
+};
+
+// Serve's watcher misses some changes inside its scan directory, such as a rewrite that keeps the
+// modification time. The check covers its inputs there as anywhere else.
+function checkedInsideTheScanDirectory(t, kind) {
+  const directory = fixture(`in-root-${kind}`, {
+    "package.json": { name: "app" },
+    "src/routes/tsconfig.json": { extends: "./base.json" },
+    "src/routes/base.json": { compilerOptions: { strict: true } },
+    "src/routes/messages.de.xlf": "<xliff/>\n",
+  });
+  const path = resolve(directory, inScanDirectory[kind]);
+  const text = readFileSync(path, "utf8");
+  // Whole seconds, which utimes restores exactly.
+  const seconds = Math.floor(Date.now() / 1000) - 60;
+  const watching = watch(directory, {
+    configFile: resolve(directory, inScanDirectory.tsconfig),
+    catalogs: [resolve(directory, inScanDirectory.catalog)],
+  });
+
+  // Also when an assertion fails.
+  t.after(() => {
+    watching.handle.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  write(path, `${text}\n`);
+  utimesSync(path, seconds, seconds);
+  poll();
+  assert.equal(watching.reports, 1, "A save");
+
+  // The same byte count as the save.
+  rewriteKeepingTimes(path, ` ${text}`, seconds, statSync(path));
+  poll();
+  assert.equal(watching.reports, 2, "A rewrite that keeps the modification time");
+
+  rmSync(path);
+  poll();
+  assert.equal(watching.reports, 3, "The deletion");
+  // As the pass after the deletion would.
+  watching.handle.refresh();
+
+  write(path, text);
+  poll();
+  assert.equal(watching.reports, 4, "The recreation");
+
+  write(path, `${text}\n\n`);
+  poll();
+  assert.equal(watching.reports, 5, "A save after the recreation");
+}
+
+test("a generation tsconfig inside the scan directory is checked like any other input", (t) => {
+  checkedInsideTheScanDirectory(t, "tsconfig");
+});
+
+test("a base inside the scan directory is checked like any other input", (t) => {
+  checkedInsideTheScanDirectory(t, "base");
+});
+
+test("a catalog inside the scan directory is checked like any other input", (t) => {
+  checkedInsideTheScanDirectory(t, "catalog");
+});
+
+// Generation reads a catalog through any link on the way, so the check follows it, also while the
+// link dangles.
+test("a catalog behind a directory link is watched through it, also while the link dangles", () => {
   const directory = fixture("linked-in-root", {
     ...app,
     "locale/messages.de.xlf": "<xliff/>\n",
@@ -740,7 +814,6 @@ test("close stops the check and releases its timer", () => {
     `  configFile: ${JSON.stringify(resolve(directory, "tsconfig.json"))},`,
     `  manifest: ${JSON.stringify(resolve(directory, "package.json"))},`,
     "  catalogs: [],",
-    "  roots: [],",
     "  changed: () => {},",
     "}).close();",
   ].join("\n");
