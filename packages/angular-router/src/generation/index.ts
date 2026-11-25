@@ -58,4 +58,4 @@ export {
   withLocaleTable,
 } from "../builders/locale-table.js";
 export type { LocaleTable } from "../builders/locale-table.js";
-export { isInertFileEvent } from "../builders/serve-events.js";
+export { isInertFileEvent, watchConfigInputs, type ConfigWatch } from "../builders/serve-events.js";

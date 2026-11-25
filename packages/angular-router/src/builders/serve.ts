@@ -17,7 +17,7 @@ import {
   type LocaleTable,
 } from "./locale-table.js";
 import { buildTargetOptions, message, projectI18n, type JsonObject } from "./options.js";
-import { isInertFileEvent } from "./serve-events.js";
+import { isInertFileEvent, watchConfigInputs, type ConfigWatch } from "./serve-events.js";
 
 // Polling catches what Angular 22.2's native watcher (@parcel/watcher) misses: edits to files
 // inside a renamed directory, which otherwise leave the dev server serving stale output.
@@ -51,6 +51,9 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       let router: GenerationOptions;
       // The watched locale catalogs, whose events always regenerate.
       const catalogs: string[] = [];
+      // Checks the tsconfig, its extends chain, the manifest and the catalogs outside the scan
+      // directory; refreshed before every pass, so it watches what that pass reads.
+      let configWatch: ConfigWatch;
       // The locale table of a pass, from the build target's options and that pass's words.
       let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
       // The table the dev server started with: its define is read once, at its start.
@@ -126,6 +129,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
 
       // Later passes log their failures and keep serving.
       function startPass(): void {
+        configWatch.refresh();
         regeneration = "running";
         pass = regenerate().then(
           (words) => {
@@ -190,6 +194,15 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         // Checked again once the file was inspected: a pass that started or failed meanwhile needs
         // this event's pass. A settling burst doesn't block the skip: it regenerates anyway.
         if (inert && regeneration === "idle" && succeeded) {
+          return;
+        }
+
+        schedule();
+      }
+
+      // Starts or restarts the settle delay, after which the change runs a pass.
+      function schedule(): void {
+        if (stopped) {
           return;
         }
 
@@ -258,9 +271,17 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           catalogs.push(...locale.files);
         }
 
-        const watched = [...roots, ...catalogs];
+        // Generation reads these outside the scan directory too, so an edit regenerates.
+        configWatch = watchConfigInputs({
+          configFile,
+          manifest: resolve(context.workspaceRoot, "package.json"),
+          catalogs,
+          roots,
+          changed: schedule,
+        });
+        releases.push(async () => configWatch.close());
 
-        const watcher = chokidar.watch(watched, { ignoreInitial: true, followSymlinks: false });
+        const watcher = chokidar.watch(roots, { ignoreInitial: true, followSymlinks: false });
         const ready = Promise.withResolvers<boolean>();
 
         releases.push(() => {
@@ -289,6 +310,7 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         // The initial pass reads every change so far, so a burst still settling needs no pass.
         clearTimeout(settling);
         settling = undefined;
+        configWatch.refresh();
         regeneration = "running";
 
         const initial = regenerate();

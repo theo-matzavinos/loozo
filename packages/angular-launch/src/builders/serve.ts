@@ -17,7 +17,9 @@ import {
   localeTable,
   localeTableWarnings,
   projectI18n,
+  watchConfigInputs,
   withLocaleTable,
+  type ConfigWatch,
   type LocaleTable,
   type LocaleWords,
 } from "@loozo/angular-router/_generation";
@@ -101,6 +103,9 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       let session: BuilderSession;
       // The watched locale catalogs, whose events always regenerate.
       const catalogs: string[] = [];
+      // Checks the tsconfig, its extends chain, the manifest and the catalogs outside the scan
+      // directory; refreshed before every pass, so it watches what that pass reads.
+      let configWatch: ConfigWatch;
       // The router's locale table of a pass, from the build target's options and that pass's words.
       let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
       // The table the dev server started with: its define is read once, at its start.
@@ -150,6 +155,15 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         // Checked again once the file was inspected: a pass that started or failed meanwhile needs
         // this event's pass. A settling burst doesn't block the skip: it regenerates anyway.
         if (inert && regeneration === "idle" && succeeded) {
+          return;
+        }
+
+        schedule();
+      }
+
+      // Starts or restarts the settle delay, after which the change runs a pass.
+      function schedule(): void {
+        if (stopped) {
           return;
         }
 
@@ -207,6 +221,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
 
       // Later passes log their failures and keep serving.
       function startPass(): void {
+        configWatch.refresh();
         regeneration = "running";
         pass = regenerate().then(
           (words) => {
@@ -284,10 +299,8 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           return;
         }
 
-        const scanRoot = resolve(
-          dirname(resolve(application, launch.tsconfig)),
-          launch.scanDirectories[0],
-        );
+        const configFile = resolve(application, launch.tsconfig);
+        const scanRoot = resolve(dirname(configFile), launch.scanDirectories[0]);
         session = createBuilderSession(context.workspaceRoot, launch);
         releases.push(() => session.dispose());
 
@@ -297,9 +310,17 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           catalogs.push(...locale.files);
         }
 
-        const watched = [scanRoot, ...catalogs];
+        // Generation reads these outside the scan directory too, so an edit regenerates.
+        configWatch = watchConfigInputs({
+          configFile,
+          manifest: resolve(application, "package.json"),
+          catalogs,
+          roots: [scanRoot],
+          changed: schedule,
+        });
+        releases.push(async () => configWatch.close());
 
-        const watcher = chokidar.watch(watched, { ignoreInitial: true, followSymlinks: false });
+        const watcher = chokidar.watch([scanRoot], { ignoreInitial: true, followSymlinks: false });
         const ready = Promise.withResolvers<boolean>();
 
         releases.push(() => {
@@ -328,6 +349,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         // The initial pass reads every change so far, so a burst still settling needs no pass.
         clearTimeout(settling);
         settling = undefined;
+        configWatch.refresh();
         regeneration = "running";
 
         const initial = regenerate();
