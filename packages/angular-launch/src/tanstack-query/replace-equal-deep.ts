@@ -1,6 +1,6 @@
 /*! @license
- * Adapted from @tanstack/query-core 5.104.3 (src/utils.ts: isPlainArray, isPlainObject,
- * replaceEqualDeep), https://github.com/TanStack/query
+ * Adapted from @tanstack/query-core 5.104.3, unchanged through 5.108.4 (src/utils.ts:
+ * isPlainArray, isPlainObject, replaceEqualDeep), https://github.com/TanStack/query
  *
  * MIT License
  *
@@ -25,8 +25,8 @@
  * SOFTWARE.
  */
 
-// query-core's `isPlainArray` and `isPlainObject` (5.104.3), which it doesn't export: the
-// values whose keys `replaceEqualDeep` copies into a fresh array or object.
+// query-core's `isPlainArray` and `isPlainObject` (5.104.3, unchanged through 5.108.4), which it
+// doesn't export: the values whose keys `replaceEqualDeep` copies into a fresh array or object.
 function isPlainArray(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.length === Object.keys(value).length;
 }
@@ -64,8 +64,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype;
 }
 
-// query-core 5.104.3's `replaceEqualDeep`, with the same fast paths, depth limit and equality
-// rules, reading `a[key]` and `b[key]` once each in the same order, except at a "__proto__" key.
+// query-core 5.104.3's `replaceEqualDeep` (unchanged through 5.108.4), with the same fast paths,
+// depth limit and equality rules, reading `a[key]` and `b[key]` once each in the same order,
+// except at a "__proto__" key.
 // JSON.parse keeps that key as own data, but upstream copies keys by assignment, so the
 // setter makes the value the copy's prototype and the key is lost (TanStack/query#12303,
 // closed as not planned). Here the copy defines that key as an own data property, and the old
