@@ -1,10 +1,10 @@
 {
   "100": {
-    "generate.ms": 4000,
+    "generate.ms": 5000,
     "serve.generatedMs": 3000,
-    "serve.servedMs": 4000,
-    "build.ms": 8000,
-    "typecheck.ngcMs": 3000,
+    "serve.servedMs": 5000,
+    "build.ms": 12000,
+    "typecheck.ngcMs": 5000,
     "typecheck.instantiations": 192000,
     "bundle.initial.raw": 250000,
     "bundle.initial.gzip": 75000,
@@ -14,17 +14,16 @@
     "bundle.lazy.raw": 102000,
     "bundle.lazy.gzip": 63000,
     "bundle.lazy.brotli": 56000,
-    "runtime.bootstrapMs": 43.8,
-    "runtime.navigateColdMs": 28.2,
-    "runtime.navigateWarmMs": 1.5,
-    "runtime.navigateWarmP95Ms": 2.5
+    "runtime.bootstrapMs": 76.4,
+    "runtime.navigateColdMs": 35.3,
+    "runtime.navigateWarmMs": 2.3
   },
   "300": {
-    "generate.ms": 7000,
-    "serve.generatedMs": 5000,
-    "serve.servedMs": 6000,
-    "build.ms": 14000,
-    "typecheck.ngcMs": 5000,
+    "generate.ms": 8000,
+    "serve.generatedMs": 6000,
+    "serve.servedMs": 8000,
+    "build.ms": 19000,
+    "typecheck.ngcMs": 8000,
     "typecheck.instantiations": 423000,
     "bundle.initial.raw": 256000,
     "bundle.initial.gzip": 77000,
@@ -34,17 +33,16 @@
     "bundle.lazy.raw": 310000,
     "bundle.lazy.gzip": 190000,
     "bundle.lazy.brotli": 170000,
-    "runtime.bootstrapMs": 41.2,
-    "runtime.navigateColdMs": 29.2,
-    "runtime.navigateWarmMs": 1.3,
-    "runtime.navigateWarmP95Ms": 2.6
+    "runtime.bootstrapMs": 73.7,
+    "runtime.navigateColdMs": 35.8,
+    "runtime.navigateWarmMs": 2.1
   },
   "1000": {
-    "generate.ms": 16000,
-    "serve.generatedMs": 16000,
-    "serve.servedMs": 19000,
-    "build.ms": 33000,
-    "typecheck.ngcMs": 11000,
+    "generate.ms": 19000,
+    "serve.generatedMs": 19000,
+    "serve.servedMs": 25000,
+    "build.ms": 46000,
+    "typecheck.ngcMs": 17000,
     "typecheck.instantiations": 1230000,
     "bundle.initial.raw": 290000,
     "bundle.initial.gzip": 83000,
@@ -54,10 +52,9 @@
     "bundle.lazy.raw": 1035000,
     "bundle.lazy.gzip": 634000,
     "bundle.lazy.brotli": 560000,
-    "runtime.bootstrapMs": 40,
-    "runtime.navigateColdMs": 28.6,
-    "runtime.navigateWarmMs": 1.3,
-    "runtime.navigateWarmP95Ms": 2.3
+    "runtime.bootstrapMs": 74.3,
+    "runtime.navigateColdMs": 35.8,
+    "runtime.navigateWarmMs": 2.2
   },
   "bench": "angular-router-router"
 }

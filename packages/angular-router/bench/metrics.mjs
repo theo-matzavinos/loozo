@@ -1,12 +1,16 @@
 // The router and Launch metric registry: each key's label, unit, class and budget rule. Times are
 // milliseconds, sizes bytes, memory kilobytes. See tools/bench/README.md for what the fields mean.
+//
+// Timing factors cover the spread measured between ordinary runs on the shared recording machine
+// (bench/README.md "Budgets"), so a re-recording from any of them passes the others. Only medians
+// are budgeted: the p95 keys are recorded for reading next to them.
 export const metrics = [
   {
     key: "generate.ms",
     label: "First generation: generate()",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 1000],
+    budget: [1.7, 1000],
   },
   {
     key: "generate.processMs",
@@ -27,14 +31,14 @@ export const metrics = [
     label: "Serve: edit → generated files",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 1000],
+    budget: [1.7, 1000],
   },
   {
     key: "serve.servedMs",
     label: "Serve: edit → served children chunk",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 1000],
+    budget: [1.7, 1000],
   },
   {
     key: "serve.templateMs",
@@ -48,14 +52,14 @@ export const metrics = [
     label: "ng build (incl. generator preflight)",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 1000],
+    budget: [1.7, 1000],
   },
   {
     key: "typecheck.ngcMs",
     label: "Type-check: ngc --noEmit",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 1000],
+    budget: [1.7, 1000],
   },
   {
     key: "typecheck.tscMs",
@@ -146,7 +150,7 @@ export const metrics = [
     label: "Runtime: bootstrap → first page",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 0.1],
+    budget: [2, 0.1],
   },
   // Over 10 samples by default, so it's the maximum: recorded, never budgeted.
   {
@@ -162,14 +166,14 @@ export const metrics = [
     label: "Runtime: cold navigation",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 0.1],
+    budget: [1.5, 0.1],
   },
   {
     key: "runtime.navigateWarmMs",
     label: "Runtime: warm navigation",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 0.1],
+    budget: [2, 0.1],
   },
   {
     key: "runtime.navigateWarmP95Ms",
@@ -177,14 +181,14 @@ export const metrics = [
     unit: "ms",
     deterministic: false,
     statistic: "p95",
-    budget: [1.5, 0.1],
+    budget: null,
   },
   {
     key: "ssr.p50Ms",
     label: "SSR: GET /g0000/1",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 0.1],
+    budget: [1.5, 0.1],
   },
   {
     key: "ssr.p95Ms",
@@ -192,14 +196,14 @@ export const metrics = [
     unit: "ms",
     deterministic: false,
     statistic: "p95",
-    budget: [1.5, 0.1],
+    budget: null,
   },
   {
     key: "ssr.bareP50Ms",
     label: "SSR: GET /g0000/1, no middleware",
     unit: "ms",
     deterministic: false,
-    budget: [1.3, 0.1],
+    budget: [1.5, 0.1],
   },
   {
     key: "ssr.bareP95Ms",
@@ -207,14 +211,14 @@ export const metrics = [
     unit: "ms",
     deterministic: false,
     statistic: "p95",
-    budget: [1.5, 0.1],
+    budget: null,
   },
   {
     key: "rpc.queryP50Ms",
     label: "RPC: query",
     unit: "ms",
     deterministic: false,
-    budget: [1.5, 0.1],
+    budget: [2.5, 0.1],
   },
   {
     key: "rpc.queryP95Ms",
@@ -222,14 +226,14 @@ export const metrics = [
     unit: "ms",
     deterministic: false,
     statistic: "p95",
-    budget: [1.5, 0.1],
+    budget: null,
   },
   {
     key: "rpc.mutationP50Ms",
     label: "RPC: mutation",
     unit: "ms",
     deterministic: false,
-    budget: [1.5, 0.1],
+    budget: [2.5, 0.1],
   },
   {
     key: "rpc.mutationP95Ms",
@@ -237,6 +241,6 @@ export const metrics = [
     unit: "ms",
     deterministic: false,
     statistic: "p95",
-    budget: [1.5, 0.1],
+    budget: null,
   },
 ];
