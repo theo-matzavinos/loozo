@@ -5128,8 +5128,17 @@ async function localizedProject({ catalog = xliff1([]), extra = {} } = {}) {
     ...project,
     localization,
     catalog: (text) => project.write("src/locale/messages.de.xlf", text),
-    translate: (options = {}) =>
-      project.generate({ translateSegments: true, localization, ...extra, ...options }),
+    // The pass's words.
+    translate: async (options = {}) => {
+      const generation = await project.generate({
+        translateSegments: true,
+        localization,
+        ...extra,
+        ...options,
+      });
+
+      return generation.words;
+    },
   };
 }
 
@@ -5368,7 +5377,9 @@ test("translated segments: explicit and filesystem mode emit the same messages; 
   assert.deepEqual(await outputSnapshot(filesystem), before);
 
   // Without translateSegments, generation reads no catalog and returns no words.
-  assert.equal(await explicit.generate({ autoDefineRoutes: false }), undefined);
+  const generation = await explicit.generate({ autoDefineRoutes: false });
+
+  assert.equal(generation.words, undefined);
 });
 
 test("translated segments: the copy diagnostic for a missing $localize type names the fix", async () => {
@@ -7066,10 +7077,10 @@ export default class Page {
     project.write("src/routes/docs/README.md", "# Docs\n"),
   ]);
 
-  // The serve builder's contract: any failed pass clears every slot.
+  // The serve builder's contract: any failed pass clears every slot. Returns the pass's words.
   async function pass() {
     try {
-      return await generate(
+      const generation = await generate(
         project.root,
         {
           tsconfig: "tsconfig.json",
@@ -7081,6 +7092,8 @@ export default class Page {
         () => false,
         state,
       );
+
+      return generation.words;
     } catch (error) {
       state.discovery.clear();
       state.overlay.clear();
