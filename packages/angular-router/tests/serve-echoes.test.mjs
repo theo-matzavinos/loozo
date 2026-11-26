@@ -465,10 +465,22 @@ test("moving its parent's last child under another parent runs two passes", asyn
   assert.deepEqual(errors(), []);
 });
 
+// Whether a timing case ran in the order it's for. A busy machine can run the tap late or deliver
+// another signal; the case then checks only its outcome and says why in a diagnostic, since serve
+// handles either order. serve.test.mjs proves the dropped-event order deterministically.
+function exercised(t, unmet) {
+  if (unmet.length === 0) {
+    return true;
+  }
+
+  t.diagnostic(`Not exercised in its intended order: ${unmet.join("; ")}`);
+
+  return false;
+}
+
 // chokidar emits no second change event for a file within 50 ms of its first, so the edit reaches
-// serve only through the check at the end of the settle delay. The witnesses are asserted before
-// the outcome, so a run that lost the edit still shows it exercised that ordering.
-test("an edit right after a pass rewrote the file regenerates", async () => {
+// serve only through the check at the end of the settle delay.
+test("an edit right after a pass rewrote the file regenerates", async (t) => {
   const route = join(routes, "watch-edited/route.ts");
   const first = passes.length;
   const tap = tapRewrite(
@@ -491,22 +503,28 @@ test("an edit right after a pass rewrote the file regenerates", async () => {
   }
 
   const ran = passes.slice(first);
+  const unmet = [];
+  const landed = tap.actedAt - tap.changeAt;
+  const others = otherSignals(ran[0], ran[1], route, tap.index);
 
-  assert.ok(
-    tap.actedAt - tap.changeAt < 50,
-    `Not exercised: the edit landed ${Math.round(tap.actedAt - tap.changeAt)} ms after the change event`,
-  );
-  assert.deepEqual(ran[0].authored, [resolve(route)], `Not exercised\n${timeline()}`);
-  assert.deepEqual(
-    otherSignals(ran[0], ran[1], route, tap.index),
-    [],
-    `Not exercised: another signal, or the edit's own event, could explain a pass\n${timeline()}`,
-  );
-  assert.equal(
-    ran.length,
-    2,
-    `Expected 2 passes, saw ${ran.length}: the rename's pass, then the edit's\n${timeline()}`,
-  );
+  assert.deepEqual(ran[0].authored, [resolve(route)], `The rename's pass wrote it\n${timeline()}`);
+
+  if (landed >= 50) {
+    unmet.push(`the edit landed ${Math.round(landed)} ms after the change event`);
+  }
+
+  if (others.length > 0) {
+    unmet.push(`other signals could explain a pass: ${others.join(", ")}`);
+  }
+
+  if (exercised(t, unmet)) {
+    assert.equal(
+      ran.length,
+      2,
+      `Expected 2 passes, saw ${ran.length}: the rename's pass, then the edit's\n${timeline()}`,
+    );
+  }
+
   assert.match(
     await readFile(join(routes, "watch-edited/route.generated.ts"), "utf8"),
     /Edited/,
@@ -515,7 +533,7 @@ test("an edit right after a pass rewrote the file regenerates", async () => {
   assert.deepEqual(errors(), []);
 });
 
-test("a rewritten file swapped for a link to the same bytes runs a pass that reports it", async () => {
+test("a rewritten file swapped for a link to the same bytes runs a pass that reports it", async (t) => {
   const route = join(routes, "seeded/route.ts");
   const outside = join(scratch, "linked-route.ts");
   const first = passes.length;
@@ -542,23 +560,33 @@ test("a rewritten file swapped for a link to the same bytes runs a pass that rep
   }
 
   const ran = passes.slice(first);
+  const unmet = [];
+  const landed = tap.actedAt - tap.changeAt;
+  const others = otherSignals(ran[0], ran[1], route, tap.index, { allowPath: true });
 
-  assert.ok(
-    tap.actedAt - tap.changeAt < 150,
-    `Not exercised: the swap landed ${Math.round(tap.actedAt - tap.changeAt)} ms after the change event`,
-  );
-  assert.deepEqual(ran[0].authored, [resolve(route)], `Not exercised\n${timeline()}`);
   assert.deepEqual(
-    otherSignals(ran[0], ran[1], route, tap.index, { allowPath: true }),
-    [],
-    `Not exercised: another signal could explain a pass\n${timeline()}`,
+    ran[0].authored,
+    [resolve(route)],
+    `The synchronizing pass wrote it\n${timeline()}`,
   );
-  assert.equal(
-    ran.length,
-    2,
-    `Expected 2 passes, saw ${ran.length}: the synchronizing pass, then the link's\n${timeline()}`,
-  );
-  assert.equal(ran[1].failed, true);
+
+  if (landed >= 150) {
+    unmet.push(`the swap landed ${Math.round(landed)} ms after the change event`);
+  }
+
+  if (others.length > 0) {
+    unmet.push(`other signals could explain a pass: ${others.join(", ")}`);
+  }
+
+  if (exercised(t, unmet)) {
+    assert.equal(
+      ran.length,
+      2,
+      `Expected 2 passes, saw ${ran.length}: the synchronizing pass, then the link's\n${timeline()}`,
+    );
+    assert.equal(ran[1].failed, true);
+  }
+
   assert.ok(
     errors().some((line) => line.includes("Unsafe source/output symbolic link")),
     "The link's pass reported it",
