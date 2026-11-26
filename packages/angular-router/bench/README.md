@@ -135,13 +135,13 @@ What these numbers are and aren't:
 - The SSR server is the example's real wiring: request scope, RPC dispatch and abort handling. Its proof-only work per page is one pathname comparison and one `String.replace` on the HTML, small next to a render of about 5.5 ms.
 - A fresh browser context isn't a cold OS, disk or JIT: the browser process stays warm between samples, and the OS file cache is warm.
 - Pages count as arrived when their marker is in the DOM, not when they're painted.
-- Chromium coarsens `performance.now()` to 0.1 ms, so a warm navigation of about 1.2 ms is a dozen ticks and its budget a few more; one bad local run can exceed it. Re-run before reading anything into it.
+- Chromium coarsens `performance.now()` to 0.1 ms, so a warm navigation of about 1.2 ms is a dozen ticks.
 - Another load profile can move the tails. Read the numbers next to the load averages recorded per phase.
 - Launch's browser navigation and hydration aren't measured, and neither is throughput under concurrency.
 
 ### Runtime results
 
-Recorded 2026-11-21 on top of `21e455c` with this phase's working-tree changes, default samples, from the full runs every timing budget was recorded from, each run alone under the gate lock: 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, Angular 22.3.0, Playwright 1.63.0 with Chromium 153.0.8010.12, router 0.1.0, Launch 0.1.0. The one-minute load average stayed between 1.4 and 6.5 during the runtime phases (6.5 at 100 routes, after the serve phase's workers).
+Recorded 2026-11-21 on top of `21e455c` with this phase's working-tree changes, default samples, from the full runs the timing budgets were recorded from then (the current ones come from later runs, see [Budgets](#budgets)), each run alone under the gate lock: 13th Gen Intel Core i7-13620H (16 logical cores), 31 GiB RAM, Linux 7.2.15; Node v24.21.0, Angular 22.3.0, Playwright 1.63.0 with Chromium 153.0.8010.12, router 0.1.0, Launch 0.1.0. The one-minute load average stayed between 1.4 and 6.5 during the runtime phases (6.5 at 100 routes, after the serve phase's workers).
 
 | Metric                                 | 100 routes | 300 routes | 1000 routes |
 | -------------------------------------- | ---------: | ---------: | ----------: |
@@ -163,8 +163,7 @@ What it shows:
 
 - None of them grows with the route count: bootstrap loads one block's chunks, a cold navigation one more block's, and SSR and RPC run one block's steps, whatever the number of blocks.
 - With and without middleware, SSR medians differ by about 0.1 ms or less, and not always in the same direction, as expected from the caveat above.
-- Three `--scenarios 300` runs of each workload fit each other's recorded budgets for every budgeted runtime key. Their largest mean-relative deviations were bootstrap 11.85%, warm navigation 9.09% and its p95 17.65%, and the RPC mutation median 19.69%; every SSR statistic stayed within 1.6%.
-- Sub-millisecond keys sit a few 0.1 ms steps under their budgets: warm navigation is about ten Chromium ticks, and the RPC medians, recorded at 0.25 to 0.41 ms, get budgets of 0.4 to 0.7 ms. A local run that exceeds one of those by a tick or two is noise until a re-run repeats it.
+- These runs were quieter than the machine usually is: later runs spread up to 2.27× between runs, which the budget rules now cover (see [Budgets](#budgets)).
 
 ## results.json
 
@@ -183,11 +182,26 @@ node ../../tools/bench/budgets.mjs record /tmp/new-dir/results.json bench/budget
 node ../../tools/bench/budgets.mjs record /tmp/new-dir/results.json bench/budgets.json --deterministic   # sizes, counts and instantiations only
 ```
 
-- timings (`generate.ms`, `serve.generatedMs`, `serve.servedMs`, `build.ms`, `typecheck.ngcMs`): median plus 30%, rounded up to the second;
+- timings (`generate.ms`, `serve.generatedMs`, `serve.servedMs`, `build.ms`, `typecheck.ngcMs`): median plus 70%, rounded up to the second;
 - `typecheck.instantiations`: plus 10%, rounded up to the thousand;
 - initial and lazy bytes: plus 2%, rounded up to the thousand;
 - `bundle.initial.files` and `bundle.initial.routeCopies`: their measured counts, so a change that adds an initial file or keeps one more copy in `main` re-records them in the same change;
-- runtime medians (`runtime.*Ms`, `ssr.p50Ms`, `ssr.bareP50Ms`): plus 30%, rounded up to 0.1 ms; the RPC medians (`rpc.queryP50Ms`, `rpc.mutationP50Ms`) and every runtime p95 plus 50%, rounded up to 0.1 ms. An RPC median is about 0.3 ms, so 30% of it is less than its 0.1 ms step, while run-to-run spread reaches a step. `runtime.bootstrapP95Ms` is the maximum of its 10 samples, so it's recorded but never budgeted.
+- runtime medians, rounded up to 0.1 ms: `runtime.bootstrapMs` and `runtime.navigateWarmMs` plus 100%, `runtime.navigateColdMs`, `ssr.p50Ms` and `ssr.bareP50Ms` plus 50%, and the RPC medians (`rpc.queryP50Ms`, `rpc.mutationP50Ms`) plus 150%;
+- p95s: recorded, never budgeted. They spread between runs as much as the medians do (1.26× to 2.29×, below), so a budget on them would need the same wide factors and add a second chance of a false failure per key. The cost: a slowdown confined to the slowest few percent of samples, which raises the p95 but not the median, isn't caught; read the p95 rows next to the medians when judging a change.
+
+The timing factors come from the spread between ordinary runs on the recording machine, a laptop with performance and efficiency cores that runs other work next to the bench (the gate lock keeps out only other benches and acceptance runs). On 2026-11-26, at `bf52a7d`, 11 router and 11 Launch runs at 100, 300 and 1,000 routes and 6 remembered runs at 100, one-minute load average 0.9 to 16.4, spread this much between the slowest and the fastest run of a route count (the range over keys and route counts; generation, serve and `ngc` compared only across runs with their default samples):
+
+| Metrics                                                                             | Slowest / fastest |
+| ----------------------------------------------------------------------------------- | ----------------: |
+| `generate.ms`, `serve.generatedMs`, `serve.servedMs`, `build.ms`, `typecheck.ngcMs` |    1.11× to 1.64× |
+| `runtime.bootstrapMs`, `runtime.navigateWarmMs`                                     |    1.26× to 1.86× |
+| `runtime.navigateColdMs`, `ssr.p50Ms`, `ssr.bareP50Ms`                              |    1.13× to 1.26× |
+| `rpc.queryP50Ms`, `rpc.mutationP50Ms`                                               |    1.54× to 2.27× |
+| p95s                                                                                |    1.26× to 2.29× |
+
+Slow periods last from seconds to a whole phase, and the load average doesn't predict them: a server process pinned to the efficiency cores answers RPCs about twice as slowly as on the performance cores, which accounts for most of the RPC spread. More samples per run can't remove that. Each factor covers its key's spread: with the current rules applied to every run's saved results, budgets recorded from any one run passed every other run of its workload (250 of 250 ordered pairs). The committed timing budgets are recorded from one default-sample run per workload, the fastest overall (the lowest geometric mean of its timing medians relative to the fastest run per key), so some keys' maximums are looser than recording each key from its own fastest run would give. They guard against regressions of about the factor's size, not small ones: 2.5× an RPC median, 2× a warm navigation, 1.7× a build. Compare numbers from one session, under similar load, to judge a smaller change.
+
+Record only from a run made with the current rules: `record` applies the rules a `results.json` carries, so a run from before this rule change would write p95 budgets back, which the next `--check` rejects.
 
 The timing budgets describe the machine that recorded them. Instantiations and counts don't depend on it, and neither do bytes within one checkout. Chunk file names are content hashes that change with the checkout, though, so the initial bundle's compressed sizes and the lazy chunks' sizes can differ by up to about a hundred bytes between checkouts; the 2% rule absorbs that. A change that makes generation faster tightens them in the same change, from a new recorded run.
 
