@@ -66,6 +66,19 @@ export default defineRoute("live", { parent })
       // The user's todos now, then again after each title the caller sends is added.
       add: channel({
         message: titleSchema,
+        // Test-only: a cookie set before the handler goes on the upgrade's 101 response, and a
+        // count of calls that ended, accepted or not.
+        use: [
+          async ({ context, response, next }) => {
+            response.setCookie("proof-channel", context.user.id);
+
+            try {
+              return await next();
+            } finally {
+              context.stats.channelCallsSettled += 1;
+            }
+          },
+        ],
         handler: async function* ({ context, messages, signal }) {
           context.stats.channelsStarted += 1;
           signal.addEventListener("abort", () => {
