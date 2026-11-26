@@ -2,6 +2,7 @@ import { createBuilder, type BuilderOutput } from "@angular-devkit/architect";
 import chokidar from "chokidar";
 import { Observable } from "rxjs";
 import { dirname, resolve, basename } from "node:path";
+import { lstatSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { generate, type GenerationOptions, type GenerationState } from "../generation/generate.js";
 import type { LocaleWords } from "../generation/localization.js";
@@ -25,7 +26,9 @@ const defaultPoll = 1000;
 const devServerBuilder = "@angular/build:dev-server";
 // One change can reach the watcher as a burst of events: a save of several files, or a directory
 // rename, whose unlinks chokidar holds back 100 ms to pair them with re-adds. A pass waits for the
-// burst to go quiet, so it runs once and reads the finished change.
+// burst to go quiet, so it runs once and reads the finished change. It also outlasts the 50 ms in
+// which chokidar drops a second change event for the same file, so a check when it ends sees an
+// edit whose event was dropped.
 const settleDelay = 150;
 
 export default createBuilder<JsonObject & { buildTarget: string; poll?: number | false }>(
@@ -61,6 +64,13 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       let started: LocaleTable | undefined;
       // Each later table that differed from it, by JSON, so each is warned about once.
       const warned = new Set<string>();
+      // The filesystem definitions the latest pass wrote, with their bytes; empty while a pass
+      // runs and after a failed or stopped one. A watcher event for one is an echo of that write.
+      const written = new Map<string, string>();
+      // The burst the settle delay is waiting on: whether a signal in it needs a pass, and the
+      // written files it echoed, which need one only if they changed again.
+      let burstNeedsPass = false;
+      const echoes = new Set<string>();
       const state: GenerationState = {
         discovery: new CompilerState(),
         overlay: new CompilerState(),
@@ -75,8 +85,19 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
 
       // A failed or stopped pass may leave partial state; the next pass starts fresh.
       async function regenerate(): Promise<LocaleWords | undefined> {
+        written.clear();
+
         try {
-          return await generate(context.workspaceRoot, router, () => stopped, state);
+          const generation = await generate(context.workspaceRoot, router, () => stopped, state);
+
+          // A stopped pass publishes nothing, and stopping clears the record.
+          if (!stopped) {
+            for (const [file, bytes] of generation.authored) {
+              written.set(resolve(file), bytes);
+            }
+          }
+
+          return generation.words;
         } catch (error) {
           clear();
 
@@ -95,6 +116,8 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
 
         stopped = true;
         clearTimeout(settling);
+        written.clear();
+        echoes.clear();
 
         const closing = [pass.catch(() => undefined)];
 
@@ -168,8 +191,9 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           return;
         }
 
-        // A pass that was running or queued when the event arrived may have read the file before
-        // or after it changed, so only an event that arrived while idle can be skipped.
+        // For the inert skip below: a pass that was running or queued when the event arrived may
+        // have read the file before or after it changed, so only an event that arrived while idle
+        // can be skipped.
         const idleOnArrival = regeneration === "idle";
 
         if (colocatedFiles.has(basename(path))) {
@@ -186,6 +210,16 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           }
         }
 
+        const echoed = resolve(path);
+
+        // Only a pass's own write is known here; whether the file still holds it is checked when
+        // the burst settles, after any edit whose event chokidar dropped.
+        if (written.has(echoed)) {
+          echo(echoed);
+
+          return;
+        }
+
         const inert = idleOnArrival && (await isInertFileEvent(event, path, catalogs));
 
         if (stopped) {
@@ -193,7 +227,8 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         }
 
         // Checked again once the file was inspected: a pass that started or failed meanwhile needs
-        // this event's pass. A settling burst doesn't block the skip: it regenerates anyway.
+        // this event's pass. A settling burst doesn't block the inert skip: it regenerates anyway,
+        // unless it holds only echoes, which never needed this event's pass either.
         if (inert && regeneration === "idle" && succeeded) {
           return;
         }
@@ -201,8 +236,38 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         schedule();
       }
 
-      // Starts or restarts the settle delay, after which the change runs a pass.
+      // A signal that needs a pass once the burst settles.
       function schedule(): void {
+        burstNeedsPass = true;
+        settle();
+      }
+
+      // An event for a file the latest pass wrote, which needs a pass only if the file changed.
+      function echo(path: string): void {
+        if (stopped) {
+          return;
+        }
+
+        echoes.add(path);
+        settle();
+      }
+
+      // Whether the file is still the regular file the latest pass wrote, byte for byte. A link, a
+      // directory or an error reading it isn't: the pass runs and reports what's there.
+      function unchanged(path: string): boolean {
+        const bytes = Buffer.from(written.get(path)!, "utf8");
+
+        try {
+          return lstatSync(path).isFile() && readFileSync(path).equals(bytes);
+        } catch {
+          return false;
+        }
+      }
+
+      // Starts or restarts the settle delay. When it ends, the burst runs a pass unless it holds
+      // only echoes of files that are unchanged. No pass can start meanwhile: an echo is only
+      // possible between passes, and only this delay starts one then.
+      function settle(): void {
         if (stopped) {
           return;
         }
@@ -210,7 +275,21 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         clearTimeout(settling);
         settling = setTimeout(() => {
           settling = undefined;
-          edited();
+
+          let needsPass = burstNeedsPass;
+
+          for (const path of echoes) {
+            if (!needsPass && !unchanged(path)) {
+              needsPass = true;
+            }
+          }
+
+          burstNeedsPass = false;
+          echoes.clear();
+
+          if (needsPass) {
+            edited();
+          }
         }, settleDelay);
       }
 
@@ -311,6 +390,8 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
         // The initial pass reads every change so far, so a burst still settling needs no pass.
         clearTimeout(settling);
         settling = undefined;
+        burstNeedsPass = false;
+        echoes.clear();
         configWatch.refresh();
         regeneration = "running";
 
