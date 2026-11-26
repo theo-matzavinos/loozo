@@ -70,7 +70,7 @@ export default createBuilder<JsonObject>(async (options, context): Promise<Build
         router.localization = await localization(context, project, official.polyfills);
       }
 
-      const words = await generate(context.workspaceRoot, router, () => stopped);
+      const { words } = await generate(context.workspaceRoot, router, () => stopped);
 
       // Angular's own builder needs a project target to localize, so a build without one fails there.
       if (!project || official.localize === undefined || official.localize === false) {

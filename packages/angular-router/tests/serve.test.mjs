@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { lstatSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { resolve } from "node:path";
 import { mock, test } from "node:test";
 import { concat, from, ignoreElements, Observable } from "rxjs";
@@ -80,7 +80,16 @@ mock.module(new URL("../node/src/generation/generate.js", import.meta.url).href,
   exports: {
     generate(workspaceRoot, router, isStopped, state) {
       const { promise, resolve, reject } = Promise.withResolvers();
-      const pass = { router, isStopped, resolve, reject, settled: false };
+      // resolve(words) ends a pass that wrote no filesystem definition; publish(authored, words)
+      // one that wrote these, by path.
+      const pass = {
+        router,
+        isStopped,
+        resolve: (words) => resolve({ words, authored: new Map() }),
+        publish: (authored, words) => resolve({ words, authored }),
+        reject,
+        settled: false,
+      };
 
       if (scenario.state !== state) {
         spyOnClears(state);
@@ -143,6 +152,32 @@ mock.module("node:fs/promises", {
   },
 });
 
+// Serve checks an echoed file synchronously when the settle delay ends. A scenario can make that
+// check fail for a path: syncFaults maps it to the error code lstat or the read throws. Patched on
+// node:fs itself and synced to its named exports, which serve imports.
+const fs = createRequire(import.meta.url)("node:fs");
+const { lstatSync: realLstatSync, readFileSync: realReadFileSync } = fs;
+
+function syncFault(path, call) {
+  const code = scenario?.syncFaults.get(resolve(String(path)))?.[call];
+
+  if (code !== undefined) {
+    throw Object.assign(new Error(`${code}: ${path}`), { code });
+  }
+}
+
+fs.lstatSync = (path, options) => {
+  syncFault(path, "lstat");
+
+  return realLstatSync(path, options);
+};
+fs.readFileSync = (path, options) => {
+  syncFault(path, "read");
+
+  return realReadFileSync(path, options);
+};
+syncBuiltinESMExports();
+
 const { default: serveBuilder } = await import("../node/src/builders/serve.js");
 
 // The settle delay runs on these; until() and settle() wait on setImmediate instead.
@@ -200,6 +235,7 @@ function createScenario() {
     clears: 0,
     inspections: 0,
     inspectionErrors: new Map(),
+    syncFaults: new Map(),
     devServerStops: 0,
     logs: [],
     outputs: [],
@@ -339,14 +375,15 @@ function errors(state) {
 }
 
 // Reaches the served state: watcher ready, initial generation succeeded, dev server started.
-async function started(options) {
+// `initial` is what the initial pass wrote: filesystem definitions by path.
+async function started({ initial = new Map(), ...options } = {}) {
   const session = await serve(options);
   const { scenario: state } = session;
 
   await until(() => state.watchers.length === 1, "the watcher");
   watcherOf(state).emit("ready");
   await until(() => state.passes.length === 1, "the initial generation");
-  state.passes[0].resolve();
+  state.passes[0].publish(initial);
   await until(() => state.servers.length === 1, "the dev server");
 
   return session;
@@ -1870,4 +1907,269 @@ test("after a failed pass, asset events run passes until one succeeds", async ()
   assert.equal(state.passes.length, 4, "A success makes asset events inert again");
 
   await run.stop();
+});
+
+// Filesystem definitions on disk with the bytes a pass reports writing, by path.
+async function definitions(name, files) {
+  const directory = await scratchDirectory(name);
+  const written = new Map();
+
+  for (const [file, bytes] of Object.entries(files)) {
+    const path = resolve(directory, file);
+
+    await mkdir(resolve(path, ".."), { recursive: true });
+    await writeFile(path, bytes);
+    written.set(path, bytes);
+  }
+
+  return written;
+}
+
+const declaration = (path) =>
+  `import { defineRoute } from "@loozo/angular-router";\n\nexport default defineRoute(${JSON.stringify(path)}, {});\n`;
+
+test("an add or change event for a filesystem definition the last pass wrote, still holding its bytes, runs no pass", async () => {
+  const initial = await definitions("echo", { "new/route.ts": declaration("new") });
+  const [path] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+
+  await change(state, path, "add");
+  await change(state, path, "change");
+  await settle();
+  assert.equal(state.passes.length, 1, "A pass's own writes are not edits");
+
+  await run.stop();
+});
+
+// chokidar drops a second change event for a file within 50 ms of the first, so the edit after
+// the write reaches serve as no event of its own.
+test("a filesystem definition edited after its echo, before the burst settles, runs a pass", async () => {
+  const initial = await definitions("echo-then-edit", { "new/route.ts": declaration("new") });
+  const [path] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+
+  await touch(state, path);
+  await writeFile(path, declaration("edited"));
+  mock.timers.tick(settleDelay);
+  await until(() => state.passes.length === 2, "the pass for the edit");
+  state.passes[1].resolve();
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+test("an echo in a burst with a source edit runs one pass", async () => {
+  const initial = await definitions("echo-with-edit", { "new/route.ts": declaration("new") });
+  const [path] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+
+  await touch(state);
+  await touch(state, path);
+  mock.timers.tick(settleDelay);
+  await until(() => state.passes.length === 2, "the edit's pass");
+  state.passes[1].resolve();
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+test("an echo in a burst with a config input's change runs one pass", async (t) => {
+  const {
+    scenario: state,
+    path,
+    advance,
+    elapsed,
+  } = await servedWithInputsInTheScanDirectory(t, "echo-with-config");
+  const route = path("src/routes/new/route.ts");
+  const pollInterval = 500;
+
+  // A later pass writes the definition.
+  await mkdir(path("src/routes/new"), { recursive: true });
+  await writeFile(route, declaration("new"));
+  await touch(state, path("src/routes/new/page.ts"));
+  advance(settleDelay);
+  await until(() => state.passes.length === 2, "the pass that writes the definition");
+  state.passes[1].publish(new Map([[route, declaration("new")]]));
+  await settle();
+
+  // The next check sees the base change, then the definition's echo arrives in its delay.
+  await writeFile(path("src/routes/base.json"), `${JSON.stringify({ compilerOptions: {} })}\n`);
+  advance(pollInterval - (elapsed() % pollInterval));
+  await settle();
+  await touch(state, route);
+  advance(settleDelay);
+  await until(() => state.passes.length === 3, "the config change's pass");
+  state.passes[2].resolve();
+  await settle();
+  assert.equal(state.passes.length, 3);
+});
+
+test("an echo in a burst with an inert asset event runs no pass", async () => {
+  const initial = await definitions("echo-with-asset", { "new/route.ts": declaration("new") });
+  const [path] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+
+  await touch(state, await asset());
+  await touch(state, path);
+  mock.timers.tick(settleDelay);
+  await settle();
+  assert.equal(state.passes.length, 1, "Neither event needs a pass");
+
+  await run.stop();
+});
+
+test("a burst echoing two definitions runs a pass when one of them changed", async () => {
+  const initial = await definitions("two-echoes", {
+    "a/route.ts": declaration("a"),
+    "b/route.ts": declaration("b"),
+  });
+  const [first, second] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+
+  await touch(state, first);
+  await touch(state, second);
+  await writeFile(second, declaration("edited"));
+  mock.timers.tick(settleDelay);
+  await until(() => state.passes.length === 2, "the pass for the changed one");
+  state.passes[1].resolve();
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+for (const outcome of ["writes nothing", "fails"]) {
+  test(`after a later pass that ${outcome}, an earlier pass's write runs a pass`, async () => {
+    const initial = await definitions(`echo-after-${outcome}`, {
+      "new/route.ts": declaration("new"),
+    });
+    const [path] = initial.keys();
+    const { run, scenario: state } = await started({ initial });
+
+    await change(state);
+    await until(() => state.passes.length === 2, "the edit's pass");
+
+    if (outcome === "fails") {
+      state.passes[1].reject(new Error("Route diagnostics"));
+    } else {
+      state.passes[1].resolve();
+    }
+
+    await settle();
+    await change(state, path);
+    await until(() => state.passes.length === 3, "the pass for the earlier write");
+    state.passes[2].resolve();
+    await settle();
+
+    await run.stop();
+  });
+}
+
+test("a written definition that was deleted, or replaced by a link, a directory or bytes that decode alike, runs a pass", async () => {
+  const replacement = 'export default defineRoute("�", {});\n';
+  const initial = await definitions("echo-replaced", {
+    "deleted/route.ts": declaration("deleted"),
+    "linked/route.ts": declaration("linked"),
+    "directory/route.ts": declaration("directory"),
+    "bytes/route.ts": replacement,
+  });
+  const [deleted, linked, directory, bytes] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+  const outside = resolve(await scratchDirectory("echo-replaced-target"), "route.ts");
+  const replace = {
+    async [deleted]() {
+      await rm(deleted);
+    },
+    async [linked]() {
+      await writeFile(outside, declaration("linked"));
+      await rm(linked);
+      await symlink(outside, linked);
+    },
+    async [directory]() {
+      await rm(directory);
+      await mkdir(directory);
+    },
+    // U+FFFD's UTF-8 bytes become one invalid byte, which decodes to the same text.
+    async [bytes]() {
+      const encoded = Buffer.from(replacement, "utf8");
+      const at = encoded.indexOf(Buffer.from("�", "utf8"));
+
+      await writeFile(
+        bytes,
+        Buffer.concat([encoded.subarray(0, at), Buffer.from([0xff]), encoded.subarray(at + 3)]),
+      );
+    },
+  };
+  let passes = 1;
+
+  for (const path of initial.keys()) {
+    await replace[path]();
+    await change(state, path);
+    passes++;
+    await until(() => state.passes.length === passes, `the pass for ${path}`);
+    // Every pass empties the record; the next one restores it.
+    state.passes[passes - 1].publish(initial);
+    await settle();
+  }
+
+  await run.stop();
+});
+
+for (const [call, code] of [
+  ["lstat", "EACCES"],
+  ["read", "ENOENT"],
+]) {
+  test(`an echo whose ${call} fails with ${code} when the burst settles runs a pass, and serving continues`, async () => {
+    const initial = await definitions(`echo-${call}-fault`, { "new/route.ts": declaration("new") });
+    const [path] = initial.keys();
+    const { run, scenario: state } = await started({ initial });
+
+    state.syncFaults.set(path, { [call]: code });
+    await change(state, path);
+    await until(() => state.passes.length === 2, "the pass after the failed check");
+    state.syncFaults.clear();
+    state.passes[1].resolve();
+    await settle();
+    assert.deepEqual(errors(state), []);
+
+    await change(state);
+    await until(() => state.passes.length === 3, "a later edit's pass");
+    state.passes[2].resolve();
+    await settle();
+
+    await run.stop();
+  });
+}
+
+test("a burst settling when the initial generation starts doesn't make that pass's echo run one", async () => {
+  const initial = await definitions("echo-initial", { "new/route.ts": declaration("new") });
+  const [path] = initial.keys();
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  await touch(state);
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.passes[0].publish(initial);
+  await until(() => state.servers.length === 1, "the dev server");
+  await change(state, path, "add");
+  await settle();
+  assert.equal(state.passes.length, 1);
+
+  await run.stop();
+});
+
+test("stopping cancels an echo that's still settling", async () => {
+  const initial = await definitions("echo-stop", { "new/route.ts": declaration("new") });
+  const [path] = initial.keys();
+  const { run, scenario: state } = await started({ initial });
+
+  await touch(state, path);
+  await writeFile(path, declaration("edited"));
+  await run.stop();
+  mock.timers.tick(settleDelay);
+  await settle();
+  assert.equal(state.passes.length, 1);
 });

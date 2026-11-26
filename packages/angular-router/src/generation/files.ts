@@ -324,15 +324,17 @@ export async function planOutputs(
 const regenerate =
   "Run ng build to update them and commit the result; this is expected after upgrading.";
 
+// Returns the filesystem definitions it wrote, by path, with their bytes: none in check mode or
+// when stopped.
 export function publish(
   plan: OutputPlan,
   check: boolean,
   stopped: () => boolean,
   authored: ReadonlyMap<string, string>,
   seeds: ReadonlySet<string>,
-): void {
+): ReadonlyMap<string, string> {
   if (stopped()) {
-    return;
+    return new Map();
   }
 
   if (check) {
@@ -352,7 +354,7 @@ export function publish(
       }
     }
 
-    return;
+    return new Map();
   }
 
   // No awaits from the final stop check through this short publication section.
@@ -372,4 +374,6 @@ export function publish(
   for (const path of plan.stale) {
     unlinkSync(path);
   }
+
+  return authored;
 }
