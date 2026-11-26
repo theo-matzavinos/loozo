@@ -444,7 +444,7 @@ await test("serve reports a failed initial generation without starting the dev s
   await put("src/routes/todos/route.ts", rpc);
 });
 
-await test("serve regenerates after route edits, not for files outside the scan directory, and survives failures", async () => {
+await test("serve regenerates after route edits, not for an unrelated file outside the scan directory, and survives failures", async () => {
   const fsPromises = require("node:fs/promises");
   const readManifest = fsPromises.readFile;
   const manifest = resolve(packageDirectory, "dist/package.json");

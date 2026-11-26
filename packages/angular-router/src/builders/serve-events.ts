@@ -1,16 +1,16 @@
-import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
+import { realpathSync, statSync, type Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import ts from "typescript";
-import { contains } from "../generation/files.js";
 
 // How often serve checks the config inputs. They change rarely, so a pass may start up to this
 // much later than for a watched source edit.
 const configPollInterval = 500;
 
-// Files no generation pass reads: Angular's template compiler never runs in generation, and
-// TypeScript resolves an import of one of these to its declaration (a companion such as
-// `x.d.svg.ts`, or a `declare module "*.svg"` wildcard), never to the file itself.
+// Files whose watcher events need no pass: Angular's template compiler never runs in generation,
+// and TypeScript resolves an import of one of these to its declaration (a companion such as
+// `x.d.svg.ts`, or a `declare module "*.svg"` wildcard), never to the file itself. A config input
+// with one of these extensions is still covered by the config check (`watchConfigInputs`).
 const inertExtensions = new Set([
   ".html",
   ".css",
@@ -33,11 +33,12 @@ const inertExtensions = new Set([
 ]);
 
 /**
- * Whether a serve watcher event touched only a file no generation pass reads, so it needs no
- * pass: an added, changed or removed template, style, image, font or Markdown file that's a
+ * Whether a serve watcher event touched only a file no generation pass reads as a source, so it
+ * needs no pass: an added, changed or removed template, style, image, font or Markdown file that's a
  * regular file now (or gone, for a removal) and isn't one of the locale `catalogs` or the file one
  * resolves to. Anything else, a directory event or a symlink included, needs one. The builder
- * still decides whether its pass state allows skipping.
+ * still decides whether its pass state allows skipping, and the config check still covers such a
+ * file when it's the generation tsconfig or a config it extends.
  */
 export async function isInertFileEvent(
   event: string,
@@ -92,12 +93,12 @@ export async function isInertFileEvent(
 }
 
 /**
- * Serve's check of the files outside its scan directories that generation reads: the generation
- * tsconfig, the configs its `extends` chain resolves to, the candidates TypeScript probed for that
- * chain, the application manifest and the locale catalogs. `refresh()` lists them again from the
- * tsconfig and takes each one's current state as the baseline; every 500 ms each is checked
- * against it, and `changed` runs once when any differs. A path serve's watcher sees, inside a scan
- * root with no link on the way, is left to it.
+ * Serve's check of the files generation reads besides its sources, wherever they live: the
+ * generation tsconfig, the configs its `extends` chain resolves to, the candidates TypeScript
+ * probed for that chain, the application manifest and the locale catalogs. `refresh()` lists them
+ * again from the tsconfig and takes each one's current state as the baseline; every 500 ms each is
+ * checked against it, and `changed` runs once when any differs. Inside a scan directory this also
+ * catches what serve's watcher misses, such as a rewrite that keeps the modification time.
  */
 export interface ConfigWatch {
   /** Lists the inputs again and takes their current state as the baseline, before a pass reads them. */
@@ -115,13 +116,11 @@ export function watchConfigInputs({
   configFile,
   manifest,
   catalogs,
-  roots,
   changed,
 }: {
   configFile: string;
   manifest: string;
   catalogs: readonly string[];
-  roots: readonly string[];
   changed: () => void;
 }): ConfigWatch {
   let baseline = new Map<string, string>();
@@ -152,15 +151,6 @@ export function watchConfigInputs({
 
       if (!inputs.has(path)) {
         inputs.set(path, signature(path));
-      }
-    }
-
-    for (const path of inputs.keys()) {
-      for (const root of roots) {
-        if (watchedBy(root, path)) {
-          inputs.delete(path);
-          break;
-        }
       }
     }
 
@@ -277,36 +267,6 @@ function configInputs(configFile: string, manifest: string): Map<string, string>
 
 function baselineOf(seen: Map<string, string>, path: string): string {
   return seen.get(resolve(path)) ?? signature(resolve(path));
-}
-
-// Serve's watcher watches a scan root without following links, so it sees a path's changes only
-// when no link lies between the root and the path, a dangling one included.
-function watchedBy(root: string, path: string): boolean {
-  if (!contains(root, path)) {
-    return false;
-  }
-
-  const top = resolve(root);
-
-  // Up to the root; the filesystem root's parent is itself, which ends the walk whatever spelling
-  // the root has.
-  for (
-    let current = path;
-    current !== top && dirname(current) !== current;
-    current = dirname(current)
-  ) {
-    try {
-      if (lstatSync(current, { throwIfNoEntry: false })?.isSymbolicLink()) {
-        return false;
-      }
-    } catch {
-      // Unreadable on the way (a file where a directory should be, a permission error): checked
-      // here rather than trusted to the watcher.
-      return false;
-    }
-  }
-
-  return true;
 }
 
 // A path's state: `absent`, `directory`, `other`, `error:<code>`, or a regular file's identity,

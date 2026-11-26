@@ -51,8 +51,9 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
       let router: GenerationOptions;
       // The watched locale catalogs, whose events always regenerate.
       const catalogs: string[] = [];
-      // Checks the tsconfig, its extends chain, the manifest and the catalogs outside the scan
-      // directory; refreshed before every pass, so it watches what that pass reads.
+      // Checks the tsconfig, its extends chain, the manifest and the catalogs wherever they live,
+      // including what the watcher misses inside the scan directory; refreshed before every pass,
+      // so it watches what that pass reads.
       let configWatch: ConfigWatch;
       // The locale table of a pass, from the build target's options and that pass's words.
       let tableOf: (words: LocaleWords | undefined) => LocaleTable | undefined = () => undefined;
@@ -271,12 +272,12 @@ export default createBuilder<JsonObject & { buildTarget: string; poll?: number |
           catalogs.push(...locale.files);
         }
 
-        // Generation reads these outside the scan directory too, so an edit regenerates.
+        // Generation reads these too, wherever they live, so an edit regenerates, also one the
+        // watcher misses inside the scan directory.
         configWatch = watchConfigInputs({
           configFile,
           manifest: resolve(context.workspaceRoot, "package.json"),
           catalogs,
-          roots,
           changed: schedule,
         });
         releases.push(async () => configWatch.close());
