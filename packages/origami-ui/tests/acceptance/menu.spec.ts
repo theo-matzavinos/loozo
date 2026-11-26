@@ -2959,7 +2959,89 @@ test.describe("touch", () => {
     );
   });
 
-  test("MN55: at a phone width, a tap opens a submenu below its sub-trigger, inside the viewport, a second tap keeps it open and a tap on its item selects it; a row it covers is reached by tapping outside, reopening and tapping the row", async ({
+  test("MN59: a script's click, a pen or mouse press's, a canceled touch press's and one after a touch press's click was taken or its blur keep an open submenu open, a click reopening it after it closed during the press doesn't close it again; only a released touch press's click closes it", async ({
+    page,
+  }, info) => {
+    await fixture(page, "menu", info);
+
+    const parts = editParts(page);
+    const press = (pointerType: string, end: "pointerup" | "pointercancel") =>
+      parts.move.evaluate(
+        (node, options) => {
+          for (const type of ["pointerdown", options.end]) {
+            node.dispatchEvent(
+              new PointerEvent(type, {
+                pointerType: options.pointerType,
+                pointerId: 7,
+                isPrimary: true,
+                bubbles: true,
+              }),
+            );
+          }
+        },
+        { pointerType, end },
+      );
+    const pointerClick = () =>
+      parts.move.evaluate((node) =>
+        node.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true })),
+      );
+
+    await parts.trigger.evaluate((node) => node.scrollIntoView({ block: "center" }));
+    await parts.trigger.tap();
+    await parts.move.tap();
+    await expectOpen(parts.move, parts.moveContent);
+    const kept = async () => {
+      await frames(page);
+      await expectOpen(parts.move, parts.moveContent);
+      await expect(parts.changes).toHaveText("edit:true,move:true");
+    };
+
+    // A script's click.
+    await parts.move.evaluate((node) => (node as HTMLElement).click());
+    await kept();
+    // A pen press's click.
+    await press("pen", "pointerup");
+    await pointerClick();
+    await kept();
+    // A real mouse click.
+    await parts.move.click();
+    await kept();
+    // A canceled touch press, then a pointer click with no press of its own.
+    await press("touch", "pointercancel");
+    await pointerClick();
+    await kept();
+    // A released touch press whose click never came: a script's click takes its place, then
+    // focus leaving the sub-trigger ends it.
+    await press("touch", "pointerup");
+    await parts.move.evaluate((node) => (node as HTMLElement).click());
+    await pointerClick();
+    await kept();
+    await press("touch", "pointerup");
+    await parts.move.evaluate((node) => {
+      node.blur();
+      node.focus();
+    });
+    await pointerClick();
+    await kept();
+    // A released touch press whose Sub closes before its click: the click's reopening is a new
+    // decision, which it doesn't close.
+    await press("touch", "pointerup");
+    await page.keyboard.press("Escape");
+    await expectClosed(parts.move, parts.moveContent);
+    await expect(parts.move).toBeFocused();
+    await pointerClick();
+    await frames(page);
+    await expectOpen(parts.move, parts.moveContent);
+    await expect(parts.changes).toHaveText("edit:true,move:true,move:false,move:true");
+    // A released touch press's click closes it.
+    await press("touch", "pointerup");
+    await pointerClick();
+    await expectClosed(parts.move, parts.moveContent);
+    await expect(parts.changes).toHaveText("edit:true,move:true,move:false,move:true,move:false");
+    await expect(parts.move).toBeFocused();
+  });
+
+  test("MN55: at a phone width, a tap opens a submenu below its sub-trigger, inside the viewport, a second tap closes it and a tap on its item, reopened, selects it; a row it covers is reached in four taps by tapping the sub-trigger again and then the row", async ({
     page,
   }, info) => {
     await fixture(page, "menu", info);
@@ -2973,7 +3055,9 @@ test.describe("touch", () => {
     await expectOpen(parts.move, parts.moveContent);
     await expectBelow(page, "narrow-move", "narrow-move-content", 4, info);
     await parts.move.tap();
-    await frames(page);
+    await expectClosed(parts.move, parts.moveContent);
+    await expect(parts.move).toBeFocused();
+    await parts.move.tap();
     await expectOpen(parts.move, parts.moveContent);
     await parts.item("archive").tap();
     await expectClosed(parts.trigger, parts.content);
@@ -2997,16 +3081,9 @@ test.describe("touch", () => {
 
     expect(covered).toBe(true);
 
-    // Recovery: an outside tap closes the tree; reopened, Rename is exposed and its tap selects it.
-    const outside = { x: 2, y: 2 };
-
-    expect(
-      await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName, outside),
-    ).toMatch(/^(HTML|BODY)$/);
-    await page.touchscreen.tap(outside.x, outside.y);
-    await expectClosed(parts.trigger, parts.content);
+    await parts.move.tap();
     await expectClosed(parts.move, parts.moveContent);
-    await parts.trigger.tap();
+    await expect(parts.move).toBeFocused();
     await expectOpen(parts.trigger, parts.content);
     expect(await hit(page, rename)).toBe("narrow-rename");
     await parts.item("rename").tap();

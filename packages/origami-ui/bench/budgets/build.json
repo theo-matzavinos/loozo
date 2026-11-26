@@ -186,13 +186,13 @@
     "bundle.origami.raw": 82600
   },
   "menu": {
-    "bundle.initial.raw": 195000,
-    "bundle.initial.gzip": 63300,
-    "bundle.initial.brotli": 56400,
-    "bundle.added.raw": 102600,
-    "bundle.added.gzip": 32600,
-    "bundle.added.brotli": 28600,
-    "bundle.origami.raw": 50700
+    "bundle.initial.raw": 195200,
+    "bundle.initial.gzip": 63400,
+    "bundle.initial.brotli": 56500,
+    "bundle.added.raw": 102700,
+    "bundle.added.gzip": 32700,
+    "bundle.added.brotli": 28800,
+    "bundle.origami.raw": 50900
   },
   "combobox": {
     "bundle.initial.raw": 202400,
@@ -276,13 +276,13 @@
     "bundle.origami.raw": 700
   },
   "all": {
-    "bundle.initial.raw": 535300,
-    "bundle.initial.gzip": 152300,
-    "bundle.initial.brotli": 126000,
-    "bundle.added.raw": 442800,
+    "bundle.initial.raw": 535400,
+    "bundle.initial.gzip": 152400,
+    "bundle.initial.brotli": 126100,
+    "bundle.added.raw": 443000,
     "bundle.added.gzip": 121600,
-    "bundle.added.brotli": 98200,
-    "bundle.origami.raw": 280300,
+    "bundle.added.brotli": 98300,
+    "bundle.origami.raw": 280400,
     "build.ms": 3000,
     "typecheck.ngcMs": 1600,
     "typecheck.instantiations": 5600
