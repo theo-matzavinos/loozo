@@ -341,6 +341,37 @@ jobs:
             !${{ runner.temp }}/evidence/consumer/
           if-no-files-found: ignore
 
+  # Launch's example on Deno and Cloudflare's workerd: its platform-neutral build served by each
+  # runtime, Deno in both abort modes and workerd under wrangler dev, proven in Chromium.
+  launch-runtimes:
+    needs: affected
+    if: ${{ !cancelled() && needs.affected.outputs.launch != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.9.6
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - run: pnpm --filter @loozo/angular-router --filter @loozo/angular-launch run build
+      - run: pnpm --dir packages/angular-launch exec playwright install --with-deps chromium
+      - run: pnpm --dir examples/angular-launch run verify:runtimes "$RUNNER_TEMP/evidence"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launch-runtimes-evidence
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+
   fold-consumer:
     needs: affected
     if: ${{ !cancelled() && needs.affected.outputs.fold != 'false' }}

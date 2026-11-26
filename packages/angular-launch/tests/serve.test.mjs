@@ -4,7 +4,7 @@
 // collaborators.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -589,9 +589,9 @@ test("each config input's change runs one pass, also mixed with a source edit or
   assert.equal(state.passes.length, passes, "Stopping ends the check");
 });
 
-// Serve checks the tsconfig, its extends chain, the manifest and catalogs outside the scan
-// directory every 500 ms (serve-config.test.mjs covers what it detects); a change runs one pass,
-// and the pass takes the state it reads as the new baseline.
+// Serve checks the tsconfig, its extends chain, the manifest and catalogs every 500 ms (the
+// router's serve-config.test.mjs covers what it detects); with a catalog outside the scan
+// directory, a change runs one pass, and the pass takes the state it reads as the new baseline.
 test("a catalog outside the scan directory is checked by polling, and a pass's baseline is what it read", async () => {
   const pollInterval = 500;
   const directory = await scratchDirectory("polled-catalogs");
@@ -660,6 +660,224 @@ test("a catalog outside the scan directory is checked by polling, and a pass's b
   await writeFile(catalog, "<xliff version='2.3'/>\n");
   await check();
   assert.equal(state.passes.length, 5, "Stopping ends the check");
+});
+
+// Serve's watcher misses some changes to the config inputs and catalogs inside its scan directory:
+// a rewrite that keeps the modification time, a file deleted or recreated while its event is lost,
+// and an idle event for a config with an asset extension. The check sees them there too.
+async function servedWithInputsInTheScanDirectory(t, name) {
+  const pollInterval = 500;
+  const workspace = resolve(packageDirectory, ".scratch/serve-workspace", `${process.pid}-${name}`);
+  const path = (file) => resolve(workspace, file);
+  const json = (value) => `${JSON.stringify(value)}\n`;
+
+  await rm(workspace, { recursive: true, force: true });
+  await mkdir(path("src/routes"), { recursive: true });
+  await writeFile(path("package.json"), json({ name: "app" }));
+  await writeFile(
+    path("tsconfig.json"),
+    json({ extends: ["./src/routes/base.json", "./src/routes/base.md"] }),
+  );
+  await writeFile(path("src/routes/base.json"), json({ compilerOptions: { strict: false } }));
+  await writeFile(path("src/routes/base.md"), json({ compilerOptions: {} }));
+  await writeFile(path("src/routes/messages.de.xlf"), "<xliff/>\n");
+
+  const session = await started({
+    workspace,
+    build: {
+      tsconfig: "tsconfig.json",
+      scanDirectories: ["src/routes"],
+      translateSegments: true,
+      polyfills: ["@angular/localize/init"],
+    },
+    metadata: { i18n: { sourceLocale: "en", locales: { de: "src/routes/messages.de.xlf" } } },
+  });
+  const { scenario: state } = session;
+
+  // Also when an assertion fails: a held pass would keep the stop waiting.
+  t.after(async () => {
+    for (const pass of state.passes) {
+      pass.resolve();
+    }
+
+    await session.run.stop();
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  // The check started before the watcher, and no mocked time has passed since.
+  let elapsed = 0;
+
+  function advance(milliseconds) {
+    mock.timers.tick(milliseconds);
+    elapsed += milliseconds;
+  }
+
+  // Runs the next check, then the settle delay it may have started.
+  async function check() {
+    advance(pollInterval - (elapsed % pollInterval));
+    await settle();
+    advance(settleDelay);
+    await settle();
+  }
+
+  async function passed(count, description, { fail = false } = {}) {
+    await until(() => state.passes.length === count, description);
+
+    if (fail) {
+      state.passes[count - 1].reject(new Error(description));
+    } else {
+      state.passes[count - 1].resolve();
+    }
+
+    await settle();
+  }
+
+  await settle();
+  await check();
+  assert.equal(state.passes.length, 1, "Nothing changed since the initial pass");
+
+  return { ...session, path, advance, check, passed, elapsed: () => elapsed };
+}
+
+// Rewrites `path` with `text`, which has its current byte count, and puts back `seconds` as its
+// access and modification times, so only its change time differs. Retried while the change time
+// hasn't moved yet: the rewrite can share a timestamp tick with the times set before it.
+function rewriteKeepingTimes(path, text, seconds) {
+  const before = statSync(path);
+  let after;
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    writeFileSync(path, text);
+    utimesSync(path, seconds, seconds);
+    after = statSync(path);
+
+    if (after.ctimeMs !== before.ctimeMs) {
+      break;
+    }
+
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  }
+
+  assert.deepEqual(
+    [after.dev, after.ino, after.size, after.mtimeMs],
+    [before.dev, before.ino, before.size, before.mtimeMs],
+    "Only the change time differs",
+  );
+  assert.notEqual(after.ctimeMs, before.ctimeMs, "The change time moved");
+}
+
+// With no watcher event: a rewrite that keeps the modification time, a deletion and a recreation.
+async function checkedWithoutWatcherEvents(t, name, file, text) {
+  const {
+    scenario: state,
+    path,
+    check,
+    passed,
+  } = await servedWithInputsInTheScanDirectory(t, name);
+  // Whole seconds, which utimes restores exactly.
+  const seconds = Math.floor(Date.now() / 1000) - 60;
+
+  // Its times set, then a pass, so the check's baseline has them.
+  utimesSync(path(file), seconds, seconds);
+  await check();
+  await passed(2, "the pass for the new times");
+
+  rewriteKeepingTimes(path(file), text, seconds);
+  await check();
+  await passed(3, "the pass for the rewrite");
+
+  await rm(path(file));
+  await check();
+  await passed(4, "the deletion's failing pass", { fail: true });
+
+  await writeFile(path(file), text);
+  await check();
+  await passed(5, "the recreation's pass");
+
+  await check();
+  assert.equal(state.passes.length, 5, "Each change ran one pass");
+}
+
+test("a base inside the scan directory runs a pass when the watcher misses its change", async (t) => {
+  await checkedWithoutWatcherEvents(
+    t,
+    "in-root-base",
+    "src/routes/base.json",
+    // The byte count of `{"compilerOptions":{"strict":false}}`.
+    `${JSON.stringify({ compilerOptions: { strict: true } }).replace("true", "true ")}\n`,
+  );
+});
+
+test("a catalog inside the scan directory runs a pass when the watcher misses its change", async (t) => {
+  // The byte count of `<xliff/>\n`.
+  await checkedWithoutWatcherEvents(
+    t,
+    "in-root-catalog",
+    "src/routes/messages.de.xlf",
+    " <xliff/>",
+  );
+});
+
+test("a base with an asset extension inside the scan directory runs a pass although its watcher event is skipped", async (t) => {
+  const {
+    scenario: state,
+    path,
+    advance,
+    check,
+    passed,
+  } = await servedWithInputsInTheScanDirectory(t, "in-root-asset-base");
+
+  await writeFile(
+    path("src/routes/base.md"),
+    `${JSON.stringify({ compilerOptions: { strict: true } })}\n`,
+  );
+  await touch(state, path("src/routes/base.md"));
+  advance(settleDelay);
+  await settle();
+  assert.equal(state.passes.length, 1, "The watcher event is inert");
+
+  await check();
+  await passed(2, "the check's pass");
+  await check();
+  assert.equal(state.passes.length, 2, "One pass");
+});
+
+test("a watcher event and a check that see the same edit inside the scan directory run one pass", async (t) => {
+  const {
+    scenario: state,
+    path,
+    advance,
+    check,
+    elapsed,
+  } = await servedWithInputsInTheScanDirectory(t, "in-root-both");
+
+  // The watcher's event 100 ms before the next check, which sees the edit inside the event's
+  // settle delay and restarts it: the pass starts 150 ms after the check, not after the event.
+  advance(400 - (elapsed() % 500));
+  await writeFile(path("src/routes/base.json"), `${JSON.stringify({ compilerOptions: {} })}\n`);
+  await touch(state, path("src/routes/base.json"));
+  advance(100);
+  await settle();
+  advance(50);
+  await settle();
+
+  const atTheEventsDeadline = state.passes.length;
+
+  advance(100);
+  await settle();
+
+  // Every pass ends, and any delay still pending runs out.
+  for (let round = 0; round < 3; round++) {
+    for (const pass of state.passes) {
+      pass.resolve();
+    }
+
+    await settle();
+    await check();
+  }
+
+  assert.equal(state.passes.length, 2, "Both signals ran one pass");
+  assert.equal(atTheEventsDeadline, 1, "The check restarted the settle delay");
 });
 
 // Generation reads a catalog through its symlink, so an edit of the file it resolves to is a

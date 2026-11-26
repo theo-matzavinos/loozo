@@ -203,7 +203,7 @@ function rawUpgrade(path, headers) {
 
     sent.on("upgrade", (response, socket) => {
       socket.destroy();
-      resolve({ status: response.statusCode, body: "" });
+      resolve({ status: response.statusCode, headers: response.headers, body: "" });
     });
     sent.on("response", async (response) => {
       let body = "";
@@ -1291,8 +1291,11 @@ try {
   });
 
   assert.equal(acceptedUpgrade.status, 101);
+  assert.deepEqual(acceptedUpgrade.headers["set-cookie"], [
+    "proof-channel=alice; Path=/; HttpOnly; Secure; SameSite=Lax",
+  ]);
   checks.push(
-    "the built server answers channel upgrades from a foreign Origin (403 FORBIDDEN) or without input (400 INVALID_INPUT) over plain HTTP without creating a context, and upgrades a same-origin one",
+    "the built server answers channel upgrades from a foreign Origin (403 FORBIDDEN) or without input (400 INVALID_INPUT) over plain HTTP without creating a context, and upgrades a same-origin one with the call's cookie on the 101",
   );
 
   assert.deepEqual(
