@@ -4436,6 +4436,10 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
 }, info) => {
   await fixture(page, "menu", info);
   await mountNarrow(page, 390, 400);
+  // WebKit sends a mouse move at the cursor's position after a layout change, such as the submenu
+  // opening, End scrolling it or a resize. The setup click leaves the cursor where the submenu's
+  // rows land, so move it off every menu, or it could focus a row by hovering.
+  await page.mouse.move(385, 395);
 
   const trigger = page.getByTestId("narrow-short-trigger");
   const content = page.getByTestId("narrow-short-content");
@@ -4580,10 +4584,6 @@ test("MN57: with neither inline side fitting, a submenu taller than both block r
   // A width change that keeps both inline sides missing repositions the submenu without resizing
   // it, so its scroll offset and the focused row stay.
   const cap = await ownPixels(page, "narrow-short-folders-content", "--og-available-height");
-
-  // WebKit sends a mouse move at the cursor's position after a resize; keep it off every menu, so
-  // it can't focus a row by hovering.
-  await page.mouse.move(385, 395);
 
   for (const width of [391, 390]) {
     await page.setViewportSize({ width, height: 400 });
