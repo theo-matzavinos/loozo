@@ -480,6 +480,7 @@ Panel:
 - Composes Presence; remains unhidden through finite exit, then becomes hidden when Presence closes. The Panel exposes readonly `state`, its composed Presence's State, so consumers retain gated content through exit with `state.open()`.
 - Default collapsed hiding is ordinary `hidden`.
 - `until-found` uses native reveal only where supported; elsewhere it behaves as ordinary hidden content. In supported engines, enabled `beforematch` requests expansion. Disabled state blocks that request, and repeated reveal requests are idempotent.
+- A trusted `invalid` on a descendant control requests expansion, in either hiding mode, when no earlier validation candidate in its form's `elements` is currently invalid (or the control has no form owner). Disabled state blocks it. When granted and this Panel's own `hidden` binding changes to none, the Panel removes `hidden` synchronously, before the browser picks a control to focus, as its next render would (collapsing again before that render still ends with its collapsed `hidden`); another directive's `hidden` binding on the host stays its owner's, and an application expansion written in the same turn as the validation, still unrendered, isn't unhidden early; a mounted control that is focusable once its Panels are unhidden can then receive the browser's focus. `checkValidity()` fires the same event and expands too; a canceled `invalid` still expands; a later control's own `reportValidity()` while an earlier control of its form is invalid does not. A form-associated custom element whose validity lives only in `ElementInternals` isn't seen as an earlier invalid control.
 
 The consumer supplies any `role="region"`, heading hierarchy and accessible content semantics. External root Options/model writes remain authoritative even when user interaction is disabled.
 
@@ -510,7 +511,7 @@ Multiple behavior:
 - Preserve other values and their order, including values with no mounted item.
 - External values remain authoritative; removal of an item does not prune its selection.
 
-Root and item disabled state combine reactively. Trigger and native reveal paths obey that combined state. An item under no Accordion owner fails clearly.
+Root and item disabled state combine reactively. Trigger, native reveal and validation reveal paths obey that combined state. An item under no Accordion owner fails clearly.
 
 The item's effective Collapsible expanded signal observes root selection; requests to write it route through the mode's actual behavior and disabled/collapsible policy. Idempotent writes must not cause duplicate model outputs. A synchronous root output listener may change selection; the item's next observation must reflect that actual selection, not an optimistic shadow value.
 

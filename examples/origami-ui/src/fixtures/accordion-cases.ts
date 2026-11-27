@@ -9,6 +9,9 @@ import {
 // A6: a non-collapsible Single Accordion whose locked Trigger is also root- or item-disabled, in
 // each initial state, with controls that flip one disabled source at a time. Each case is
 // identified by `data-accordion-case`.
+//
+// A10: a Single Accordion whose collapsed until-found items hold required fields, in a form that
+// validates natively. Item `a` starts selected; `b` and `c` each hold an empty required field.
 
 /** One Single Accordion [a, b] whose value, root and item `a` disabled state start from inputs. */
 @Component({
@@ -70,14 +73,55 @@ export class LockedAccordion {
 }
 
 @Component({
+  selector: "acceptance-invalid-accordion",
+  imports: [
+    OrigamiAccordionSingle,
+    OrigamiAccordionItem,
+    OrigamiAccordionTrigger,
+    OrigamiAccordionPanel,
+  ],
+  host: { "data-accordion-case": "invalid" },
+  template: `
+    <form (submit)="$event.preventDefault(); submits.update(increment)">
+      <section ogAccordionSingle [(value)]="value">
+        @for (key of keys; track key) {
+          <article ogAccordionItem [value]="key" hiding="until-found">
+            <h3>
+              <button ogAccordionTrigger [attr.data-role]="key">Section {{ key }}</button>
+            </h3>
+            <div ogAccordionPanel [attr.data-role]="key + '-panel'">
+              <label>
+                Field {{ key }}
+                <input [name]="key" [required]="key !== 'a'" [attr.data-role]="key + '-field'" />
+              </label>
+            </div>
+          </article>
+        }
+      </section>
+      <button data-role="submit">Save</button>
+    </form>
+    <output data-role="value">{{ value() }}</output>
+    <output data-role="submits">{{ submits() }}</output>
+  `,
+})
+export class InvalidAccordion {
+  readonly keys = ["a", "b", "c"];
+  readonly value = signal<string | null>("a");
+  readonly submits = signal(0);
+  readonly increment = (value: number): number => value + 1;
+}
+
+@Component({
   selector: "acceptance-accordion-cases",
-  imports: [LockedAccordion],
+  imports: [LockedAccordion, InvalidAccordion],
   template: `
     <h2>Accordion locked Trigger with a disabled source</h2>
     <acceptance-locked-accordion name="item-disabled" [initialItemDisabled]="true" />
     <acceptance-locked-accordion name="root-disabled" [initialRootDisabled]="true" />
     <acceptance-locked-accordion name="enabled" />
     <acceptance-locked-accordion name="unselected" initialValue="b" [initialItemDisabled]="true" />
+    <h2>Accordion holding required fields</h2>
+    <acceptance-invalid-accordion />
   `,
 })
 export class AccordionCases {}
