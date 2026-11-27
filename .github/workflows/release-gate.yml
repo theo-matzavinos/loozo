@@ -58,8 +58,8 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
-  # One runtime-hydration group's server and one engine's projects. A production group builds its
-  # own output, so P1's bundle identity covers the checks job's builds, not the ones served here.
+  # One runtime-hydration group's server and one engine's projects. A production group builds and
+  # P1-checks its own output, then serves exactly that build.
   shard:
     if: "!startsWith(github.event.head_commit.message, 'chore(release): ')"
     runs-on: ubuntu-latest
@@ -92,13 +92,19 @@ jobs:
           fc-match system-ui | grep -q LiberationSans
       - run: pnpm run acceptance:prepare
       - run: pnpm run acceptance:browser-readiness "$ORIGAMI_BROWSER"
+      - if: startsWith(matrix.target, 'production-')
+        run: |
+          (cd .scratch/consumer && node ../../node_modules/@angular/cli/bin/ng.js build consumer --configuration "$ORIGAMI_MATRIX_TARGET")
+          node tests/acceptance/bundle-checks.mjs --output "consumer-${ORIGAMI_MATRIX_TARGET#production-}"
       - run: pnpm run acceptance:test
-      # This runner's own consumer installation and engine, beside its results.
+        env:
+          ORIGAMI_PREBUILT: ${{ startsWith(matrix.target, 'production-') && '1' || '' }}
+      # This runner's own consumer installation, engine and served build's P1 check, beside its results.
       - if: always()
         run: |
           receipts=".acceptance-evidence/product/$ORIGAMI_MATRIX_TARGET-$ORIGAMI_BROWSER/receipts"
           mkdir -p "$receipts"
-          for file in consumer-installation.json "browser-readiness-$ORIGAMI_BROWSER.json"; do
+          for file in consumer-installation.json "browser-readiness-$ORIGAMI_BROWSER.json" runtime-core-bundles.json; do
             if [ -f ".acceptance-evidence/$file" ]; then cp ".acceptance-evidence/$file" "$receipts/"; fi
           done
       # Rooted at product/, so the twelve archives merge into one directory per shard.
