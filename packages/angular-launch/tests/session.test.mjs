@@ -750,8 +750,9 @@ test("session stop/overlap/dispose and independent application registrations do 
 const checks = (body) =>
   `import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:number}>=injectRoute().remote.todos.read('hello');void result;${body}`;
 
-// Each change runs after two warm passes on one session; `setup` runs before them, and either may
-// leave the project invalid. `fails` is the error the changed project gives, if any. src/checks.ts
+// Each change runs after two warm passes on one session; `setup` runs before them and `between`
+// between them, and any may leave the project invalid. `fails` is the error the changed project
+// gives, if any. src/checks.ts
 // imports a generated output, so Launch checks it with the generated files and declarations.
 const reuseChanges = {
   "a route's own edit": {
@@ -800,6 +801,50 @@ const reuseChanges = {
     },
     change: (root) => put(root, "node_modules/launch-extra/a.d.ts", "export type Flag = string;"),
   },
+  "a transitive type change through a re-export with assumeChangesOnlyAffectDirectDependencies": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+      config.compilerOptions.assumeChangesOnlyAffectDirectDependencies = true;
+      await put(root, "tsconfig.json", JSON.stringify(config));
+      await put(root, "src/reexport.ts", "export type {Output} from './schema-type';");
+      await put(
+        root,
+        "src/checks.ts",
+        checks(
+          "import type {Output} from './reexport';const output:Output={length:1};void output;",
+        ),
+      );
+    },
+    // A declaration-preserving edit, so the next pass records the re-export's emitted signature.
+    between: (root) =>
+      put(
+        root,
+        "src/reexport.ts",
+        "export type {Output} from './schema-type';const ignored=1;void ignored;",
+      ),
+    change: (root) => put(root, "src/schema-type.ts", "export interface Output {length:string}"),
+  },
+  "a transitive type change with assumeChangesOnlyAffectDirectDependencies and isolatedModules": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+      config.compilerOptions.assumeChangesOnlyAffectDirectDependencies = true;
+      config.compilerOptions.isolatedModules = true;
+      await put(root, "tsconfig.json", JSON.stringify(config));
+      await put(root, "src/reexport.ts", "export type {Output} from './schema-type';");
+      await put(
+        root,
+        "src/checks.ts",
+        checks(
+          "import type {Output} from './reexport';const output:Output={length:1};void output;",
+        ),
+      );
+    },
+    change: (root) => put(root, "src/schema-type.ts", "export interface Output {length:string}"),
+  },
   "a context value fixed after a failed pass": {
     setup: (root) => put(root, "src/value.ts", "export const value = 'seven';"),
     change: (root) => put(root, "src/value.ts", "export const value = 7;"),
@@ -836,7 +881,7 @@ async function reuseOutcome(root, run) {
 // Launch serve's passes carry semantic diagnostics across a session; after each kind of change, a
 // warm pass must publish the same bytes, or fail with the same error, as a cold one.
 test("a warm session pass matches a cold pass after each kind of change", async (t) => {
-  for (const [name, { setup, change, fails }] of Object.entries(reuseChanges)) {
+  for (const [name, { setup, between, change, fails }] of Object.entries(reuseChanges)) {
     await t.test(name, async () => {
       const root = await fixture();
       const session = createGenerationSession(root, options);
@@ -844,6 +889,7 @@ test("a warm session pass matches a cold pass after each kind of change", async 
       try {
         await setup?.(root);
         await reuseOutcome(root, () => session.generate());
+        await between?.(root);
         await reuseOutcome(root, () => session.generate());
         await change(root);
 

@@ -4,8 +4,6 @@ import { resolve } from "node:path";
 
 interface CachedSource {
   source: ts.SourceFile;
-  // The text's hash: the builder's version of the file, before its resolutions are added.
-  hash: string;
   languageVersion: ts.ScriptTarget;
   impliedNodeFormat: ts.ResolutionMode;
   jsDocParsingMode: ts.JSDocParsingMode | undefined;
@@ -19,7 +17,7 @@ export interface CheckedProgram {
 }
 
 // TypeScript internals; the router pins its typescript dependency, so these can't shift under it.
-type Versioned = ts.SourceFile & { version: string; path: ts.Path };
+type Versioned = ts.SourceFile & { version: string };
 interface Resolutions {
   forEachResolvedModule(
     callback: (
@@ -46,11 +44,14 @@ export class CompilerState {
   #files = new Map<string, CachedSource>();
   #optionsKey: string | undefined;
   #builder: ts.SemanticDiagnosticsBuilderProgram | undefined;
+  // What each import and type reference of the last checked program resolved to.
+  #resolutions = new Map<string, string | undefined>();
 
   clear(): void {
     this.#files.clear();
     this.#optionsKey = undefined;
     this.#builder = undefined;
+    this.#resolutions.clear();
   }
 
   createProgram(
@@ -107,12 +108,10 @@ export class CompilerState {
 
       const source = ts.createSourceFile(file, text, language, true);
 
-      const hash = createHash("sha256").update(text).digest("base64");
-
       // TypeScript's builder compares versions to find changed files; a SourceFile is reused
       // only for identical text, so the text's hash is its version.
-      (source as Versioned).version = hash;
-      this.#files.set(key, { source, hash, languageVersion, impliedNodeFormat, jsDocParsingMode });
+      (source as Versioned).version = createHash("sha256").update(text).digest("base64");
+      this.#files.set(key, { source, languageVersion, impliedNodeFormat, jsDocParsingMode });
 
       return source;
     };
@@ -143,48 +142,42 @@ export class CompilerState {
     options: ts.CompilerOptions,
     host: ts.CompilerHost,
   ): CheckedProgram {
-    const program = this.createProgram(rootNames, options, host);
-    // The builder finds a changed file by its version and the set of files it references. An
-    // import retargeted within that set, such as swapped package.json exports, changes neither,
-    // so each version also covers what the file's imports and type references resolve to.
-    const resolutions = new Map<ts.Path, string[]>();
+    // A watch heuristic that stops invalidation at direct dependents; a cold pass checks them all.
+    const { assumeChangesOnlyAffectDirectDependencies: _direct, ...checked } = options;
+    const program = this.createProgram(rootNames, checked, host);
+    // A changed file's dependents are rechecked only when its emitted declaration changes, and an
+    // import retargeted under unchanged text, such as swapped package.json exports, can leave the
+    // declaration's text intact while its types change. Such a pass checks everything afresh.
+    const resolutions = new Map<string, string | undefined>();
+    let retargeted = false;
 
-    function record(file: ts.Path, entry: string): void {
-      let entries = resolutions.get(file);
+    const record = (key: string, target: string | undefined) => {
+      resolutions.set(key, target);
 
-      if (!entries) {
-        entries = [];
-        resolutions.set(file, entries);
+      if (this.#resolutions.has(key) && this.#resolutions.get(key) !== target) {
+        retargeted = true;
       }
-
-      entries.push(entry);
-    }
-
+    };
     const internal = program as ts.Program & Resolutions;
 
     internal.forEachResolvedModule((resolution, name, mode, file) => {
-      record(file, `module\0${name}\0${mode}\0${resolution.resolvedModule?.resolvedFileName}`);
+      record(`${file}\0module\0${name}\0${mode}`, resolution.resolvedModule?.resolvedFileName);
     });
     internal.forEachResolvedTypeReferenceDirective((resolution, name, mode, file) => {
       record(
-        file,
-        `types\0${name}\0${mode}\0${resolution.resolvedTypeReferenceDirective?.resolvedFileName}`,
+        `${file}\0types\0${name}\0${mode}`,
+        resolution.resolvedTypeReferenceDirective?.resolvedFileName,
       );
     });
+    this.#resolutions = resolutions;
 
-    for (const source of program.getSourceFiles()) {
-      const versioned = source as Versioned;
-      const { hash } = this.#files.get(host.getCanonicalFileName(resolve(source.fileName)))!;
-      const entries = resolutions.get(versioned.path);
+    let previous = this.#builder;
 
-      versioned.version = hash;
-
-      if (entries) {
-        versioned.version += `:${createHash("sha256").update(entries.join("\n")).digest("base64")}`;
-      }
+    if (retargeted) {
+      previous = undefined;
     }
 
-    const builder = ts.createSemanticDiagnosticsBuilderProgram(program, host, this.#builder);
+    const builder = ts.createSemanticDiagnosticsBuilderProgram(program, host, previous);
     let drained = false;
 
     this.#builder = builder;

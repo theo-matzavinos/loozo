@@ -546,9 +546,9 @@ async function editTsconfig(project, file, edit) {
   await project.write(file, JSON.stringify(config));
 }
 
-// Each change runs after two warm passes on one session; `setup` runs before them, and either may
-// leave the project invalid. `fails` is the error the changed project gives, if any; guard helpers
-// typed with a string Flag fail the route's canMatch.
+// Each change runs after two warm passes on one session; `setup` runs before them and `between`
+// between them, and any may leave the project invalid. `fails` is the error the changed project
+// gives, if any; guard helpers typed with a string Flag fail the route's canMatch.
 const reuseChanges = {
   "a leaf's own edit": {
     change: (p) =>
@@ -669,6 +669,56 @@ const reuseChanges = {
           exports: { "./first": "./b.d.ts", "./second": "./a.d.ts" },
         }),
       ),
+  },
+  "package exports swapped after the importer's declaration was emitted": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "src/routes/team/guard-helper.ts",
+        'import type { Flag } from "reuse-extra/first";\nimport type { Flag as Other } from "reuse-extra/second";\n\nexport type Unused = Other;\n\nexport function allowed(): Flag {\n  return true as Flag;\n}\n',
+      );
+      await p.write(
+        "node_modules/reuse-extra/package.json",
+        JSON.stringify({
+          name: "reuse-extra",
+          version: "1.0.0",
+          exports: { "./first": "./a.d.ts", "./second": "./b.d.ts" },
+        }),
+      );
+      await p.write("node_modules/reuse-extra/a.d.ts", flag("boolean"));
+      await p.write("node_modules/reuse-extra/b.d.ts", flag("string"));
+    },
+    // A declaration-preserving edit, so the next pass records the helper's emitted signature.
+    between: async (p) =>
+      p.write(
+        "src/routes/team/guard-helper.ts",
+        `${await p.read("src/routes/team/guard-helper.ts")}\nconst ignored = 1;\n\nvoid ignored;\n`,
+      ),
+    change: (p) =>
+      p.write(
+        "node_modules/reuse-extra/package.json",
+        JSON.stringify({
+          name: "reuse-extra",
+          version: "1.0.0",
+          exports: { "./first": "./b.d.ts", "./second": "./a.d.ts" },
+        }),
+      ),
+  },
+  "a transitive type change with assumeChangesOnlyAffectDirectDependencies": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await editTsconfig(p, "tsconfig.json", (config) => {
+        config.compilerOptions.assumeChangesOnlyAffectDirectDependencies = true;
+      });
+      await p.write("src/routes/team/flag.ts", flag("boolean"));
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("./flag.js"));
+    },
+    between: async (p) =>
+      p.write(
+        "src/routes/team/guard-helper.ts",
+        `${flagGuard("./flag.js")}\nconst ignored = 1;\n\nvoid ignored;\n`,
+      ),
+    change: (p) => p.write("src/routes/team/flag.ts", flag("string")),
   },
   "a nearer node_modules shadows a resolved package": {
     fails: /TS2322/,
@@ -836,7 +886,7 @@ async function reuseOutcome(root, run) {
 // Serve's passes carry semantic diagnostics across a session; after each kind of change, a warm
 // pass must publish the same bytes, or fail with the same error, as a cold one.
 test("a warm session pass matches a cold pass after each kind of change", async (t) => {
-  for (const [name, { setup, change, fails }] of Object.entries(reuseChanges)) {
+  for (const [name, { setup, between, change, fails }] of Object.entries(reuseChanges)) {
     await t.test(name, async () => {
       const project = await reuseProject();
       const options = {
@@ -865,6 +915,7 @@ test("a warm session pass matches a cold pass after each kind of change", async 
 
       await setup?.(project);
       await reuseOutcome(project.root, pass);
+      await between?.(project);
       await reuseOutcome(project.root, pass);
       await change(project);
 
