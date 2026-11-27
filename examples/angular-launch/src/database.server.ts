@@ -13,10 +13,15 @@ export const stats = {
   streamsStarted: 0,
   streamsAborted: 0,
   streamsReturned: 0,
+  // The ticks stream's caller left while it waited on a timer, and that timer still fired.
+  streamsAbortedWhileWaiting: 0,
+  streamsResumedAfterAbort: 0,
   channelsStarted: 0,
   channelsAborted: 0,
   channelsReturned: 0,
   channelCallsSettled: 0,
+  // The add channel's raw-probe cleanup, which awaits a timer after its socket closed, finished.
+  channelCleanupsAfterClose: 0,
   // Test-only: every filter todos.filter was asked for, in order.
   filterInputs: [] as string[],
 };

@@ -5,7 +5,8 @@ import type { ApplicationBinding, ChainMiddleware, RuntimeProcedure } from "./ap
 import { channelMessages, MessageRefused, type ChannelInbox } from "./channel-messages.js";
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
-import { eventStream, type StreamStart } from "./event-stream.js";
+import { eventStream, settleStopped, type StreamStart } from "./event-stream.js";
+import { callSettlement, holdCall } from "./hold-call.js";
 import { outcomeOf, type Outcome } from "./outcomes.js";
 import {
   createResponseEffects,
@@ -266,12 +267,14 @@ interface ChainArgs {
  * an unhandled rejection: each promise it returns is observed here. When the rest of the
  * call a middleware started fails, that failure is logged unless the middleware rejected
  * with that same value, as an awaited rethrow does: the middleware may have left it
- * detached, or replaced it with another error such as `forbidden()`.
+ * detached, or replaced it with another error such as `forbidden()`. Each rest of the call
+ * a middleware starts goes to `track` too, so its end can be awaited after the call's.
  */
 async function runChain(
   chain: readonly ChainMiddleware[],
   context: object,
   args: ChainArgs,
+  track: (continuation: Promise<unknown>) => void,
   last: () => Promise<void>,
 ): Promise<void> {
   async function step(index: number): Promise<void> {
@@ -295,6 +298,7 @@ async function runChain(
       } else {
         continued = step(index + 1).then(() => token);
         rest = continued;
+        track(continued);
       }
 
       // A middleware that doesn't await this promise can't leave its rejection unhandled;
@@ -433,6 +437,8 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  * nothing reads.
  * @param start - Receives a stream's or channel's iterator once its handler returned it.
  * @param inbox - A channel's incoming messages.
+ * @param track - Receives each rest of the call a middleware starts with `next()`, which can
+ * outlive the reply when the middleware didn't wait for it.
  * @returns The reply to send.
  */
 export async function runProcedure(
@@ -446,6 +452,7 @@ export async function runProcedure(
   effects: ResponseEffects = createResponseEffects(),
   start?: (stream: StreamStart) => void,
   inbox?: ChannelInbox,
+  track: (continuation: Promise<unknown>) => void = () => undefined,
 ): Promise<Reply> {
   try {
     assertBoundScope(scope, application, request);
@@ -533,6 +540,7 @@ export async function runProcedure(
         namespace.use,
         context,
         { input: undefined, request, signal, response },
+        track,
         async () => {
           let input: unknown;
 
@@ -552,44 +560,50 @@ export async function runProcedure(
             return;
           }
 
-          await runChain(procedure.use, context, { input, request, signal, response }, async () => {
-            const args: Record<string, unknown> = { context, input, request, signal, response };
+          await runChain(
+            procedure.use,
+            context,
+            { input, request, signal, response },
+            track,
+            async () => {
+              const args: Record<string, unknown> = { context, input, request, signal, response };
 
-            if (isChannel) {
-              // The caller left while the pipeline ran: the handler doesn't run, and the
-              // middleware's `next()` resolves.
-              if (signal.aborted) {
-                reply = { status: 200, body: null };
+              if (isChannel) {
+                // The caller left while the pipeline ran: the handler doesn't run, and the
+                // middleware's `next()` resolves.
+                if (signal.aborted) {
+                  reply = { status: 200, body: null };
+
+                  return;
+                }
+
+                if (!inbox || !procedure.message) {
+                  throw new Error("Launch channels need a websocket and a message schema");
+                }
+
+                args.messages = channelMessages(inbox, procedure.message);
+              }
+
+              const output = await procedure.handler(args);
+
+              if (procedure.kind !== "stream" && !isChannel) {
+                reply = { status: 200, body: JSON.parse(serializeJson(output)) };
 
                 return;
               }
 
-              if (!inbox || !procedure.message) {
-                throw new Error("Launch channels need a websocket and a message schema");
+              if (!start) {
+                throw new Error("Launch streams need an HTTP response to run in");
               }
 
-              args.messages = channelMessages(inbox, procedure.message);
-            }
+              const iterator = (output as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+              const finished = Promise.withResolvers<void>();
 
-            const output = await procedure.handler(args);
-
-            if (procedure.kind !== "stream" && !isChannel) {
-              reply = { status: 200, body: JSON.parse(serializeJson(output)) };
-
-              return;
-            }
-
-            if (!start) {
-              throw new Error("Launch streams need an HTTP response to run in");
-            }
-
-            const iterator = (output as AsyncIterable<unknown>)[Symbol.asyncIterator]();
-            const finished = Promise.withResolvers<void>();
-
-            start({ iterator, finished });
-            await finished.promise;
-            reply = { status: 200, body: null };
-          });
+              start({ iterator, finished });
+              await finished.promise;
+              reply = { status: 200, body: null };
+            },
+          );
         },
       );
     } catch (error) {
@@ -635,6 +649,19 @@ export interface HandleOptions {
    * sibling site. Defaults to none.
    */
   readonly origins?: readonly string[];
+  /**
+   * Keeps each call's work alive after its client leaves, on hosts that may otherwise cancel
+   * it, such as Cloudflare Workers: pass `ctx.waitUntil.bind(ctx)`. Called once, as the call
+   * starts, for every request that passed the checks before dispatch, with a promise that
+   * resolves once the call has ended: its stages, its middleware (after `next()` too, and
+   * whatever a `next()` called while the call ran started, even when its middleware didn't
+   * wait for it) and its handler. Launch asks a stopped stream's or channel's iterator to
+   * return once: a generator suspended at a `yield` runs its `finally` blocks, and one that
+   * never started runs none of its body. The promise never rejects.
+   * If `waitUntil` throws, Launch logs it and the call goes on without it. Defaults to none:
+   * Node and Deno keep a request's work alive.
+   */
+  readonly waitUntil?: (settled: Promise<void>) => void;
 }
 
 /** The plain-text 400 for an RPC to a host that isn't allowed, logged. */
@@ -730,7 +757,7 @@ export function crossSiteReason(request: Request, origins: readonly string[]): s
 export async function handleRpc(
   application: ApplicationBinding,
   request: Request,
-  { allowedHosts, origins = [] }: HandleOptions,
+  { allowedHosts, origins = [], waitUntil }: HandleOptions,
 ): Promise<Response | null> {
   const url = new URL(request.url);
 
@@ -775,6 +802,7 @@ export async function handleRpc(
     const cancel = new AbortController();
     const signal = AbortSignal.any([scope.request.signal, cancel.signal]);
     const started = Promise.withResolvers<StreamStart>();
+    const continuations: Promise<unknown>[] = [];
     const outcome = runProcedure(
       url.pathname,
       envelope,
@@ -785,7 +813,14 @@ export async function handleRpc(
       signal,
       effects,
       started.resolve,
+      undefined,
+      (continuation) => {
+        continuations.push(continuation);
+      },
     );
+
+    holdCall(waitUntil, callSettlement(outcome, continuations));
+
     // Failures before a stream's handler returned are ordinary replies.
     const first = await Promise.race([outcome, started.promise]);
 
@@ -796,6 +831,9 @@ export async function handleRpc(
       return streamResponse(eventStream(first, outcome, cancel, signal), effects);
     }
 
+    // Middleware that didn't wait for `next()` can still get an iterable after this reply:
+    // nothing streams it, so it ends at once and the middleware around it can finish.
+    void started.promise.then((late) => settleStopped(late, undefined));
     reply = first;
   } catch (error) {
     console.error("Launch request scope failed", error);

@@ -67,15 +67,24 @@ export default defineRoute("live", { parent })
       add: channel({
         message: titleSchema,
         // Test-only: a cookie set before the handler goes on the upgrade's 101 response, and a
-        // count of calls that ended, accepted or not.
+        // count of calls that ended, accepted or not. A raw probe's call (the header browsers
+        // can't send) also cleans up after a timer once its socket closed, which workerd keeps
+        // alive only through the host's waitUntil.
         use: [
-          async ({ context, response, next }) => {
+          async ({ context, request, signal, response, next }) => {
             response.setCookie("proof-channel", context.user.id);
 
             try {
               return await next();
             } finally {
               context.stats.channelCallsSettled += 1;
+
+              const isSlowCleanup = request.headers.get("x-proof-slow-cleanup") === "1";
+
+              if (isSlowCleanup && signal.aborted) {
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                context.stats.channelCleanupsAfterClose += 1;
+              }
             }
           },
         ],
@@ -106,13 +115,27 @@ export default defineRoute("live", { parent })
         },
         handler: async function* ({ context, input, signal, errors }) {
           context.stats.streamsStarted += 1;
+
+          let waiting = false;
+
           signal.addEventListener("abort", () => {
             context.stats.streamsAborted += 1;
+
+            if (waiting) {
+              context.stats.streamsAbortedWhileWaiting += 1;
+            }
           });
 
           try {
             for (let tick = 0; tick < input.count; tick += 1) {
+              waiting = true;
               await new Promise((resolve) => setTimeout(resolve, input.everyMs));
+              waiting = false;
+
+              if (signal.aborted) {
+                context.stats.streamsResumedAfterAbort += 1;
+              }
+
               yield { tick, user: context.user.id };
             }
 
