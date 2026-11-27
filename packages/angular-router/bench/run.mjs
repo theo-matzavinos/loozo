@@ -7,7 +7,7 @@
 // gate lock; a raw node bench/run.mjs refuses to start. See bench/README.md for what each number
 // means and tools/bench/README.md for the shared contract.
 import { createHash } from "node:crypto";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,11 +24,12 @@ import {
   readWorkspace,
   setCache,
 } from "./consumer.mjs";
-import { blockSize, editedRoute, writeFixture } from "./fixture.mjs";
+import { blockSize, editedRoute, screens, writeFixture } from "./fixture.mjs";
 import { createLaunchConsumer, launchDirectory } from "./launch-consumer.mjs";
 import { writeLaunchFixture } from "./launch-fixture.mjs";
 import { metrics } from "./metrics.mjs";
 import {
+  measureColdStarts,
   measureNavigation,
   measureRequests,
   requireChromium,
@@ -53,7 +54,17 @@ const workloads = {
     generator: "generate.mjs",
     budgets: "budgets.json",
     serve: true,
-    samples: { generate: 3, edits: 3, build: 1, ngc: 3, tsc: 1, boot: 10, cold: 10, warm: 30 },
+    samples: {
+      generate: 3,
+      edits: 3,
+      build: 1,
+      ngc: 3,
+      tsc: 1,
+      boot: 10,
+      cold: 10,
+      warm: 30,
+      screens: 30,
+    },
     runtime: measureRouterRuntime,
     // Only the runtime phase needs a browser, so a deterministic run doesn't check for one.
     setup: async ({ deterministic }) => {
@@ -74,7 +85,7 @@ const workloads = {
       serveCache: cachePolicy.serve,
       build:
         "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
-      runtime: runtimeConditions.router,
+      runtime: `${runtimeConditions.router} ${runtimeConditions.bound}`,
     },
   },
   // The router workload with a retained and a remembered key on every block root and session
@@ -87,7 +98,7 @@ const workloads = {
     generator: "generate.mjs",
     budgets: "remembered-budgets.json",
     serve: false,
-    samples: { generate: 3, build: 1, ngc: 3, tsc: 1, boot: 10, cold: 10, warm: 30 },
+    samples: { generate: 3, build: 1, ngc: 3, tsc: 1, boot: 10, cold: 10, warm: 30, screens: 30 },
     runtime: (options) => measureRouterRuntime(options, { bootSearch: "?pageSize=50" }),
     setup: async ({ deterministic }) => {
       if (!deterministic) {
@@ -103,7 +114,7 @@ const workloads = {
         "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited internal generate() without persistent compiler state.",
       build:
         "ng build through the router application target (generator preflight included): browser build, scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
-      runtime: `${runtimeConditions.router} The remembered workload boots at ?pageSize=50, its warm links carry pageSize=50, and its cold navigation enters another block root without it, which restores it from sessionStorage.`,
+      runtime: `${runtimeConditions.router} ${runtimeConditions.bound} The remembered workload boots at ?pageSize=50, its warm links carry pageSize=50, and its cold navigation enters another block root without it, which restores it from sessionStorage.`,
     },
   },
   launch: {
@@ -113,7 +124,16 @@ const workloads = {
     generator: "launch-generate.mjs",
     budgets: "launch-budgets.json",
     serve: false,
-    samples: { generate: 3, build: 1, ngc: 3, tsc: 1, ssr: 1000, rpc: 1000 },
+    samples: {
+      generate: 3,
+      build: 1,
+      ngc: 3,
+      tsc: 1,
+      ssr: 1000,
+      rpc: 1000,
+      large: 100,
+      starts: 10,
+    },
     runtime: measureLaunchRuntime,
     built: [
       join(packageDirectory, "node/src/generation/generate.js"),
@@ -274,18 +294,26 @@ async function measureRouterRuntime({ consumer, run }, { bootSearch = "" } = {})
 
   record("runtime.navigateWarmMs", values.navigateWarmMs);
   record("runtime.navigateWarmP95Ms", values.navigateWarmMs);
+  record("runtime.navigateBoundMs", values.navigateBoundMs);
+
+  for (const screen of screens) {
+    record(`runtime.${screen.metric}`, values[screen.metric]);
+  }
+
   result.runtime = {
     chromium: navigation.chromium,
     coldTarget: navigation.coldTarget,
     documentToBootstrapMs: values.documentToBootstrapMs,
+    screens: navigation.screens,
   };
   progress(
-    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${singleBlock ? "not sampled (one block)" : duration(result.metrics["runtime.navigateColdMs"])}, warm ${duration(result.metrics["runtime.navigateWarmMs"])} (medians)`,
+    `  bootstrap ${duration(result.metrics["runtime.bootstrapMs"])}, cold ${singleBlock ? "not sampled (one block)" : duration(result.metrics["runtime.navigateColdMs"])}, warm ${duration(result.metrics["runtime.navigateWarmMs"])}, bound ${duration(result.metrics["runtime.navigateBoundMs"])}, links ${duration(result.metrics["runtime.linksNavigateMs"])}, readers ${duration(result.metrics["runtime.readersNavigateMs"])}, active readers ${duration(result.metrics["runtime.activeReadersNavigateMs"])} (medians)`,
   );
 }
 
-// SSR, query and mutation against the built server, then SSR against the same route count built
-// without the block roots' middleware.
+// Cold starts of the built server, then SSR, query, mutation and the large query and mutation
+// against one server, then SSR against the same route count built without the block roots'
+// middleware.
 async function measureLaunchRuntime({ consumer, routes, run }) {
   const { directory, logs, samples, timeoutMs, record, result } = run;
   const bare = join(directory, "consumer-bare");
@@ -302,9 +330,24 @@ async function measureLaunchRuntime({ consumer, routes, run }) {
     timeoutMs,
   });
 
-  result.runtime = { bareConsumer: bare, bareBuildMs: bareBuild.wallMs };
+  const largePayloadBytes = {};
 
-  const withMiddleware = await startServer(join(await buildOutput(consumer), "server/server.mjs"), {
+  result.runtime = { bareConsumer: bare, bareBuildMs: bareBuild.wallMs, largePayloadBytes };
+
+  const entry = join(await buildOutput(consumer), "server/server.mjs");
+  const starts = await measureColdStarts(entry, {
+    cwd: consumer,
+    trials: samples.starts,
+    timeoutMs,
+    logs,
+  });
+
+  record("server.readyMs", starts.values.readyMs);
+  record("server.firstSsrMs", starts.values.firstSsrMs);
+  record("server.firstRpcMs", starts.values.firstRpcMs);
+  result.runtime.coldStarts = { processes: starts.processes, wallMs: starts.wallMs };
+
+  const withMiddleware = await startServer(entry, {
     cwd: consumer,
     log: join(logs, "server.log"),
     timeoutMs,
@@ -334,6 +377,21 @@ async function measureLaunchRuntime({ consumer, routes, run }) {
 
     record("rpc.mutationP50Ms", mutation);
     record("rpc.mutationP95Ms", mutation);
+
+    const largeStarted = performance.now();
+
+    for (const name of ["largeQuery", "largeMutation"]) {
+      const values = await measureRequests(withMiddleware.origin, name, {
+        count: samples.large,
+        timeoutMs,
+        payloadBytes: largePayloadBytes,
+      });
+
+      record(`rpc.${name}P50Ms`, values);
+      record(`rpc.${name}P95Ms`, values);
+    }
+
+    result.runtime.largeWallMs = performance.now() - largeStarted;
   } finally {
     await withMiddleware.stop();
   }
@@ -357,7 +415,7 @@ async function measureLaunchRuntime({ consumer, routes, run }) {
   }
 
   progress(
-    `  SSR ${duration(result.metrics["ssr.p50Ms"])}, without middleware ${duration(result.metrics["ssr.bareP50Ms"])}, query ${duration(result.metrics["rpc.queryP50Ms"])}, mutation ${duration(result.metrics["rpc.mutationP50Ms"])} (medians)`,
+    `  SSR ${duration(result.metrics["ssr.p50Ms"])}, without middleware ${duration(result.metrics["ssr.bareP50Ms"])}, query ${duration(result.metrics["rpc.queryP50Ms"])}, mutation ${duration(result.metrics["rpc.mutationP50Ms"])}, large query ${duration(result.metrics["rpc.largeQueryP50Ms"])}, large mutation ${duration(result.metrics["rpc.largeMutationP50Ms"])}, ready ${duration(result.metrics["server.readyMs"])} (medians)`,
   );
 }
 
@@ -578,6 +636,23 @@ async function measure(scenario, run, workload) {
 
       record("bundle.initial.files", [bundle.initial.files]);
       record("bundle.initial.routeCopies", [bundle.initial.routeCopies]);
+
+      // The deployed server output: every .mjs under dist/proof/server.
+      if (server) {
+        const modules = await files(join(consumer, outputPath, "server"), (name) =>
+          name.endsWith(".mjs"),
+        );
+        let raw = 0;
+
+        for (const module of modules) {
+          const info = await stat(module);
+
+          raw += info.size;
+        }
+
+        record("bundle.server.raw", [raw]);
+        bundle.server = { raw, files: modules.length };
+      }
 
       result.bundle = bundle;
     },

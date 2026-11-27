@@ -115,14 +115,18 @@ await writeFile(templatePath, inlineTemplate[1]);
 await writeFile(pagePath, inlinePage.replace(inlineTemplate[0], 'templateUrl: "./page.html",'));
 
 // Served code may lower the object spread to __spreadValues/__spreadProps and rename bindings, so
-// the probe follows the import() of g0000's loader in main.js to its children chunk, takes the
-// record's text from its own path to the next loadComponent there and looks for a callbacks call.
+// the probe follows the import() of g0000's loader to its children chunk, takes the record's text
+// from its own path to the next loadComponent there and looks for a callbacks call. The route
+// table is in main.js, or in the chunk main.js statically imports routes from once a page imports
+// routes.generated.ts (g0000/static/l5's injectActiveRoute()).
 // g0000's record runs from its path to the next record's path; its loader is the import() after
 // loadChildren there.
 const servedRoot = /path:\s*["']g0000["']([\s\S]*?)(?:path:\s*["']|$)/;
 // The dev server serves an import as "/chunk-….js", with "?t=…" once hot updates replaced it.
 const servedLoader = /loadChildren:[^]*?import\(\s*["']\.?\/([^"'?]+\.js(?:\?[^"']*)?)["']\s*\)/;
 const servedRecord = /path:\s*["']static\/l0["']([\s\S]*?)loadComponent:/;
+const staticImport =
+  /\bimport\s*\{([^}]+)\}\s*from\s*["'](\.?\/chunk-[^"']+\.js(?:\?[^"']*)?)["']/g;
 
 const require = createRequire(join(packageDirectory, "package.json"));
 const { Architect } = require("@angular-devkit/architect");
@@ -227,38 +231,97 @@ async function waitForGenerated(previous, expected) {
   });
 }
 
-// Whether the served record has callbacks, or undefined while its chunk isn't served yet.
-async function servedHasTitle(baseUrl, remainingMs) {
-  const signal = AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs)));
-  const main = await (await fetch(new URL("main.js", baseUrl), { signal })).text();
-  const loader = main.match(servedRoot)?.[1].match(servedLoader);
+// Waits until the served g0000/static/l0 record has callbacks (title) or doesn't. Each probe
+// records the HTTP status of every file it fetched, and the route and children files that showed
+// the expected record. An unavailable file sends the next poll back to main.js; a file without the
+// expected shape fails with the file saved.
+async function waitForServedTitle(baseUrl, title) {
+  const probe = { title, searched: {}, retries: 0 };
 
-  if (!loader) {
-    const evidence = `${resultPath}.unmatched-main.js`;
+  result.servedProbes.push(probe);
 
-    await writeFile(evidence, main);
-    throw new Error(`Served main.js has no children loader for g0000, saved to ${evidence}`);
+  async function source(path, signal) {
+    const url = new URL(path, baseUrl);
+    const file = url.pathname + url.search;
+    const response = await fetch(url, { signal });
+
+    probe.searched[file] = response.status;
+
+    if (!response.ok || response.headers.get("content-type")?.includes("text/html")) {
+      await response.body?.cancel();
+      probe.retries++;
+
+      return undefined;
+    }
+
+    return response.text();
   }
 
-  const response = await fetch(new URL(loader[1], baseUrl), { signal });
+  await waitFor(`the served record with title=${title}`, async (remainingMs) => {
+    // One deadline for main, its route chunk and the children chunk. On a miss, fetch main
+    // again so a rebuild can supply fresh chunk URLs.
+    const signal = AbortSignal.timeout(Math.max(1, Math.ceil(remainingMs)));
+    const main = await source("main.js", signal);
 
-  // A rebuild can replace the chunk between the two requests: not served yet, ask again.
-  if (!response.ok) {
-    return undefined;
-  }
+    if (main === undefined) {
+      return false;
+    }
 
-  const chunk = await response.text();
-  const match = chunk.match(servedRecord);
+    let routeFile = "main.js";
+    let routes = main;
+    let loader = routes.match(servedRoot)?.[1].match(servedLoader);
 
-  if (!match) {
-    const evidence = `${resultPath}.unmatched-${loader[1].replace(/\?.*$/, "")}`;
+    if (!loader) {
+      const imported = [...main.matchAll(staticImport)].find(([, names]) =>
+        names.split(",").some((name) => /^routes(?:\s+as\s+\w+)?$/.test(name.trim())),
+      );
 
-    await writeFile(evidence, chunk);
-    await writeFile(`${resultPath}.unmatched-main.js`, main);
-    throw new Error(`Served ${loader[1]} has no record for ${routeId}, saved to ${evidence}`);
-  }
+      if (imported) {
+        routeFile = imported[2];
+        routes = await source(routeFile, signal);
+        loader = routes?.match(servedRoot)?.[1].match(servedLoader);
+      }
+    }
 
-  return /\b\w*callbacks\w*\(/.test(match[1]);
+    if (routes === undefined) {
+      return false;
+    }
+
+    if (!loader) {
+      const evidence = `${resultPath}.unmatched-routes.js`;
+
+      await writeFile(evidence, routes);
+      throw new Error(
+        `Served ${routeFile} has no children loader for g0000, saved to ${evidence}; searched ${JSON.stringify(probe.searched)}`,
+      );
+    }
+
+    const chunk = await source(loader[1], signal);
+
+    if (chunk === undefined) {
+      return false;
+    }
+
+    const record = chunk.match(servedRecord);
+
+    if (!record) {
+      const evidence = `${resultPath}.unmatched-children.js`;
+
+      await writeFile(evidence, chunk);
+      throw new Error(
+        `Served ${loader[1]} has no record for ${routeId}, saved to ${evidence}; searched ${JSON.stringify(probe.searched)}`,
+      );
+    }
+
+    const titled = /\b\w*callbacks\w*\(/.test(record[1]);
+
+    if (titled === title) {
+      probe.routeFile = routeFile;
+      probe.childrenFile = loader[1];
+    }
+
+    return titled === title;
+  });
 }
 
 const result = {
@@ -277,6 +340,7 @@ const result = {
   },
   edits: [],
   templateEdits: [],
+  servedProbes: [],
 };
 let run;
 let subscription;
@@ -301,11 +365,7 @@ try {
   }
 
   result.startupMs = performance.now() - startup;
-  await waitFor("the served title-less record", async (remainingMs) => {
-    const titled = await servedHasTitle(ready.baseUrl, remainingMs);
-
-    return titled === false;
-  });
+  await waitForServedTitle(ready.baseUrl, false);
 
   let previous = withoutTitle;
 
@@ -331,11 +391,7 @@ try {
 
     const generatedMs = performance.now() - started;
 
-    await waitFor("the served edit", async (remainingMs) => {
-      const titled = await servedHasTitle(ready.baseUrl, remainingMs);
-
-      return titled === title;
-    });
+    await waitForServedTitle(ready.baseUrl, title);
 
     const servedMs = performance.now() - started;
     const edit = {
