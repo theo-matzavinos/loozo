@@ -1,5 +1,5 @@
 import { parseJson } from "../json.js";
-import { createChannelSocket } from "./channel-socket.js";
+import { createChannelSocket, type ChannelSocket } from "./channel-socket.js";
 import type { ApplicationBinding } from "./application.js";
 import {
   createRequestScope,
@@ -14,7 +14,8 @@ import {
   type HandleOptions,
   type Reply,
 } from "./dispatch.js";
-import { failureFrame, type StreamStart } from "./event-stream.js";
+import { failureFrame, settleStopped, type StreamStart } from "./event-stream.js";
+import { holdCall } from "./hold-call.js";
 import { createResponseEffects, type ResponseEffects } from "./response-effects.js";
 
 /**
@@ -58,12 +59,21 @@ function upgrade(effects: ResponseEffects, accept: (socket: WebSocket) => void):
   return { headers: responseHeaders({}, effects), accept };
 }
 
-// A call that failed before it started still upgrades, so the client sees its frame.
-function refusedUpgrade(effects: ResponseEffects, reply: Reply): Upgrade {
+// A call that failed before it started still upgrades, so the client sees its frame. The socket
+// closing, whether after the frame or before it ever opened, ends what's left of the call, such
+// as middleware that didn't wait for `next()`.
+function refusedUpgrade(effects: ResponseEffects, reply: Reply, channel: ChannelSocket): Upgrade {
   return upgrade(effects, (socket) => {
     function fail(): void {
       socket.send(failureFrame(reply));
       socket.close(1000);
+    }
+
+    channel.handOff(socket);
+
+    // Already closed: there's no one to send the frame to.
+    if (socket.readyState === 3) {
+      return;
     }
 
     if (socket.readyState === 0) {
@@ -114,7 +124,7 @@ function refusedUpgrade(effects: ResponseEffects, reply: Reply): Upgrade {
 export async function handleChannelUpgrade(
   application: ApplicationBinding,
   request: Request,
-  { allowedHosts, origins = [] }: HandleOptions,
+  { allowedHosts, origins = [], waitUntil }: HandleOptions,
 ): Promise<Response | Upgrade | null> {
   const url = new URL(request.url);
 
@@ -152,6 +162,7 @@ export async function handleChannelUpgrade(
     // Stages and `request.signal` follow the call: the request until accept, then the socket.
     const scope = createRequestScope(application, new Request(request, { signal: socket.signal }));
     const started = Promise.withResolvers<StreamStart>();
+    const continuations: Promise<unknown>[] = [];
     const outcome = runProcedure(
       url.pathname,
       envelope,
@@ -163,7 +174,13 @@ export async function handleChannelUpgrade(
       effects,
       started.resolve,
       socket.inbox,
+      (continuation) => {
+        continuations.push(continuation);
+      },
     );
+
+    holdCall(waitUntil, outcome, continuations);
+
     // Failures before the handler returned its iterable are frames on an upgraded socket.
     const first = await Promise.race([outcome, started.promise]);
 
@@ -174,6 +191,10 @@ export async function handleChannelUpgrade(
 
       return upgrade(effects, (accepted) => socket.accept(accepted));
     }
+
+    // Middleware that didn't wait for `next()` can still get an iterable after this reply:
+    // no socket runs it, so it ends at once and the middleware around it can finish.
+    void started.promise.then((late) => settleStopped(late, undefined));
 
     // The caller left before the handler ran: nobody reads a frame, the socket just closes.
     if (socket.signal.aborted) {
@@ -190,5 +211,5 @@ export async function handleChannelUpgrade(
 
   effects.commit();
 
-  return refusedUpgrade(effects, reply);
+  return refusedUpgrade(effects, reply, socket);
 }

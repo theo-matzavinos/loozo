@@ -1216,13 +1216,17 @@ List a sibling site's origin the same way to pass Launch's check. For HTTP RPCs 
 ```ts
 // src/server.ts
 import { AngularAppEngine, createRequestHandler } from "@angular/ssr";
+import type { HandleOptions } from "@loozo/angular-launch/server";
 import { createRequestScope, handleRequest, handleUpgrade } from "../generated/server.generated";
 
 const allowedHosts = ["app.example.com"];
 const angular = new AngularAppEngine({ allowedHosts });
 
-export const reqHandler = createRequestHandler(async (request: Request) => {
-  const rpc = await handleRequest(request, { allowedHosts });
+// The host's waitUntil, from hosts that cancel a request's work once its client leaves.
+type WaitUntil = HandleOptions["waitUntil"];
+
+export async function handle(request: Request, waitUntil?: WaitUntil): Promise<Response> {
+  const rpc = await handleRequest(request, { allowedHosts, waitUntil });
 
   if (rpc) {
     return rpc;
@@ -1232,15 +1236,18 @@ export const reqHandler = createRequestHandler(async (request: Request) => {
   const page = await angular.handle(scope.request, scope);
 
   return page ?? new Response("Not found", { status: 404 });
-});
+}
 
-export function upgrade(request: Request) {
-  return handleUpgrade(request, { allowedHosts });
+export const reqHandler = createRequestHandler((request) => handle(request));
+
+export function upgrade(request: Request, waitUntil?: WaitUntil) {
+  return handleUpgrade(request, { allowedHosts, waitUntil });
 }
 ```
 
 - Import from `@angular/ssr`, not `@angular/ssr/node`. `AngularAppEngine` doesn't read `NG_ALLOWED_HOSTS` or `NG_TRUST_PROXY_HEADERS`: pass `allowedHosts`, and `trustProxyHeaders` if you're behind a proxy (it's off by default), to its constructor, and the same hosts to `handleRequest` and `handleUpgrade`. List them in the entry as above, or read them from your platform's configuration.
-- The bundle neither serves the `browser` files nor starts a server. Serve `dist/<app>/browser` as static files, and hand every other request to `reqHandler`, or to `upgrade` when it asks for a websocket, as below.
+- The bundle neither serves the `browser` files nor starts a server. Serve `dist/<app>/browser` as static files, and hand every other request to `reqHandler` (or `handle`), or to `upgrade` when it asks for a websocket, as below.
+- `reqHandler` is what `ng serve` calls, and Angular types it with the request as its only parameter, so the entry exports `handle` too, for a host that passes its `waitUntil` (Cloudflare Workers, below). Node and Deno keep a request's work alive and pass nothing.
 - Nothing polyfills Node modules for you, so your stages, handlers and their dependencies must run on the platform. In-memory state lasts only as long as the platform keeps an instance alive.
 - `upgrade` resolves to `null` for a path outside `/_rpc/`, which you leave to your other websocket routes, to a `Response` that refuses the upgrade, or to an `Upgrade`: accept a websocket with its `headers` on the `101` response, the call's cookies included, and pass the server side to its `accept`.
 
@@ -1300,15 +1307,18 @@ By default, `Deno.serve` aborts `request.signal` once a request is answered, and
 
 ```ts
 // worker.ts
-import { reqHandler, upgrade } from "./dist/<app>/server/server.mjs";
+import { handle, upgrade } from "./dist/<app>/server/server.mjs";
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
+    // Keeps each call's cleanup alive after its client leaves.
+    const waitUntil = ctx.waitUntil.bind(ctx);
+
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      return reqHandler(request);
+      return handle(request, waitUntil);
     }
 
-    const result = await upgrade(request);
+    const result = await upgrade(request, waitUntil);
 
     if (result === null || result instanceof Response) {
       return result ?? new Response("Not found", { status: 404 });
@@ -1339,7 +1349,7 @@ export default {
 
 Wrangler serves the files under `assets` and hands every other request to the worker. Use a compatibility date of 2026-11-17 or later. With an older one, add the `enable_request_signal` flag, without which an incoming request's signal never aborts, so a channel whose client leaves while its stages run isn't noticed until the upgrade; and before 2026-04-07, add `web_socket_auto_reply_to_close` too, without which workerd doesn't answer a client's close frame and Launch doesn't either, so the socket stays closing.
 
-- **When a client leaves, the request's pending work can be dropped.** Its signal aborts and code already queued runs, but Cloudflare may cancel the timers and I/O the request started: locally, a timer set after the client left never fired. A handler waiting on one when its caller leaves then never resumes, so its `finally` blocks don't run, and neither does middleware after `next()`. Do a stream's cleanup in an `abort` listener on `signal`, without awaiting. A channel's handler waiting on `messages` isn't affected: the socket's close ends them. Cloudflare's `ctx.waitUntil` keeps a request's work alive for up to 30 seconds after the client leaves, but Launch doesn't hand it calls.
+- **When a client leaves, Cloudflare may cancel the request's pending work unless `ctx.waitUntil` holds it.** Its signal aborts and code already queued runs, but without `waitUntil` the timers and I/O the request started may never finish: locally, a stream handler waiting on a timer when its client left never resumed. With `waitUntil` passed as above, Launch hands it one promise per call, which resolves once the call has ended: its stages, its middleware after `next()` (also the work a middleware started with `next()` and didn't wait for, such as a timed-out handler) and a stopped stream's or channel's handler, whose iterator Launch asks to return once: a generator suspended at a `yield` runs its `finally` blocks, and one that never started runs none of its body. Cloudflare keeps that work running for up to 30 seconds after the client leaves. Calls a page makes while it renders aren't handed over, so a render whose client leaves can still drop their cleanup.
 - **Flow control:** workerd's `WebSocket` reports `bufferedAmount`, which the server's flow control reads, though Cloudflare doesn't document it.
 - The CI check runs `wrangler dev` locally. Deployed Workers and Durable Objects aren't covered.
 

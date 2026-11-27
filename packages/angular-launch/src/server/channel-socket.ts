@@ -13,6 +13,7 @@ export const messageWindow = 32;
 // WebSocket readyState values; the WebSocket global isn't on every server runtime.
 const connecting = 0;
 const open = 1;
+const closedState = 3;
 
 /**
  * One channel call's side of its websocket. Internal.
@@ -42,6 +43,13 @@ export interface ChannelSocket {
    * @param socket - The accepted socket, open or still connecting.
    */
   accept(socket: WebSocket): void;
+  /**
+   * Takes the socket of a call whose upgrade was refused: from now on the call's signal follows
+   * the socket closing instead of the request, as after `accept`, and `messages` ends with it.
+   *
+   * @param socket - The accepted socket, open, still connecting or already closed.
+   */
+  handOff(socket: WebSocket): void;
 }
 
 /**
@@ -429,6 +437,21 @@ export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
         ending = true;
         void settleStopped(started, undefined);
       }
+    },
+    handOff(accepted) {
+      requestSignal.removeEventListener("abort", follow);
+
+      function end(): void {
+        controller.abort(new DOMException("Launch channel closed", "AbortError"));
+      }
+
+      if (accepted.readyState === closedState) {
+        end();
+
+        return;
+      }
+
+      accepted.addEventListener("close", end, { once: true });
     },
     accept(accepted) {
       requestSignal.removeEventListener("abort", follow);

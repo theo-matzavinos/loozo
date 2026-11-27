@@ -256,13 +256,21 @@ async function fetchText(url, init, ms) {
   return { status: response.status, text: await response.text() };
 }
 
-// Polls `read` until it returns true or `ms` pass; resolves to the milliseconds taken, or -1.
+// Polls `read` until it returns true or `ms` pass; resolves to the milliseconds taken, or -1,
+// also when the read that returned true finished past the deadline.
 async function within(ms, read) {
   const started = Date.now();
 
   while (Date.now() - started < ms) {
-    if (await read()) {
-      return Date.now() - started;
+    const isMet = await read();
+    const elapsed = Date.now() - started;
+
+    if (isMet && elapsed <= ms) {
+      return elapsed;
+    }
+
+    if (isMet) {
+      return -1;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -271,8 +279,8 @@ async function within(ms, read) {
   return -1;
 }
 
-async function verify(runtime, base, browser) {
-  const checks = [];
+// Pushes each check to `checks` as it passes, so a failing runtime's report shows how far it got.
+async function verify(runtime, base, browser, checks) {
   const origin = new URL(base).origin;
   const stats = async () => JSON.parse((await fetchText(`${base}/__proof/stats`, {}, 10_000)).text);
   const add = async (title, headers = {}) => {
@@ -427,37 +435,54 @@ async function verify(runtime, base, browser) {
   );
   checks.push("a stream ends, and rejects with its declared error");
 
-  // The caller leaves while the handler most likely waits on a timer, which workerd may cancel
-  // once the request is (see Launch's README, "Cloudflare Workers").
+  // The caller leaves while the handler waits on its next 1 s timer: the host starts it as soon
+  // as it drains the first value, long before the browser's break arrives. workerd cancels
+  // that timer unless the Worker hands Launch its waitUntil.
   before = await stats();
 
   const broken = await run(live, () =>
-    globalThis.__launchTicks({ count: 1000, everyMs: 50, fail: false }, 1),
+    globalThis.__launchTicks({ count: 1000, everyMs: 1_000, fail: false }, 1),
   );
 
   assert.equal(broken.values.length, 1);
 
   const aborted = await within(
-    5_000,
+    10_000,
     async () => (await stats()).streamsAborted > before.streamsAborted,
   );
+
+  assert.notEqual(aborted, -1, "the stream's signal didn't abort within 10 s");
+
+  // Resuming and returning share one 10 s window, from when the abort was seen.
+  const abortSeen = Date.now();
+  const left = () => 10_000 - (Date.now() - abortSeen);
+
+  assert.equal(
+    (await stats()).streamsAbortedWhileWaiting - before.streamsAbortedWhileWaiting,
+    1,
+    "the abort landed outside the handler's timer, so this run doesn't test resuming from it",
+  );
+
+  const resumed = await within(
+    left(),
+    async () => (await stats()).streamsResumedAfterAbort > before.streamsResumedAfterAbort,
+  );
+
+  assert.notEqual(resumed, -1, "the handler's timer didn't fire within 10 s of the abort");
+
   const returned = await within(
-    5_000,
+    left(),
     async () => (await stats()).streamsReturned > before.streamsReturned,
   );
 
-  assert.notEqual(aborted, -1, "the stream's signal didn't abort within 5 s");
+  assert.notEqual(returned, -1, "the stream's handler didn't return within 10 s of the abort");
 
-  if (runtime.deno) {
-    assert.notEqual(returned, -1, "the stream's handler didn't return within 5 s");
-    checks.push(
-      `break on a stream aborts its handler's signal in ${aborted} ms and it returns in ${returned} ms`,
-    );
-  } else {
-    checks.push(
-      `break on a stream aborts its handler's signal in ${aborted} ms; the handler, waiting on a timer, ${returned === -1 ? "hasn't resumed 5 s later" : `returned in ${returned} ms`}`,
-    );
-  }
+  after = await stats();
+  assert.equal(after.streamsResumedAfterAbort - before.streamsResumedAfterAbort, 1);
+  assert.equal(after.streamsReturned - before.streamsReturned, 1);
+  checks.push(
+    `break on a stream aborts its handler's signal in ${aborted} ms while it waits on a timer, which fires ${resumed} ms later, and it returns ${returned} ms after that`,
+  );
 
   // Closing a page with a channel open ends that call on the server; `live`'s stays open.
   const leaving = await context.newPage();
@@ -491,20 +516,27 @@ async function verify(runtime, base, browser) {
     cookie: "proof-user=alice",
   });
   const beforeAccepted = await stats();
+  // Only this call cleans up after a 200 ms timer once its socket closed.
   const acceptedUpgrade = await rawUpgrade(base, `/_rpc/live/add${query}`, {
     origin,
     cookie: "proof-user=alice",
+    "x-proof-slow-cleanup": "1",
   });
 
-  // The raw socket closes at once; its call ends before the next check counts calls.
-  assert.notEqual(
-    await within(
-      5_000,
-      async () => (await stats()).channelCallsSettled > beforeAccepted.channelCallsSettled,
-    ),
-    -1,
-    "the accepted upgrade's call didn't end within 5 s of its socket closing",
+  // The raw socket closes at once. Its call's middleware counts it settled, then finishes a
+  // cleanup that awaits a 200 ms timer, before the next check counts calls.
+  const cleaned = await within(
+    5_000,
+    async () =>
+      (await stats()).channelCleanupsAfterClose > beforeAccepted.channelCleanupsAfterClose,
   );
+
+  assert.notEqual(
+    cleaned,
+    -1,
+    "the accepted upgrade's middleware didn't finish its cleanup within 5 s of its socket closing",
+  );
+  assert.ok((await stats()).channelCallsSettled > beforeAccepted.channelCallsSettled);
 
   assert.equal(foreignUpgrade.status, 403);
   assert.equal(JSON.parse(foreignUpgrade.body).error.code, "FORBIDDEN");
@@ -514,8 +546,13 @@ async function verify(runtime, base, browser) {
   assert.deepEqual(acceptedUpgrade.headers["set-cookie"], [
     "proof-channel=alice; Path=/; HttpOnly; Secure; SameSite=Lax",
   ]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(
+    (await stats()).channelCleanupsAfterClose - beforeAccepted.channelCleanupsAfterClose,
+    1,
+  );
   checks.push(
-    "refuses foreign-origin and input-less upgrades over HTTP, and sends the call's cookie on the 101; that call ends when its socket closes",
+    `refuses foreign-origin and input-less upgrades over HTTP, and sends the call's cookie on the 101; that call ends when its socket closes, and its middleware's cleanup awaiting a 200 ms timer finishes in ${cleaned} ms`,
   );
 
   // Deno requires Sec-WebSocket-Key, which Launch doesn't check: the host refuses the handshake
@@ -550,8 +587,6 @@ async function verify(runtime, base, browser) {
 
   assert.deepEqual(errors, []);
   await context.close();
-
-  return checks;
 }
 
 const report = {};
@@ -562,8 +597,12 @@ try {
   for (const runtime of runtimes) {
     const server = await serve(runtime);
 
+    const checks = [];
+
+    report[runtime.name] = checks;
+
     try {
-      report[runtime.name] = await verify(runtime, server.base, browser);
+      await verify(runtime, server.base, browser, checks);
     } finally {
       await server.stop();
     }
