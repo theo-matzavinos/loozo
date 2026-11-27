@@ -144,7 +144,7 @@ It stops at the first failing step. Use `NG_BUILD_MAX_WORKERS=2 pnpm run test:fu
 
 `matrix-summary.mjs` lists the complete product inventory from the configuration and requires that:
 
-- its results, every `product/*/playwright-results.json` (the four group results locally, the twelve shard results in CI), were written after the reset;
+- it reads every `product/*/playwright-results.json`: in `test:full` the four group results, written after its reset; in the Release gate the twelve shard results, which the `summary` job downloads from that run into a fresh checkout (no reset runs there);
 - every discovered row in the tier's projects (all 24 for `test:full`, 15 for `test:commit`) was executed exactly once;
 - every row passed or is a known hydration applicability skip: one of the listed `hydration.spec.ts` tests (by title), skipped by an authored `test.skip(condition, reason)` in a project whose `hydration` metadata it does not apply to. Any other skip fails, so a new applicability skip must be added to that list;
 - there were no unexpected, flaky or interrupted results and no top-level errors.
@@ -159,7 +159,7 @@ It writes `.acceptance-evidence/product/matrix-summary.json`, which records:
 
 ## Gates in CI
 
-The repository's workflows run both gates on GitHub-hosted `ubuntu-latest` runners (4 vCPU), with `NG_BUILD_MAX_WORKERS=2`: the **CI** workflow's `origami-commit-gate` job runs `test:commit` for every pull request that reaches Origami, and the **Release gate** workflow runs the release gate for every push to `main`, split across parallel jobs (below). A pull request reaches Origami when it changes `packages/origami-ui`, its example under `examples/origami-ui`, or anything outside every workspace package (the lockfile, `scripts/`, `.github/`); otherwise the job is skipped, which passes its required check. The runner is disposable, so it installs the engines with `playwright install --with-deps` instead of private WebKit libraries. The geometry cases measure text-sized boxes calibrated on the reference host, where the fixtures' `system-ui` and `sans-serif` resolve to Liberation Sans; each job installs [`fonts.conf`](fonts.conf) as the user's fontconfig so the runner measures that font instead of DejaVu Sans. Each job uploads its evidence as an artifact, also when it fails.
+The repository's workflows run both gates on GitHub-hosted `ubuntu-latest` runners (4 vCPU), with `NG_BUILD_MAX_WORKERS=2` wherever they build: the **CI** workflow's `origami-commit-gate` job runs `test:commit` for every pull request that reaches Origami, and the **Release gate** workflow runs the release gate for every push to `main`, split across parallel jobs (below). A pull request reaches Origami when it changes `packages/origami-ui`, its example under `examples/origami-ui`, or anything outside every workspace package (the lockfile, `scripts/`, `.github/`); otherwise the job is skipped, which passes its required check. The runner is disposable, so it installs the engines with `playwright install --with-deps` instead of private WebKit libraries. The geometry cases measure text-sized boxes calibrated on the reference host, where the fixtures' `system-ui` and `sans-serif` resolve to Liberation Sans; each job that runs a browser installs [`fonts.conf`](fonts.conf) as the user's fontconfig so the runner measures that font instead of DejaVu Sans. Each job uploads its evidence as an artifact, also when it fails.
 
 The Release gate runs `test:full`'s steps as 14 jobs, about 30 minutes when runners are free:
 
@@ -216,8 +216,9 @@ Copy a run elsewhere to keep it.
 
 Release qualification is:
 
-- `test:full` green from a clean checkout of an identified commit (`tier` `release` and `uncommitted` empty in `matrix-summary.json`);
-- that summary plus the result files it read and the readiness, package, type and bundle receipts in `.acceptance-evidence/` (in CI: the `origami-release-summary`, `origami-release-shard-*` and `origami-release-checks` artifacts of one Release gate run);
+- in CI, which Publish requires: a green Release gate run on the released commit (or its nearest non-release ancestor), whose `summary` job certified it, with its `origami-release-summary`, `origami-release-shard-*` and `origami-release-checks` artifacts as the summary, results and readiness, package, type and bundle receipts;
+- elsewhere: `test:full` green from a clean checkout of an identified commit, with that summary, the result files it read and the receipts in `.acceptance-evidence/`;
+- either way, `tier` `release` and `uncommitted` empty in `matrix-summary.json`;
 - the D1 whole-subject semantic review, below.
 
 A run from an uncommitted tree needs a saved patch or `acceptance:forensic`; a commit SHA does not identify unrecorded edits.
