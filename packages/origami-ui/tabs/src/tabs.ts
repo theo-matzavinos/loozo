@@ -223,6 +223,7 @@ export class OrigamiTabsState {
 
           return [value];
         }),
+        rovingTabIndex: true,
       };
     }),
     OrigamiTabsOptions.provideExisting(() => OrigamiTabs),

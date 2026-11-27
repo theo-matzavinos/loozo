@@ -102,7 +102,7 @@ export const ownRovingFocus: Provider[] = [
   ɵOrigamiRovingFocusOptions.provideFactory(() => {
     const context = inject(ToggleGroupContext);
 
-    return { orientation: context.orientation, preferred: context.values };
+    return { orientation: context.orientation, preferred: context.values, rovingTabIndex: true };
   }),
 ];
 

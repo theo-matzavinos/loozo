@@ -115,6 +115,8 @@ function defaultSide(): OrigamiPopoverSide {
     ɵOrigamiRovingFocusOptions.provideFactory(() => ({
       orientation: computed(() => "vertical" as const),
       preferred: computed(() => []),
+      // Menu items keep their static tabindex="-1": the menu adds no Tab stop.
+      rovingTabIndex: false,
     })),
     MenuContentContext,
   ],

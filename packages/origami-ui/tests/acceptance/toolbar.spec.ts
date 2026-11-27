@@ -6,6 +6,7 @@ import {
   fixture,
   stopRetentionObservation,
 } from "./observation.js";
+import { recordAtNextFocus } from "./roving.js";
 
 function tool(page: Page, key: string): Locator {
   return page.getByTestId(`toolbar-${key}`);
@@ -224,6 +225,31 @@ test("K2: arrows skip disabled items and wrap; vertical and reading direction; r
   await expect(rtlVerticalPart("first")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
   await expect(rtlVerticalPart("first")).toBeFocused();
+});
+
+test("K16: an arrow move writes the DOM tab stop in its own task, so an unpaced Tab continues from the focused item to the input after the items; the first enabled item then holds the stop", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const keyboard = page.locator('[data-toolbar-case="keyboard"]');
+  const part = (role: string) => casePart(page, "keyboard", role);
+
+  await part("fourth").focus();
+  await expectTabStop(keyboard, part("fourth"));
+  await recordAtNextFocus(keyboard, part("third"));
+  // No wait between the keys: the Tab can arrive before the next render.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Tab");
+  await expect(part("find")).toBeFocused();
+  await expect(part("third")).toHaveAttribute("data-focus-tabindex", "0");
+  await expect(part("fourth")).toHaveAttribute("data-focus-tabindex", "-1");
+  await expect(keyboard.locator('button[data-focus-tabindex="0"]')).toHaveCount(1);
+  await expectTabStop(keyboard, part("first"));
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+  await expectTabStop(keyboard, part("first"));
 });
 
 test("K3: Toolbar groups share one tab stop and arrow sequence in DOM order, in server HTML, after hydration and after a keyed move", async ({
