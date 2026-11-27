@@ -216,7 +216,7 @@ Copy a run elsewhere to keep it.
 
 Release qualification is:
 
-- in CI, which Publish requires: a green Release gate run on the released commit (or its nearest non-release ancestor), whose `summary` job certified it, with its `origami-release-summary`, `origami-release-shard-*` and `origami-release-checks` artifacts as the summary, results and readiness, package, type and bundle receipts;
+- in CI, which Publish requires: a green Release gate run on the released commit or on any commit from it back to its nearest non-release ancestor (release commits only move versions), whose `summary` job certified it, with its `origami-release-summary`, `origami-release-shard-*` and `origami-release-checks` artifacts as the summary, results and readiness, package, type and bundle receipts;
 - elsewhere: `test:full` green from a clean checkout of an identified commit, with that summary, the result files it read and the receipts in `.acceptance-evidence/`;
 - either way, `tier` `release` and `uncommitted` empty in `matrix-summary.json`;
 - the D1 whole-subject semantic review, below.
