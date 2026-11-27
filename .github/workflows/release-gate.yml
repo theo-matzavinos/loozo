@@ -1,7 +1,8 @@
 name: Release gate
 
-# Runs Origami's release gate (test:full) on every push to main. Publish refuses an
-# Origami release unless this passed on the commit it releases.
+# Runs Origami's release gate on every push to main: test:full's steps, split so the product matrix
+# runs as one job per build target × engine. Publish refuses an Origami release unless this passed
+# on the commit it releases.
 on:
   push:
     branches: [main]
@@ -11,22 +12,24 @@ permissions:
   contents: read
 
 # One run at a time, and a newer push replaces a waiting one. A release commit's push only
-# skips the job, so it gets a group of its own and never replaces a waiting gate.
+# skips the jobs, so it gets a group of its own and never replaces a waiting gate.
 concurrency:
   group: "${{ startsWith(github.event.head_commit.message, 'chore(release): ') && format('release-gate-{0}', github.sha) || 'release-gate' }}"
   cancel-in-progress: false
 
+defaults:
+  run:
+    working-directory: packages/origami-ui
+
 jobs:
-  test-full:
+  # Every step of test:full but the product matrix.
+  checks:
     # A release commit only moves versions; Publish checks its nearest non-release ancestor.
     if: "!startsWith(github.event.head_commit.message, 'chore(release): ')"
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 30
     env:
       NG_BUILD_MAX_WORKERS: 2
-    defaults:
-      run:
-        working-directory: packages/origami-ui
     steps:
       - uses: actions/checkout@v7
       # Reads the pnpm version from devEngines.packageManager in package.json.
@@ -45,11 +48,102 @@ jobs:
       - run: |
           install -D tests/acceptance/fonts.conf ~/.config/fontconfig/fonts.conf
           fc-match system-ui | grep -q LiberationSans
-      - run: pnpm run test:full
+      - run: pnpm run acceptance:gate-checks
       - if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: origami-release-evidence
+          name: origami-release-checks
           path: packages/origami-ui/.acceptance-evidence/
           include-hidden-files: true
           if-no-files-found: ignore
+          overwrite: true
+
+  # One runtime-hydration group's server and one engine's projects. A production group builds its
+  # own output, so P1's bundle identity covers the checks job's builds, not the ones served here.
+  shard:
+    if: "!startsWith(github.event.head_commit.message, 'chore(release): ')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      # Every shard reports, so one run shows every failing group and engine.
+      fail-fast: false
+      matrix:
+        target:
+          [development-eager, development-incremental, production-eager, production-incremental]
+        browser: [chromium, firefox, webkit]
+    env:
+      NG_BUILD_MAX_WORKERS: 2
+      ORIGAMI_MATRIX_TARGET: ${{ matrix.target }}
+      ORIGAMI_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      - run: pnpm exec playwright install --with-deps "$ORIGAMI_BROWSER"
+      - run: |
+          install -D tests/acceptance/fonts.conf ~/.config/fontconfig/fonts.conf
+          fc-match system-ui | grep -q LiberationSans
+      - run: pnpm run acceptance:prepare
+      - run: pnpm run acceptance:browser-readiness "$ORIGAMI_BROWSER"
+      - run: pnpm run acceptance:test
+      # This runner's own consumer installation and engine, beside its results.
+      - if: always()
+        run: |
+          receipts=".acceptance-evidence/product/$ORIGAMI_MATRIX_TARGET-$ORIGAMI_BROWSER/receipts"
+          mkdir -p "$receipts"
+          for file in consumer-installation.json "browser-readiness-$ORIGAMI_BROWSER.json"; do
+            if [ -f ".acceptance-evidence/$file" ]; then cp ".acceptance-evidence/$file" "$receipts/"; fi
+          done
+      # Rooted at product/, so the twelve archives merge into one directory per shard.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: origami-release-shard-${{ matrix.target }}-${{ matrix.browser }}
+          path: packages/origami-ui/.acceptance-evidence/product/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          overwrite: true
+
+  # Certifies the twelve shards' results against the inventory, as test:full's last step does.
+  summary:
+    needs: [checks, shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          pnpm_config_pm_on_fail: error
+          pnpm_config_verify_deps_before_run: error
+      # The summary records the versions from this consumer installation.
+      - run: pnpm run acceptance:prepare
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: origami-release-shard-*
+          merge-multiple: true
+          path: packages/origami-ui/.acceptance-evidence/product/
+      - uses: actions/download-artifact@v8
+        with:
+          name: origami-release-checks
+          path: ${{ runner.temp }}/checks
+      - run: cp "$RUNNER_TEMP/checks/browser-readiness.json" .acceptance-evidence/
+      - run: node tests/acceptance/matrix-summary.mjs
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: origami-release-summary
+          path: packages/origami-ui/.acceptance-evidence/product/matrix-summary.json
+          if-no-files-found: ignore
+          overwrite: true

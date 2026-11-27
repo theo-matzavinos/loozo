@@ -1,24 +1,23 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, globSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFileSync, spawnSync } from "node:child_process";
 import path from "node:path";
 
-// Completeness of ordinary Playwright JSON results, not the shape of the command that produced them.
-// `--reset` starts an invocation of the full matrix: it refuses a focused selection and deletes every
-// result this check reads, so only the group results written after it can be certified.
+// Completeness of ordinary Playwright JSON results, not the shape of the command that produced them:
+// every result file under the product evidence, whether `acceptance:matrix`'s four groups or the
+// Release gate's twelve group × engine shards. `--reset` starts an invocation of the full matrix: it
+// refuses a focused selection and deletes every result this check reads, so only results written
+// after it can be certified.
 const groups = [
   "development-eager",
   "development-incremental",
   "production-eager",
   "production-incremental",
 ];
-const files = [];
-
-for (const group of groups) {
-  files.push(`.acceptance-evidence/product/${group}/playwright-results.json`);
-}
+const resultFiles = ".acceptance-evidence/product/*/playwright-results.json";
+const files = globSync(resultFiles).sort();
 
 const summaryFile = ".acceptance-evidence/product/matrix-summary.json";
 const reset = process.argv[2] === "--reset";
@@ -164,9 +163,9 @@ const projects = new Map();
 const skipReasons = new Map();
 const failures = [];
 
-for (const file of files) {
-  assert.ok(existsSync(file), `${file}: missing; this invocation did not complete that group`);
+assert.ok(files.length > 0, `No ${resultFiles}: the matrix wrote no results`);
 
+for (const file of files) {
   const report = JSON.parse(await readFile(file, "utf8"));
 
   assert.deepEqual(report.errors, [], `${file}: top-level errors`);
@@ -254,14 +253,40 @@ if (existsSync(".acceptance-evidence/browser-readiness.json")) {
   browsers = JSON.parse(await readFile(".acceptance-evidence/browser-readiness.json", "utf8"));
 }
 
+// A Release gate shard ran on its own runner: its consumer installation and engine readiness.
+const shards = {};
+
+for (const file of files) {
+  const receipts = path.join(path.dirname(file), "receipts");
+
+  if (!existsSync(receipts)) {
+    continue;
+  }
+
+  const shard = {};
+
+  for (const name of globSync("*.json", { cwd: receipts }).sort()) {
+    shard[name] = JSON.parse(await readFile(path.join(receipts, name), "utf8"));
+  }
+
+  shards[path.basename(path.dirname(file))] = shard;
+}
+
 const summary = {
   tier,
   commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
   uncommitted: execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" })
     .split("\n")
     .filter(Boolean),
+  // Who wrote each receipt: this process's consumer installation, and the readiness run beside it.
+  producers: {
+    versions: "the consumer installation this summary ran in",
+    browsers: ".acceptance-evidence/browser-readiness.json (all-engine readiness)",
+    shards: "each result directory's receipts/, written by the run that produced it",
+  },
   versions,
   browsers,
+  shards,
   files: files.map((file) => path.resolve(file)),
   discovered: discovered.size,
   executed: executed.size,

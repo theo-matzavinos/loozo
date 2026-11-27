@@ -50,7 +50,7 @@ jobs:
         with:
           fetch-depth: 0
           ssh-key: ${{ !inputs.dry_run && secrets.RELEASE_DEPLOY_KEY || '' }}
-      # An Origami release needs the Release gate (test:full) green on the commit it releases.
+      # An Origami release needs the Release gate (test:full's steps) green on the commit it releases.
       # Release commits only move versions, so a gate on HEAD, on any release commit below it, or
       # on the nearest non-release commit counts. A push of a release commit skips the gate.
       - if: inputs.package == 'origami-ui'

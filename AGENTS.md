@@ -25,7 +25,7 @@ the commit and release gates run in CI, not on loozo's machine. match the run to
 
 - while iterating, in fix rounds and for mutation checks: `pnpm test` plus the changed primitive's cases, selected by their `acceptance/CASES.md` letter across every spec (`pnpm run test:focus -g '\bN\d+\b'` for tooltip). add the letters of every primitive that composes it: popover's floating, layer and intent pieces add tooltip, presence adds collapsible, accordion, popover and tooltip, the roving core adds tabs, toggle group, toolbar and radio group, `ogButton` adds every button part, and `/utils` adds everything. run them in the other two engines too when focus, pointer or geometry behavior changed (`ORIGAMI_MATRIX_TARGET=development-eager ORIGAMI_BROWSER=<engine> pnpm run acceptance:test -g …`), and under `development-incremental` when hydration behavior changed.
 - at sign-off, after the reviews are clean: push the slice's pull request. its `origami-commit-gate` check runs `test:commit`; the slice is signed off when it and `checks` pass. never run `test:commit` or `test:full` locally.
-- before a release: the Release gate workflow runs `test:full` on every push to `main`, and Publish refuses an Origami release unless it passed on the commit being released.
+- before a release: the Release gate workflow runs `test:full`'s steps, split across parallel jobs, on every push to `main`, and Publish refuses an Origami release unless it passed on the commit being released.
 
 local browser and AOT build steps take a machine-wide lock (`packages/origami-ui/tests/acceptance/gate-lock.sh`), so a run started while another holds it waits instead of contending; never bypass it. don't overlap two runs in one checkout: they share its scratch consumer and evidence.
 
