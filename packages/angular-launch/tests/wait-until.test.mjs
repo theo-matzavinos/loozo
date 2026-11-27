@@ -868,6 +868,60 @@ test("a refused upgrade handed an already closed socket ends what's left of its 
   assert.deepEqual(seen, ["cleanup"]);
 });
 
+test("an accepted channel whose middleware refused after it started ends its leftover work on close", async () => {
+  const seen = [];
+  const namespaces = {
+    chat: {
+      use: [
+        middleware(async ({ next }) => {
+          void next();
+          // Refuses once the channel already runs, without waiting for the rest of the call.
+          await new Promise((resolve) => setTimeout(resolve, 5));
+
+          throw forbidden();
+        }),
+      ],
+      build: ({ channel }) => ({
+        talk: channel({
+          message: anySchema,
+          use: [
+            middleware(async ({ next, signal }) => {
+              try {
+                return await next();
+              } finally {
+                // Cleanup that waits for the call to end, like a lease tied to the signal.
+                if (!signal.aborted) {
+                  await new Promise((resolve) => signal.addEventListener("abort", resolve));
+                }
+
+                seen.push("cleanup");
+              }
+            }),
+          ],
+          // Ends right away; the call's last frame waits for the refusal.
+          handler: async function* () {
+            yield "open";
+          },
+        }),
+      }),
+    },
+  };
+  const { held, waitUntil } = host();
+  const socket = new FakeSocket();
+
+  await logged(async () => {
+    const result = await upgrade(namespaces, upgradeRequest("/_rpc/chat/talk"), waitUntil);
+
+    result.accept(socket);
+    await held[0];
+  });
+
+  assert.deepEqual(JSON.parse(socket.sent[0]), { value: "open" });
+  assert.match(socket.sent.at(-1), /FORBIDDEN/);
+  assert.equal(socket.readyState, 3);
+  assert.deepEqual(seen, ["cleanup"]);
+});
+
 test("a waitUntil that throws is logged, and the stream still streams and ends", async () => {
   const namespaces = {
     live: {

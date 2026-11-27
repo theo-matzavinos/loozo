@@ -15,7 +15,7 @@ import {
   type Reply,
 } from "./dispatch.js";
 import { failureFrame, settleStopped, type StreamStart } from "./event-stream.js";
-import { holdCall } from "./hold-call.js";
+import { callSettlement, holdCall } from "./hold-call.js";
 import { createResponseEffects, type ResponseEffects } from "./response-effects.js";
 
 /**
@@ -155,14 +155,16 @@ export async function handleChannelUpgrade(
   }
 
   const effects = createResponseEffects();
-  const socket = createChannelSocket(request.signal);
+  const continuations: Promise<unknown>[] = [];
+  // Work the call's middleware started with `next()` that hasn't ended yet.
+  let running = 0;
+  const socket = createChannelSocket(request.signal, () => running > 0);
   let reply: Reply;
 
   try {
     // Stages and `request.signal` follow the call: the request until accept, then the socket.
     const scope = createRequestScope(application, new Request(request, { signal: socket.signal }));
     const started = Promise.withResolvers<StreamStart>();
-    const continuations: Promise<unknown>[] = [];
     const outcome = runProcedure(
       url.pathname,
       envelope,
@@ -176,10 +178,17 @@ export async function handleChannelUpgrade(
       socket.inbox,
       (continuation) => {
         continuations.push(continuation);
+        running += 1;
+
+        const ended = () => {
+          running -= 1;
+        };
+
+        void continuation.then(ended, ended);
       },
     );
 
-    holdCall(waitUntil, outcome, continuations);
+    holdCall(waitUntil, callSettlement(outcome, continuations));
 
     // Failures before the handler returned its iterable are frames on an upgraded socket.
     const first = await Promise.race([outcome, started.promise]);

@@ -6,7 +6,7 @@ import { channelMessages, MessageRefused, type ChannelInbox } from "./channel-me
 import { declaredFailures } from "./errors.js";
 import type { DeclaredFailure } from "./errors.js";
 import { eventStream, settleStopped, type StreamStart } from "./event-stream.js";
-import { holdCall } from "./hold-call.js";
+import { callSettlement, holdCall } from "./hold-call.js";
 import { outcomeOf, type Outcome } from "./outcomes.js";
 import {
   createResponseEffects,
@@ -819,7 +819,7 @@ export async function handleRpc(
       },
     );
 
-    holdCall(waitUntil, outcome, continuations);
+    holdCall(waitUntil, callSettlement(outcome, continuations));
 
     // Failures before a stream's handler returned are ordinary replies.
     const first = await Promise.race([outcome, started.promise]);

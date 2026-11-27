@@ -78,9 +78,15 @@ export interface ChannelSocket {
  * `yield` for want of credit returns at once.
  *
  * @param requestSignal - The upgrade request's signal, followed until `accept`.
+ * @param isWorkRunning - Whether work the call's middleware started with `next()` still runs,
+ * such as what a middleware that already failed didn't wait for: until it ends, the socket
+ * closing aborts the call's signal, even after the call's last frame.
  * @returns The channel's socket side.
  */
-export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
+export function createChannelSocket(
+  requestSignal: AbortSignal,
+  isWorkRunning: () => boolean = () => false,
+): ChannelSocket {
   const controller = new AbortController();
   let socket: WebSocket | undefined;
   let stream: StreamStart | undefined;
@@ -288,9 +294,10 @@ export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
   function onClose(): void {
     closed = true;
 
-    // Until the whole call settled, middleware included, closing still cancels it; a call that
-    // already finished doesn't abort afterwards.
-    if (!stopped) {
+    // Until the whole call settled, middleware and the work it didn't wait for included, closing
+    // still cancels it, also after Launch sent its last frame; a call that already finished
+    // doesn't abort afterwards.
+    if (!stopped || isWorkRunning()) {
       controller.abort(new DOMException("Launch channel closed", "AbortError"));
     }
   }
@@ -442,7 +449,9 @@ export function createChannelSocket(requestSignal: AbortSignal): ChannelSocket {
       requestSignal.removeEventListener("abort", follow);
 
       function end(): void {
-        controller.abort(new DOMException("Launch channel closed", "AbortError"));
+        if (isWorkRunning()) {
+          controller.abort(new DOMException("Launch channel closed", "AbortError"));
+        }
       }
 
       if (accepted.readyState === closedState) {
