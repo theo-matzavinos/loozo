@@ -120,7 +120,7 @@ Focus stays in the input throughout. Keys with Ctrl or Meta, keys already `defau
 | open   | Escape, Alt+ArrowUp                  | close without a choice                                                                                      |
 | open   | Tab, Shift+Tab                       | close without a choice; focus moves on                                                                      |
 | either | Home, End, Left, Right, Space        | the input's own caret and text; Space never chooses                                                         |
-| either | Shift+ArrowDown/Up/PageDown/PageUp   | the browser's own text selection, also with Alt; the list doesn't open, close or move                       |
+| either | Shift+ArrowDown/Up/PageDown/PageUp   | the browser's default (text selection where supported), also with Alt; the list doesn't open, close or move |
 
 Disabled options are skipped by every key. The Trigger has `tabindex="-1"`, so Tab never stops on it.
 

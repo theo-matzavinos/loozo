@@ -61,8 +61,8 @@ export abstract class OrigamiComboboxInputOptions {
  *
  * Keys, with Ctrl and Meta ignored, as are keys already `defaultPrevented`, keys during IME
  * composition and keys while disabled; Alt only with ArrowDown and ArrowUp; Shift+ArrowDown,
- * Shift+ArrowUp, Shift+PageDown and Shift+PageUp, also with Alt, are left to the browser's text
- * selection, open or closed. Closed: ArrowDown and
+ * Shift+ArrowUp, Shift+PageDown and Shift+PageUp, also with Alt, keep the browser's default, text
+ * selection where supported, open or closed. Closed: ArrowDown and
  * ArrowUp open with the selected option highlighted, else the first or last enabled one;
  * Alt+ArrowDown opens with nothing highlighted; Enter and Escape aren't handled. Open: ArrowDown
  * and ArrowUp move to the next or previous enabled option without wrapping, starting from the
@@ -259,7 +259,8 @@ export class OrigamiComboboxInput implements OrigamiComboboxInputOptions {
 
     const key = event.key;
 
-    // Shift with an arrow or a page key, with or without Alt, is the browser's text selection.
+    // Shift with an arrow or a page key, with or without Alt, keeps the browser's default: text
+    // selection where supported.
     if (
       event.shiftKey &&
       (key === "ArrowDown" || key === "ArrowUp" || key === "PageDown" || key === "PageUp")
