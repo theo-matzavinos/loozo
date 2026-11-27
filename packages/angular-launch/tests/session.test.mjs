@@ -746,3 +746,166 @@ test("session stop/overlap/dispose and independent application registrations do 
     await Promise.all([first.dispose(), second.dispose()]);
   }
 });
+
+const checks = (body) =>
+  `import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:number}>=injectRoute().remote.todos.read('hello');void result;${body}`;
+
+// Each change runs after two warm passes on one session; `setup` runs before them and `between`
+// between them, and any may leave the project invalid. `fails` is the error the changed project
+// gives, if any. src/checks.ts
+// imports a generated output, so Launch checks it with the generated files and declarations.
+const reuseChanges = {
+  "a route's own edit": {
+    change: (root) =>
+      put(
+        root,
+        "src/routes/left/route.ts",
+        leaf("left", "todos").replace("value:context.value", "value:context.value+1"),
+      ),
+  },
+  "a schema type reaching a .remote() handler and its importer": {
+    fails: /checks\.ts[^]*TS2322/,
+    change: (root) => put(root, "src/schema-type.ts", "export interface Output {length:string}"),
+  },
+  "a context value reaching every handler through the root stage": {
+    fails: /checks\.ts[^]*TS2322/,
+    change: (root) => put(root, "src/value.ts", "export const value = 'seven';"),
+  },
+  "a global augmentation's type without an import edge": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      await put(root, "src/augment.ts", "declare global {var launchFlag: number;} export {};");
+      await put(
+        root,
+        "src/checks.ts",
+        checks("const flag:number=globalThis.launchFlag;void flag;"),
+      );
+    },
+    change: (root) =>
+      put(root, "src/augment.ts", "declare global {var launchFlag: string;} export {};"),
+  },
+  "a dependency's declaration edit": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      await put(
+        root,
+        "node_modules/launch-extra/package.json",
+        JSON.stringify({ name: "launch-extra", version: "1.0.0", types: "./a.d.ts" }),
+      );
+      await put(root, "node_modules/launch-extra/a.d.ts", "export type Flag = number;");
+      await put(
+        root,
+        "src/checks.ts",
+        checks("import type {Flag} from 'launch-extra';const flag:Flag=1;void flag;"),
+      );
+    },
+    change: (root) => put(root, "node_modules/launch-extra/a.d.ts", "export type Flag = string;"),
+  },
+  "a transitive type change through a re-export with assumeChangesOnlyAffectDirectDependencies": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+      config.compilerOptions.assumeChangesOnlyAffectDirectDependencies = true;
+      await put(root, "tsconfig.json", JSON.stringify(config));
+      await put(root, "src/reexport.ts", "export type {Output} from './schema-type';");
+      await put(
+        root,
+        "src/checks.ts",
+        checks(
+          "import type {Output} from './reexport';const output:Output={length:1};void output;",
+        ),
+      );
+    },
+    // A declaration-preserving edit, so the next pass records the re-export's emitted signature.
+    between: (root) =>
+      put(
+        root,
+        "src/reexport.ts",
+        "export type {Output} from './schema-type';const ignored=1;void ignored;",
+      ),
+    change: (root) => put(root, "src/schema-type.ts", "export interface Output {length:string}"),
+  },
+  "a transitive type change with assumeChangesOnlyAffectDirectDependencies and isolatedModules": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+      config.compilerOptions.assumeChangesOnlyAffectDirectDependencies = true;
+      config.compilerOptions.isolatedModules = true;
+      await put(root, "tsconfig.json", JSON.stringify(config));
+      await put(root, "src/reexport.ts", "export type {Output} from './schema-type';");
+      await put(
+        root,
+        "src/checks.ts",
+        checks(
+          "import type {Output} from './reexport';const output:Output={length:1};void output;",
+        ),
+      );
+    },
+    change: (root) => put(root, "src/schema-type.ts", "export interface Output {length:string}"),
+  },
+  "a context value fixed after a failed pass": {
+    setup: (root) => put(root, "src/value.ts", "export const value = 'seven';"),
+    change: (root) => put(root, "src/value.ts", "export const value = 7;"),
+  },
+  "a context value change under declaration emit": {
+    fails: /checks\.ts[^]*TS2322/,
+    setup: async (root) => {
+      const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
+
+      config.compilerOptions.declaration = true;
+      await put(root, "tsconfig.json", JSON.stringify(config));
+    },
+    change: (root) => put(root, "src/value.ts", "export const value = 'seven';"),
+  },
+};
+
+async function reuseOutcome(root, run) {
+  const files = {};
+  let error;
+
+  try {
+    await run();
+  } catch (failure) {
+    error = failure.message;
+  }
+
+  for (const [path, { bytes }] of Object.entries(await snapshot(root))) {
+    files[path] = bytes;
+  }
+
+  return { error, files };
+}
+
+// Launch serve's passes carry semantic diagnostics across a session; after each kind of change, a
+// warm pass must publish the same bytes, or fail with the same error, as a cold one.
+test("a warm session pass matches a cold pass after each kind of change", async (t) => {
+  for (const [name, { setup, between, change, fails }] of Object.entries(reuseChanges)) {
+    await t.test(name, async () => {
+      const root = await fixture();
+      const session = createGenerationSession(root, options);
+
+      try {
+        await setup?.(root);
+        await reuseOutcome(root, () => session.generate());
+        await between?.(root);
+        await reuseOutcome(root, () => session.generate());
+        await change(root);
+
+        const warm = await reuseOutcome(root, () => session.generate());
+        const cold = await reuseOutcome(root, () => generate(root, options));
+
+        if (fails) {
+          assert.match(cold.error ?? "", fails);
+        } else {
+          assert.equal(cold.error, undefined);
+        }
+
+        assert.deepEqual(warm, cold);
+      } finally {
+        await session.dispose();
+      }
+    });
+  }
+});
