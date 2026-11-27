@@ -23,21 +23,25 @@ assert.ok(
 );
 assert.ok(tier === "commit" || tier === "release", "ORIGAMI_TIER must be commit or release");
 
-// The commit tier runs each axis only where it reaches the library. A project's `grep` also sees
-// the file name. Reduced motion changes only Presence and its composers; production and incremental
-// hydration change only creation through hydration and Angular's production errors; the Calendar's
-// seed cases (CA10–CA12), its split Heading boundary (CA21), its hydrated several days and range
-// (CA23) and its hydrated years view and month Calendar (CA44), and the date field's seed (DF12)
-// and its typing replayed into a hydrating block (DF13), the time field's and the date-time field's
-// seeds under eager and incremental hydration (DF32, DF33, DF47, DF48), and the Menu's server HTML
-// and deferred items (MN8), its checkable items' server HTML (MN23) and its submenus' server HTML
-// (MN33), the Toast region's server HTML (TO1) and its toasts waiting for, and replaced before, a
-// deferred region (TO7), the Slider's server HTML (SL1) and its input replayed into a hydrating
-// slider (SL12), and the number field's server HTML in a Field (NF9) and its text typed or stepped
-// before its block hydrates (NF12), the OTP field's server HTML (OT11) and its digits typed before
-// its block hydrates (OT12), the file field's server HTML (FF2), its picks and departures before
-// hydration (FF7) and its split layouts (FF9), the mixed Checkbox's server HTML (J10) and its click
-// replayed into a hydrating select-all parent (J13), Progress's server HTML (PR2) and its bar in a
+// Both tiers run reduced motion only on the Presence specs: the cases that need the project's
+// preference to cover Presence and its composers. Other specs either don't react to it, react
+// outside Presence (ScrollArea's hide transition, left uncovered) or set it per case (Toast's TO5).
+//
+// The commit tier also runs the other axes only where they reach the library. A project's `grep`
+// also sees the file name. Production and incremental hydration change only creation through
+// hydration and Angular's production errors; the Calendar's seed cases (CA10–CA12), its split
+// Heading boundary (CA21), its hydrated several days and range (CA23) and its hydrated years view
+// and month Calendar (CA44), and the date field's seed (DF12) and its typing replayed into a
+// hydrating block (DF13), the time field's and the date-time field's seeds under eager and
+// incremental hydration (DF32, DF33, DF47, DF48), and the Menu's server HTML and deferred items
+// (MN8), its checkable items' server HTML (MN23) and its submenus' server HTML (MN33), the Toast
+// region's server HTML (TO1) and its toasts waiting for, and replaced before, a deferred region
+// (TO7), the Slider's server HTML (SL1) and its input replayed into a hydrating slider (SL12), and
+// the number field's server HTML in a Field (NF9) and its text typed or stepped before its block
+// hydrates (NF12), the OTP field's server HTML (OT11) and its digits typed before its block
+// hydrates (OT12), the file field's server HTML (FF2), its picks and departures before hydration
+// (FF7) and its split layouts (FF9), the mixed Checkbox's server HTML (J10) and its click replayed
+// into a hydrating select-all parent (J13), Progress's server HTML (PR2) and its bar in a
 // dehydrated block (PR7), and the Avatar's server HTML and first client pass (AV2), its images
 // completed before hydration (AV3), its image events while dormant (AV4), its split boundary (AV10)
 // and its fallback-delay recipe before hydration (AV11), the ScrollArea's server HTML and first
@@ -214,7 +218,7 @@ function product(): PlaywrightTestConfig {
             }
 
             project.grep = hydrationAndErrorCases;
-          } else if (tier === "commit" && motion === "reduce") {
+          } else if (motion === "reduce") {
             project.grep = presenceSpecs;
           }
 
