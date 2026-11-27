@@ -2,6 +2,13 @@ import ts from "typescript";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
+// A checked file's resolutions by kind, name and mode, to the file each resolved to.
+interface CheckedFile {
+  version: string;
+  format: ts.ResolutionMode;
+  resolutions: Map<string, string | undefined>;
+}
+
 interface CachedSource {
   source: ts.SourceFile;
   languageVersion: ts.ScriptTarget;
@@ -17,7 +24,7 @@ export interface CheckedProgram {
 }
 
 // TypeScript internals; the router pins its typescript dependency, so these can't shift under it.
-type Versioned = ts.SourceFile & { version: string };
+type Versioned = ts.SourceFile & { version: string; path: ts.Path };
 interface Resolutions {
   forEachResolvedModule(
     callback: (
@@ -44,14 +51,14 @@ export class CompilerState {
   #files = new Map<string, CachedSource>();
   #optionsKey: string | undefined;
   #builder: ts.SemanticDiagnosticsBuilderProgram | undefined;
-  // What each import and type reference of the last checked program resolved to.
-  #resolutions = new Map<string, string | undefined>();
+  // Each file of the last checked program: its version, format and resolutions.
+  #checked = new Map<ts.Path, CheckedFile>();
 
   clear(): void {
     this.#files.clear();
     this.#optionsKey = undefined;
     this.#builder = undefined;
-    this.#resolutions.clear();
+    this.#checked.clear();
   }
 
   createProgram(
@@ -145,31 +152,72 @@ export class CompilerState {
     // A watch heuristic that stops invalidation at direct dependents; a cold pass checks them all.
     const { assumeChangesOnlyAffectDirectDependencies: _direct, ...checked } = options;
     const program = this.createProgram(rootNames, checked, host);
-    // A changed file's dependents are rechecked only when its emitted declaration changes, and an
-    // import retargeted under unchanged text, such as swapped package.json exports, can leave the
-    // declaration's text intact while its types change. Such a pass checks everything afresh.
-    const resolutions = new Map<string, string | undefined>();
-    let retargeted = false;
+    // A changed file's dependents are rechecked only when its emitted declaration changes, and
+    // an import resolving elsewhere under unchanged text, such as swapped package.json exports or
+    // a package's switched module format, can leave declarations' text intact while their types
+    // change. Such a pass checks everything afresh.
+    const checkedFiles = new Map<ts.Path, CheckedFile>();
 
-    const record = (key: string, target: string | undefined) => {
-      resolutions.set(key, target);
+    for (const source of program.getSourceFiles()) {
+      const { path, version, impliedNodeFormat } = source as Versioned;
 
-      if (this.#resolutions.has(key) && this.#resolutions.get(key) !== target) {
-        retargeted = true;
-      }
-    };
+      checkedFiles.set(path, { version, format: impliedNodeFormat, resolutions: new Map() });
+    }
+
     const internal = program as ts.Program & Resolutions;
 
     internal.forEachResolvedModule((resolution, name, mode, file) => {
-      record(`${file}\0module\0${name}\0${mode}`, resolution.resolvedModule?.resolvedFileName);
+      checkedFiles
+        .get(file)
+        ?.resolutions.set(`module\0${name}\0${mode}`, resolution.resolvedModule?.resolvedFileName);
     });
     internal.forEachResolvedTypeReferenceDirective((resolution, name, mode, file) => {
-      record(
-        `${file}\0types\0${name}\0${mode}`,
-        resolution.resolvedTypeReferenceDirective?.resolvedFileName,
-      );
+      checkedFiles
+        .get(file)
+        ?.resolutions.set(
+          `types\0${name}\0${mode}`,
+          resolution.resolvedTypeReferenceDirective?.resolvedFileName,
+        );
     });
-    this.#resolutions = resolutions;
+
+    let retargeted = false;
+
+    for (const [path, file] of checkedFiles) {
+      const last = this.#checked.get(path);
+
+      if (!last) {
+        continue;
+      }
+
+      if (last.format !== file.format) {
+        retargeted = true;
+        break;
+      }
+
+      // Unchanged text resolves exactly as before; changed text may add or drop imports, but
+      // every import it kept must still reach the same file.
+      const unchanged = last.version === file.version;
+
+      if (unchanged && last.resolutions.size !== file.resolutions.size) {
+        retargeted = true;
+        break;
+      }
+
+      for (const [key, target] of file.resolutions) {
+        const kept = last.resolutions.has(key);
+
+        if ((unchanged && !kept) || (kept && last.resolutions.get(key) !== target)) {
+          retargeted = true;
+          break;
+        }
+      }
+
+      if (retargeted) {
+        break;
+      }
+    }
+
+    this.#checked = checkedFiles;
 
     let previous = this.#builder;
 

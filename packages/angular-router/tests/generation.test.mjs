@@ -720,6 +720,73 @@ const reuseChanges = {
       ),
     change: (p) => p.write("src/routes/team/flag.ts", flag("string")),
   },
+  "a re-exporting package switches module format": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "node_modules/reuse-flag/package.json",
+        JSON.stringify({
+          name: "reuse-flag",
+          version: "1.0.0",
+          exports: { ".": { import: "./esm.d.ts", require: "./cjs.d.ts" } },
+        }),
+      );
+      await p.write("node_modules/reuse-flag/esm.d.ts", flag("boolean"));
+      await p.write("node_modules/reuse-flag/cjs.d.ts", flag("string"));
+      await p.write(
+        "node_modules/reuse-reexport/package.json",
+        JSON.stringify({
+          name: "reuse-reexport",
+          version: "1.0.0",
+          type: "module",
+          types: "./index.d.ts",
+        }),
+      );
+      await p.write(
+        "node_modules/reuse-reexport/index.d.ts",
+        'export type { Flag } from "reuse-flag";\n',
+      );
+      // Both targets stay in the program whichever format the re-exporting package has.
+      await p.write(
+        "src/routes/team/guard-helper.ts",
+        'import type { Flag } from "reuse-reexport";\nimport type { Flag as Esm } from "reuse-flag" with { "resolution-mode": "import" };\nimport type { Flag as Cjs } from "reuse-flag" with { "resolution-mode": "require" };\n\nexport type Both = [Esm, Cjs];\n\nexport function allowed(): Flag {\n  return true as Flag;\n}\n',
+      );
+    },
+    change: async (p) =>
+      p.write(
+        "node_modules/reuse-reexport/package.json",
+        JSON.stringify({
+          name: "reuse-reexport",
+          version: "1.0.0",
+          type: "commonjs",
+          types: "./index.d.ts",
+        }),
+      ),
+  },
+  "a module augmentation's type without an import edge": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "src/routes/team/flag.ts",
+        "export interface Registry {}\n\nexport type Flag = Registry extends { flag: infer F } ? F : boolean;\n",
+      );
+      await p.write(
+        "src/augment.ts",
+        'export {};\n\ndeclare module "./routes/team/flag.js" {\n  interface Registry {\n    flag: boolean;\n  }\n}\n',
+      );
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("./flag.js"));
+    },
+    between: async (p) =>
+      p.write(
+        "src/routes/team/guard-helper.ts",
+        `${flagGuard("./flag.js")}\nconst ignored = 1;\n\nvoid ignored;\n`,
+      ),
+    change: (p) =>
+      p.write(
+        "src/augment.ts",
+        'export {};\n\ndeclare module "./routes/team/flag.js" {\n  interface Registry {\n    flag: string;\n  }\n}\n',
+      ),
+  },
   "a nearer node_modules shadows a resolved package": {
     fails: /TS2322/,
     setup: async (p) => {
