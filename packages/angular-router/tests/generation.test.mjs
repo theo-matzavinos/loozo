@@ -489,6 +489,401 @@ async function filesystemProject(overrides = {}) {
   };
 }
 
+// A layout whose guard and resolver come from helper modules, two static leaves, and a $id child
+// whose own child reads the inherited param in its title: the routes serve's reuse matrix edits.
+async function reuseProject() {
+  const project = await filesystemProject();
+  const { header } = project;
+
+  await Promise.all([
+    project.write(
+      "src/routes/team/guard-helper.ts",
+      "export function allowed(): boolean {\n  return true;\n}\n",
+    ),
+    project.write(
+      "src/routes/team/resolver-helper.ts",
+      'export function value(): string {\n  return "resolved";\n}\n',
+    ),
+    project.write(
+      "src/routes/team/route.ts",
+      `${header}import { allowed } from "./guard-helper.js";\nimport { value } from "./resolver-helper.js";\n\nexport default defineRoute("team", {})\n  .canMatch([() => allowed()])\n  .resolve({ value: () => value() })\n  .title(() => "team");\n`,
+    ),
+    project.write("src/routes/team/static/l0/route.ts", reuseLeaf("l0")),
+    project.write("src/routes/team/static/l1/route.ts", reuseLeaf("l1")),
+    project.write(
+      "src/routes/team/$id/route.ts",
+      'import { defineRoute, numberParam } from "@loozo/angular-router";\nimport parent from "../route.js";\n\nexport default defineRoute("$id", { parent, params: { id: numberParam } });\n',
+    ),
+    project.write(
+      "src/routes/team/$id/detail/route.ts",
+      `${header}import parent from "../route.js";\n\nexport default defineRoute("detail", { parent }).title(({ params }) => {\n  const id: number = params.id;\n\n  return String(id);\n});\n`,
+    ),
+    project.page("team"),
+    project.page("team/static/l0"),
+    project.page("team/static/l1"),
+    project.page("team/$id"),
+    project.page("team/$id/detail"),
+  ]);
+
+  return project;
+}
+
+function reuseLeaf(name, steps = "") {
+  return `import { defineRoute } from "@loozo/angular-router";\nimport parent from "../../route.js";\n\nexport default defineRoute("static/${name}", { parent })${steps};\n`;
+}
+
+const flagGuard = (from) =>
+  `import type { Flag } from "${from}";\n\nexport function allowed(): Flag {\n  return true as Flag;\n}\n`;
+const globalGuard = "export function allowed() {\n  return globalThis.reuseFlag;\n}\n";
+const flag = (type) => `export type Flag = ${type};\n`;
+const packageJson = (types, version = "1.0.0") =>
+  JSON.stringify({ name: "reuse-extra", version, types });
+
+async function editTsconfig(project, file, edit) {
+  const config = JSON.parse(await project.read(file));
+
+  edit(config);
+  await project.write(file, JSON.stringify(config));
+}
+
+// Each change runs after two warm passes on one session; `setup` runs before them, and either may
+// leave the project invalid. `fails` is the error the changed project gives, if any; guard helpers
+// typed with a string Flag fail the route's canMatch.
+const reuseChanges = {
+  "a leaf's own edit": {
+    change: (p) =>
+      p.write("src/routes/team/static/l0/route.ts", reuseLeaf("l0", '.title(() => "edited")')),
+  },
+  "new route files": {
+    change: async (p) => {
+      await p.write("src/routes/team/static/l2/route.ts", reuseLeaf("l2"));
+      await p.page("team/static/l2");
+    },
+  },
+  "a deleted route directory": {
+    change: (p) => rm(resolve(p.root, "src/routes/team/static/l1"), { recursive: true }),
+  },
+  "a deleted imported helper": {
+    fails: /TS2307/,
+    change: (p) => rm(resolve(p.root, "src/routes/team/resolver-helper.ts")),
+  },
+  "a previously missing package appears behind a global augmentation": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "src/augment.ts",
+        '// @ts-ignore\nimport type { Flag } from "reuse-extra";\n\ndeclare global {\n  var reuseFlag: Flag;\n}\n\nexport {};\n',
+      );
+      await p.write("src/routes/team/guard-helper.ts", globalGuard);
+    },
+    change: async (p) => {
+      await p.write("node_modules/reuse-extra/package.json", packageJson("./a.d.ts"));
+      await p.write("node_modules/reuse-extra/a.d.ts", flag("string"));
+    },
+  },
+  "a package's types retargeted": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("reuse-extra"));
+      await p.write("node_modules/reuse-extra/package.json", packageJson("./a.d.ts"));
+      await p.write("node_modules/reuse-extra/a.d.ts", flag("boolean"));
+      await p.write("node_modules/reuse-extra/b.d.ts", flag("string"));
+    },
+    change: (p) => p.write("node_modules/reuse-extra/package.json", packageJson("./b.d.ts")),
+  },
+  "a package symlink retargeted to a new version": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("reuse-extra"));
+
+      for (const [version, type] of [
+        ["1.0.0", "boolean"],
+        ["2.0.0", "string"],
+      ]) {
+        await p.write(
+          `store/reuse-extra@${version}/package.json`,
+          packageJson("./index.d.ts", version),
+        );
+        await p.write(`store/reuse-extra@${version}/index.d.ts`, flag(type));
+      }
+
+      await symlink(
+        resolve(p.root, "store/reuse-extra@1.0.0"),
+        resolve(p.root, "node_modules/reuse-extra"),
+        "dir",
+      );
+    },
+    change: async (p) => {
+      await rm(resolve(p.root, "node_modules/reuse-extra"));
+      await symlink(
+        resolve(p.root, "store/reuse-extra@2.0.0"),
+        resolve(p.root, "node_modules/reuse-extra"),
+        "dir",
+      );
+    },
+  },
+  "a package symlink retargeted behind an identical package.json": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("reuse-extra"));
+
+      for (const [name, type] of [
+        ["a", "boolean"],
+        ["b", "string"],
+      ]) {
+        await p.write(`store/${name}/package.json`, packageJson("./index.d.ts"));
+        await p.write(`store/${name}/index.d.ts`, flag(type));
+      }
+
+      await symlink(resolve(p.root, "store/a"), resolve(p.root, "node_modules/reuse-extra"), "dir");
+    },
+    change: async (p) => {
+      await rm(resolve(p.root, "node_modules/reuse-extra"));
+      await symlink(resolve(p.root, "store/b"), resolve(p.root, "node_modules/reuse-extra"), "dir");
+    },
+  },
+  "package exports swapped between two files an importer already references": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "src/routes/team/guard-helper.ts",
+        'import type { Flag } from "reuse-extra/first";\nimport type { Flag as Other } from "reuse-extra/second";\n\nexport type Unused = Other;\n\nexport function allowed(): Flag {\n  return true as Flag;\n}\n',
+      );
+      await p.write(
+        "node_modules/reuse-extra/package.json",
+        JSON.stringify({
+          name: "reuse-extra",
+          version: "1.0.0",
+          exports: { "./first": "./a.d.ts", "./second": "./b.d.ts" },
+        }),
+      );
+      await p.write("node_modules/reuse-extra/a.d.ts", flag("boolean"));
+      await p.write("node_modules/reuse-extra/b.d.ts", flag("string"));
+    },
+    change: (p) =>
+      p.write(
+        "node_modules/reuse-extra/package.json",
+        JSON.stringify({
+          name: "reuse-extra",
+          version: "1.0.0",
+          exports: { "./first": "./b.d.ts", "./second": "./a.d.ts" },
+        }),
+      ),
+  },
+  "a nearer node_modules shadows a resolved package": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("reuse-extra"));
+      await p.write("node_modules/reuse-extra/package.json", packageJson("./a.d.ts"));
+      await p.write("node_modules/reuse-extra/a.d.ts", flag("boolean"));
+    },
+    change: async (p) => {
+      await p.write("src/node_modules/reuse-extra/package.json", packageJson("./a.d.ts"));
+      await p.write("src/node_modules/reuse-extra/a.d.ts", flag("string"));
+    },
+  },
+  "a new file shadows a relative resolution": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("./flag"));
+      await p.write("src/routes/team/flag/index.ts", flag("boolean"));
+    },
+    change: (p) => p.write("src/routes/team/flag.ts", flag("string")),
+  },
+  "an excluded file shadows a paths fallback": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await editTsconfig(p, "tsconfig.json", (config) => {
+        config.compilerOptions.paths = { "reuse-flag": ["./lib/flag", "./lib/fallback/flag"] };
+      });
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("reuse-flag"));
+      await p.write("lib/fallback/flag.ts", flag("boolean"));
+    },
+    change: (p) => p.write("lib/flag.ts", flag("string")),
+  },
+  "a dependency's declaration edit": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write("src/routes/team/guard-helper.ts", flagGuard("reuse-extra"));
+      await p.write("node_modules/reuse-extra/package.json", packageJson("./a.d.ts"));
+      await p.write("node_modules/reuse-extra/a.d.ts", flag("boolean"));
+    },
+    change: (p) => p.write("node_modules/reuse-extra/a.d.ts", flag("string")),
+  },
+  "tsconfig paths added": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "src/augment.ts",
+        '// @ts-ignore\nimport type { Flag } from "reuse-alias";\n\ndeclare global {\n  var reuseFlag: Flag;\n}\n\nexport {};\n',
+      );
+      await p.write("src/routes/team/guard-helper.ts", globalGuard);
+    },
+    change: async (p) => {
+      await editTsconfig(p, "tsconfig.json", (config) => {
+        config.compilerOptions.paths = { "reuse-alias": ["./lib/alias.ts"] };
+      });
+      await p.write("lib/alias.ts", flag("string"));
+    },
+  },
+  "an extended tsconfig edit": {
+    fails: /TS6133/,
+    setup: async (p) => {
+      const config = JSON.parse(await p.read("tsconfig.json"));
+
+      await p.write(
+        "tsconfig.base.json",
+        JSON.stringify({ compilerOptions: config.compilerOptions }),
+      );
+      await p.write(
+        "tsconfig.json",
+        JSON.stringify({ extends: "./tsconfig.base.json", include: config.include }),
+      );
+      await p.write(
+        "src/routes/team/static/l0/route.ts",
+        reuseLeaf("l0").replace("\nexport", "\nconst unused = 1;\n\nexport"),
+      );
+    },
+    change: (p) =>
+      editTsconfig(p, "tsconfig.base.json", (config) => {
+        config.compilerOptions.noUnusedLocals = true;
+      }),
+  },
+  "a helper's return type reaching an unchanged route": {
+    fails: /TS2322/,
+    change: (p) =>
+      p.write(
+        "src/routes/team/guard-helper.ts",
+        'export function allowed(): string {\n  return "no";\n}\n',
+      ),
+  },
+  "a helper fixed after a failed pass": {
+    setup: (p) =>
+      p.write(
+        "src/routes/team/guard-helper.ts",
+        'export function allowed(): string {\n  return "no";\n}\n',
+      ),
+    change: (p) =>
+      p.write(
+        "src/routes/team/guard-helper.ts",
+        "export function allowed(): boolean {\n  return true;\n}\n",
+      ),
+  },
+  "a global augmentation's type without an import edge": {
+    fails: /TS2322/,
+    setup: async (p) => {
+      await p.write(
+        "src/augment.ts",
+        "declare global {\n  var reuseFlag: boolean;\n}\n\nexport {};\n",
+      );
+      await p.write("src/routes/team/guard-helper.ts", globalGuard);
+    },
+    change: (p) =>
+      p.write("src/augment.ts", "declare global {\n  var reuseFlag: string;\n}\n\nexport {};\n"),
+  },
+  "a parent's params reaching an unchanged child": {
+    fails: /detail\/route\.ts.*TS2322/,
+    change: (p) =>
+      p.write(
+        "src/routes/team/$id/route.ts",
+        'import { defineRoute, stringParam } from "@loozo/angular-router";\nimport parent from "../route.js";\n\nexport default defineRoute("$id", { parent, params: { id: stringParam } });\n',
+      ),
+  },
+  "a parent's resolver data type": {
+    change: (p) =>
+      p.write(
+        "src/routes/team/resolver-helper.ts",
+        "export function value(): number {\n  return 1;\n}\n",
+      ),
+  },
+};
+
+// Every generated file and authored definition, by path.
+async function reuseOutputs(root) {
+  const files = new Map();
+
+  async function walk(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+
+      if (entry.name === "node_modules" || entry.name === "store") {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        await walk(path);
+      } else if (entry.name.endsWith(".generated.ts") || entry.name === "route.ts") {
+        files.set(relative(root, path), await readFile(path, "utf8"));
+      }
+    }
+  }
+
+  await walk(root);
+
+  return files;
+}
+
+async function reuseOutcome(root, run) {
+  try {
+    await run();
+
+    return { error: undefined, files: await reuseOutputs(root) };
+  } catch (error) {
+    return { error: error.message, files: await reuseOutputs(root) };
+  }
+}
+
+// Serve's passes carry semantic diagnostics across a session; after each kind of change, a warm
+// pass must publish the same bytes, or fail with the same error, as a cold one.
+test("a warm session pass matches a cold pass after each kind of change", async (t) => {
+  for (const [name, { setup, change, fails }] of Object.entries(reuseChanges)) {
+    await t.test(name, async () => {
+      const project = await reuseProject();
+      const options = {
+        tsconfig: "tsconfig.json",
+        scanDirectories: ["src/routes"],
+        outDirectory: "generated",
+      };
+      const state = {
+        discovery: new CompilerState(),
+        overlay: new CompilerState(),
+        anchor: new AnchorState(),
+      };
+
+      // The serve builder's contract: any failed pass clears every slot.
+      async function pass() {
+        try {
+          await generate(project.root, options, () => false, state);
+        } catch (error) {
+          state.discovery.clear();
+          state.overlay.clear();
+          state.anchor.clear();
+
+          throw error;
+        }
+      }
+
+      await setup?.(project);
+      await reuseOutcome(project.root, pass);
+      await reuseOutcome(project.root, pass);
+      await change(project);
+
+      const warm = await reuseOutcome(project.root, pass);
+      const cold = await reuseOutcome(project.root, () =>
+        generate(project.root, options, () => false),
+      );
+
+      if (fails) {
+        assert.match(cold.error ?? "", fails);
+      } else {
+        assert.equal(cold.error, undefined);
+      }
+
+      assert.deepEqual(warm, cold);
+    });
+  }
+});
+
 test("output checked out with CRLF line endings stays owned and current", async () => {
   const project = await filesystemProject();
   const files = [

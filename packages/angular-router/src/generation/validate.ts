@@ -642,15 +642,24 @@ export function createValidationProgram(
     }
   }
 
-  let program: ts.Program;
-
   if (compiler) {
-    program = compiler.createProgram(rootNames, options, host);
-  } else {
-    program = ts.createProgram({ rootNames, options, host });
+    const { program, semanticDiagnostics } = compiler.createCheckedProgram(
+      rootNames,
+      options,
+      host,
+    );
+
+    return { program, host, obsolete, semanticDiagnostics };
   }
 
-  return { program, host, obsolete };
+  const program = ts.createProgram({ rootNames, options, host });
+
+  return {
+    program,
+    host,
+    obsolete,
+    semanticDiagnostics: (source: ts.SourceFile) => program.getSemanticDiagnostics(source),
+  };
 }
 
 // The default-exported chain of a declaration in the validation program.
@@ -876,7 +885,7 @@ export async function validateRoutes(
   validation: ReturnType<typeof createValidationProgram>,
   canonical?: AnchorState,
 ): Promise<void> {
-  const { program, host, obsolete } = validation;
+  const { program, host, obsolete, semanticDiagnostics } = validation;
 
   if (sources.filesystem) {
     const diagnostics: ts.Diagnostic[] = [];
@@ -884,10 +893,7 @@ export async function validateRoutes(
     for (const declaration of sources.declarations) {
       const source = program.getSourceFile(declaration.file)!;
 
-      diagnostics.push(
-        ...program.getSyntacticDiagnostics(source),
-        ...program.getSemanticDiagnostics(source),
-      );
+      diagnostics.push(...program.getSyntacticDiagnostics(source), ...semanticDiagnostics(source));
     }
 
     if (diagnostics.length > 0) {
@@ -1565,7 +1571,7 @@ function validateCopies(
   shared: ReadonlySet<string>,
   graph: RuntimeGraph,
 ): void {
-  const { program } = validation;
+  const { program, semanticDiagnostics } = validation;
   const base = dirname(sources.configFile);
   const declared = new Set(sources.declarations.map((declaration) => declaration.file));
 
@@ -1726,7 +1732,7 @@ function validateCopies(
       const source = program.getSourceFile(copy)!;
       const diagnostics = [
         ...program.getSyntacticDiagnostics(source),
-        ...program.getSemanticDiagnostics(source),
+        ...semanticDiagnostics(source),
       ];
 
       for (const diagnostic of diagnostics) {

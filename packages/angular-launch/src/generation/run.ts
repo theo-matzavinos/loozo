@@ -654,7 +654,7 @@ function checkGeneratedDomain(
   generated: ReadonlyMap<string, string>,
   redirects?: string,
 ): void {
-  const { program, host } = validation;
+  const { program, host, semanticDiagnostics } = validation;
   const options = program.getCompilerOptions();
   const selected = new Set(generated.keys());
 
@@ -720,10 +720,7 @@ function checkGeneratedDomain(
   for (const file of selected) {
     const source = program.getSourceFile(file)!;
 
-    diagnostics.push(
-      ...program.getSyntacticDiagnostics(source),
-      ...program.getSemanticDiagnostics(source),
-    );
+    diagnostics.push(...program.getSyntacticDiagnostics(source), ...semanticDiagnostics(source));
 
     if (declarationEmit && !source.isDeclarationFile) {
       diagnostics.push(...program.getDeclarationDiagnostics(source));
