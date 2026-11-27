@@ -36,7 +36,7 @@ const ssrRoute = "g0000/$id";
 
 export const runtimeConditions = {
   router: `Headless Chromium through Playwright, one browser process per route count; a static loopback server for dist/proof/browser (no-store, index.html for every other path). Bootstrap: a fresh context per sample, goto /${bootRoute}, from performance.mark("bench:bootstrap") just before bootstrapApplication to the first MutationObserver observation of the page's [data-bench-page] marker; router init, the initial navigation and its lazy chunks are in, HTML/JS transfer and parse aren't (kept as documentToBootstrapMs). Cold: the same page clicks the shell's cold link to the last block's static/l1, an unvisited branch. Warm: one more context, ${warmRoundTrips} discarded round trips, then alternating clicks between g0000/static/l0 and static/l1. Navigations run from a capture-phase click listener's performance.now() to the destination marker's first observation: DOM-committed, not painted. A fresh context isn't a cold OS, disk or JIT; the browser process is warm. Chromium coarsens performance.now() to 0.1 ms.`,
-  launch: `The built server (dist/proof/server/server.mjs from the example's server.ts: request scope, RPC dispatch and abort handling, plus one pathname comparison and one String.replace on each page's HTML), PORT=0, ready on LAUNCH_READY. Requests go over keep-alive loopback at concurrency 1 with x-bench-user: bench, each timed from just before fetch to the body read in full, then validated. In order: 1. Cold starts, on the middleware build: per trial, one fresh server whose only request is GET /g0000/1 and another whose only request is POST /_rpc/g0000/read, no discarded requests; each timed from just before spawn to LAUNCH_READY and to that request's body read in full, then stopped and joined. 2. One warm middleware server; per endpoint ${warmupRequests} discarded requests, then the timed ones: SSR GET /g0000/1 (200 and the page marker); query POST /_rpc/g0000/read and mutation POST /_rpc/g0000/write, with a JSON envelope and the server's origin; the large query POST /_rpc/g0000/large (${rowCount} rows; its first, discarded response holds at least ${largePayloadBytes} UTF-8 bytes, every timed one has its exact length, ${rowCount} rows and rows 0, ${rowCount / 2} and ${rowCount - 1} as generated); the large mutation POST /_rpc/g0000/largeWrite (those rows, serialized once before timing, at least ${largePayloadBytes} UTF-8 bytes; every reply exactly ${largeMutationReply}). 3. The bare server: the same route count built without the block roots' .use(timing) (consumer-bare, an untimed build made before step 1), after the warm server stops; ${warmupRequests} discarded SSR requests, then timed SSR only. The with/without SSR pair bounds end-to-end latency with and without the middleware chain; it doesn't isolate the middleware's cost.`,
+  launch: `The built server (dist/proof/server/server.mjs from the example's server.ts: request scope, RPC dispatch and abort handling, plus one pathname comparison and one String.replace on each page's HTML), PORT=0, ready on LAUNCH_READY. Requests go over keep-alive loopback at concurrency 1 with x-bench-user: bench, each timed from just before fetch to the body read in full, then validated. In order: 1. Cold starts, on the middleware build, after a discarded GET and JSON POST to a throwaway loopback listener start the runner's fetch client: per trial, one fresh server whose only request is GET /g0000/1 and another whose only request is POST /_rpc/g0000/read, no discarded requests; each timed from just before spawn to LAUNCH_READY and to that request's body read in full, then stopped and joined. 2. One warm middleware server; per endpoint ${warmupRequests} discarded requests, then the timed ones: SSR GET /g0000/1 (200 and the page marker); query POST /_rpc/g0000/read and mutation POST /_rpc/g0000/write, with a JSON envelope and the server's origin; the large query POST /_rpc/g0000/large (${rowCount} rows; its first, discarded response holds at least ${largePayloadBytes} UTF-8 bytes, every timed one has its exact length, ${rowCount} rows and rows 0, ${rowCount / 2} and ${rowCount - 1} as generated); the large mutation POST /_rpc/g0000/largeWrite (those rows, serialized once before timing, at least ${largePayloadBytes} UTF-8 bytes; every reply exactly ${largeMutationReply}). 3. The bare server: the same route count built without the block roots' .use(timing) (consumer-bare, an untimed build made before step 1), after the warm server stops; ${warmupRequests} discarded SSR requests, then timed SSR only. The with/without SSR pair bounds end-to-end latency with and without the middleware chain; it doesn't isolate the middleware's cost.`,
   bound: `After warm navigation, the control and screens each start at l0, discard ${warmRoundTrips} round trips, and time only forward legs. Arrival waits for l1's bound sibling href, the expected count and last bound href or search on l3 and l4, or 100 true destination bindings on l5.`,
 };
 
@@ -612,11 +612,37 @@ export async function startServer(entry, { cwd, log, timeoutMs }) {
 // Cold starts: per trial, one fresh server answers GET /g0000/1 first and another POST
 // /_rpc/g0000/read first. Each records spawn → LAUNCH_READY and spawn → that first body read in
 // full; the server is stopped and joined after its request, also when the request fails.
+// Starts this process's fetch client with a GET and a JSON POST to a throwaway loopback listener,
+// so no cold trial, whichever endpoint it sends first, pays for the client's own startup, and no
+// measured server gets an extra request.
+async function warmFetch() {
+  const listener = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => response.end("ok"));
+  });
+
+  listener.listen(0, "127.0.0.1");
+  await once(listener, "listening");
+
+  const origin = `http://127.0.0.1:${listener.address().port}`;
+
+  try {
+    await (await fetch(`${origin}/`)).text();
+    await (await fetch(`${origin}/`, rpc(origin, null))).text();
+  } finally {
+    listener.closeAllConnections();
+    listener.close();
+    await once(listener, "close");
+  }
+}
+
 export async function measureColdStarts(entry, { cwd, trials, timeoutMs, logs }) {
   const values = { readyMs: [], firstSsrMs: [], firstRpcMs: [] };
   const first = { ssr: values.firstSsrMs, query: values.firstRpcMs };
   const processes = [];
   const started = performance.now();
+
+  await warmFetch();
 
   for (let trial = 1; trial <= trials; trial++) {
     for (const endpoint of ["ssr", "query"]) {
