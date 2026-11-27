@@ -1536,3 +1536,89 @@ test("CB22: Combobox Content wider than its input near the right edge of a narro
     await expectClosed(input, content);
   }
 });
+
+test("CB23: Shift with ArrowDown, ArrowUp, PageDown or PageUp is the input's native text selection, closed and open: it opens nothing, moves no active option and isn't prevented", async ({
+  page,
+}, info) => {
+  await fixture(page, "combobox", info);
+
+  const { input, content, option, value, query } = countryParts(page);
+
+  // The input's last non-modifier keydown and whether the Combobox prevented it, read once it
+  // bubbled past the input.
+  await input.evaluate((node: HTMLInputElement) => {
+    node.ownerDocument.addEventListener("keydown", (event) => {
+      if (event.target === node && !["Shift", "Alt"].includes(event.key)) {
+        node.dataset["keydown"] = `${event.key} ${event.defaultPrevented}`;
+      }
+    });
+  });
+
+  const selection = () =>
+    input.evaluate((node: HTMLInputElement) => [node.selectionStart, node.selectionEnd]);
+
+  async function press(key: string): Promise<void> {
+    await input.evaluate((node: HTMLInputElement) => delete node.dataset["keydown"]);
+    await page.keyboard.press(key);
+    await expect(input).toHaveAttribute("data-keydown", `${key.split("+").at(-1)} false`);
+  }
+
+  async function at(caret: number): Promise<void> {
+    await input.focus();
+    await input.evaluate((node: HTMLInputElement, at) => node.setSelectionRange(at, at), caret);
+  }
+
+  for (const open of [false, true]) {
+    await input.focus();
+
+    if (open) {
+      await page.keyboard.press("ArrowDown");
+      await expectOpen(input, content);
+      await expectActive(input, option("gr"), content);
+    }
+
+    const expectUnchanged = async () => {
+      await frames(page);
+
+      if (open) {
+        await expectOpen(input, content);
+        await expectActive(input, option("gr"), content);
+      } else {
+        await expectClosed(input, content);
+      }
+    };
+
+    // The arrows extend the selection to the far end of the single line.
+    await at(0);
+    await press("Shift+ArrowDown");
+    await expect.poll(selection).toEqual([0, 6]);
+    await expectUnchanged();
+    await at(6);
+    await press("Shift+ArrowUp");
+    await expect.poll(selection).toEqual([0, 6]);
+    await expectUnchanged();
+
+    // The page keys are the engine's: Firefox extends to the line's end or start, Chromium and
+    // WebKit keep the caret.
+    for (const [key, extended] of [
+      ["Shift+PageDown", [3, 6]],
+      ["Shift+PageUp", [0, 3]],
+    ] as const) {
+      await at(3);
+      await press(key);
+      expect([[3, 3], extended]).toContainEqual(await selection());
+      await expectUnchanged();
+    }
+
+    // With Alt too: neither opens nor closes.
+    await press(open ? "Alt+Shift+ArrowUp" : "Alt+Shift+ArrowDown");
+    await expectUnchanged();
+
+    await page.keyboard.press("Escape");
+    await expectClosed(input, content);
+  }
+
+  await expect(input).toHaveValue("Greece");
+  await expect(query).toHaveText("Greece");
+  await expect(value).toHaveText("string:gr");
+});
