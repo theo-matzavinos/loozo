@@ -1,6 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { fixture } from "./observation.js";
+import { recordAfterNextKeydown, recordAtNextFocus } from "./roving.js";
 
 const coreKeys = ["profile", "billing", "security"];
 
@@ -323,6 +324,34 @@ test("S3: manual vertical arrows move focus only; Enter selects; Shift+Tab leave
   await expect(part("outputs")).toHaveText("1");
 });
 
+test("S10: an arrow move writes the DOM tab stop in its own task, so an unpaced Shift+Tab leaves the list; the selected tab then holds the stop", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const root = page.locator('[data-tabs-case="manual"]');
+  const part = (role: string) => root.locator(`[data-role="${role}"]`);
+  const list = part("list");
+
+  await part("profile").focus();
+  await expectTabStop(list, part("profile"));
+  await recordAtNextFocus(list, part("security"));
+  // No wait between the keys: the Shift+Tab can arrive before the next render. Billing is
+  // disabled, and manual activation selects nothing.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+Tab");
+  await expect(list.locator(":focus")).toHaveCount(0);
+  await expect(part("security")).toHaveAttribute("data-focus-tabindex", "0");
+  await expect(part("profile")).toHaveAttribute("data-focus-tabindex", "-1");
+  await expect(list.locator('[role="tab"][data-focus-tabindex="0"]')).toHaveCount(1);
+  await expect(part("value")).toHaveText("profile");
+  await expectTabStop(list, part("profile"));
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve))),
+  );
+  await expectTabStop(list, part("profile"));
+});
+
 test("S4: horizontal arrows follow reading direction; vertical arrows ignore it", async ({
   page,
 }, info) => {
@@ -520,9 +549,19 @@ test("S5: no auto-selection; disabled and removed selections keep the value; foc
 
       if (name === "focus-disable") {
         await blurDisabledTargetOnFocus(page);
+        await recordAfterNextKeydown(part("list"));
       }
 
       await page.keyboard.press("ArrowRight");
+
+      // Target disabled itself after the roving focus made it the DOM tab stop, and its own
+      // detectChanges() runs no after-render effects, so only the blur's microtask can move the
+      // stop back to Start before the next render.
+      if (name === "focus-disable") {
+        await expect(part("start")).toHaveAttribute("data-microtask-tabindex", "0");
+        await expect(part("target")).toHaveAttribute("data-microtask-tabindex", "-1");
+      }
+
       // A wrong selection would render only after the zoneless scheduler's next turn (an
       // animation frame or a timer), so let both pass before asserting it never happened.
       await page.evaluate(

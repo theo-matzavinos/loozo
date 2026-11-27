@@ -35,6 +35,12 @@ export abstract class ɵOrigamiRovingFocusOptions {
   abstract readonly orientation: Signal<"horizontal" | "vertical" | "both">;
   /** Values that should hold the tab stop when no item is focused (Tabs: the selected value). */
   abstract readonly preferred: Signal<readonly string[]>;
+  /**
+   * Whether members carry the roving tab stop as their DOM `tabindex`: the Context then writes
+   * it on every member in the same task as a focus move. False for a widget whose items keep a
+   * static `tabindex="-1"` (Menu). Read when the Context writes, never reactively.
+   */
+  abstract readonly rovingTabIndex: boolean;
 
   /**
    * @internal Provides the policy beside its Context on the widget root.
@@ -55,6 +61,11 @@ export abstract class ɵOrigamiRovingFocusOptions {
  * every read. It owns one roving tab stop, arrow/Home/End movement
  * with wrapping, disabled skipping and focus repair. A disabled member that registers as
  * focusable stays a move target and can hold the tab stop, but a move onto it is no navigation.
+ * Under `rovingTabIndex` it also writes the tab stop to every registered member's DOM `tabindex`
+ * when a member takes focus, when the focused member's blur microtask runs and after a render that
+ * changed the stop or membership, so a Tab pressed right after an arrow key continues in authored
+ * order from the newly focused member instead of the previous stop; the items' own `tabindex`
+ * bindings render it on the server and on the first client render.
  * It does not select, activate or use `aria-activedescendant`; a widget that acts on a keyboard
  * move subscribes to `navigations`. A widget that enters at an edge or searches by typeahead,
  * such as a Menu, calls `focusEdge` and `search`; the others never do, and members that register
@@ -141,6 +152,12 @@ export class ɵOrigamiRovingFocusContext {
         target.element.focus();
       }
     });
+
+    // Browser-only. The items' bindings write only when their own value changes, so after an
+    // event-time write a stop that moved on before the render may need this to reach the DOM.
+    afterRenderEffect(() => {
+      this.#mirror();
+    });
   }
 
   /** @internal The element holding the roving tab stop, or null when no member can take focus. */
@@ -206,6 +223,7 @@ export class ɵOrigamiRovingFocusContext {
 
     if (member !== null) {
       this.#focused.set(member);
+      this.#mirror();
     }
   }
 
@@ -227,6 +245,9 @@ export class ɵOrigamiRovingFocusContext {
       if (this.#focused() === member && departed) {
         this.#focused.set(null);
       }
+
+      // Also after no departure: a member a later focus listener disabled is no longer the stop.
+      this.#mirror();
     });
   }
 
@@ -270,6 +291,27 @@ export class ɵOrigamiRovingFocusContext {
     });
 
     return match?.element ?? null;
+  }
+
+  /** Writes the tab stop to each member's DOM `tabindex` where it differs. Browser only. */
+  #mirror(): void {
+    if (!this.#options().rovingTabIndex) {
+      return;
+    }
+
+    const stop = this.#tabStop();
+
+    for (const member of this.#members()) {
+      let tabIndex = "-1";
+
+      if (member === stop) {
+        tabIndex = "0";
+      }
+
+      if (member.element.getAttribute("tabindex") !== tabIndex) {
+        member.element.setAttribute("tabindex", tabIndex);
+      }
+    }
   }
 
   #memberOf(element: HTMLElement): Member | null {

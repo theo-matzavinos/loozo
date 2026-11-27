@@ -1,6 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { fixture } from "./observation.js";
+import { recordAtNextFocus } from "./roving.js";
 
 const speedKeys = ["standard", "express", "same-day"];
 
@@ -367,6 +368,30 @@ test("Q2: all four arrows move and check once, skip disabled radios and wrap; Ta
     await expect(rtlPart(move.focused)).toBeFocused();
     await expect(rtlPart("value")).toHaveText(move.focused);
   }
+});
+
+test("Q12: an arrow move writes the DOM tab stop in its own task, so an unpaced Tab leaves the group; the checked radio then holds the stop", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const group = page.locator('[data-radio-case="keyboard"]');
+  const part = (role: string) => casePart(page, "keyboard", role);
+
+  await part("l").focus();
+  await expectTabStop(group, part("l"));
+  await recordAtNextFocus(group, part("s"));
+  // No wait between the keys: the Tab can arrive before the next render. M is disabled.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("radio-keyboard-after")).toBeFocused();
+  await expect(part("s")).toHaveAttribute("data-focus-tabindex", "0");
+  await expect(part("l")).toHaveAttribute("data-focus-tabindex", "-1");
+  await expect(group.locator('button[data-focus-tabindex="0"]')).toHaveCount(1);
+  await expect(part("value")).toHaveText("s");
+  await expectTabStop(group, part("s"));
+  await settle(page);
+  await expectTabStop(group, part("s"));
 });
 
 test("Q3: a move or click target changed by its own focus handlers is not checked; focus repair never checks or steals focus; a removed checked value is kept", async ({

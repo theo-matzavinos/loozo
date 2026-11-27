@@ -1,6 +1,7 @@
 import { test, expect } from "./contract-test.js";
 import type { Locator, Page } from "playwright/test";
 import { fixture } from "./observation.js";
+import { recordAtNextFocus } from "./roving.js";
 
 const alignmentKeys = ["start", "center", "end"];
 
@@ -327,6 +328,63 @@ test("U3: arrows skip disabled items and wrap; vertical and reading direction; o
   await page.keyboard.press("ArrowLeft");
   await expect(rtlVerticalPart("first")).toBeFocused();
   await expect(rtlVerticalPart("value")).toHaveText("first");
+});
+
+test("U13: an arrow move writes the DOM tab stop in its own task, so an unpaced Tab leaves the group; the pressed item then holds the stop, also after a departure and a value write before the render", async ({
+  page,
+}, info) => {
+  await fixture(page, "core", info);
+
+  const group = page.getByTestId("alignment");
+
+  await align(page, "end").focus();
+  await expectTabStop(group, align(page, "end"));
+  await recordAtNextFocus(group, align(page, "center"));
+  // No wait between the keys: the Tab can arrive before the next render.
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("alignment-outside")).toBeFocused();
+  await expect(align(page, "center")).toHaveAttribute("data-focus-tabindex", "0");
+  await expect(align(page, "end")).toHaveAttribute("data-focus-tabindex", "-1");
+  await expect(group.locator(':scope > button[data-focus-tabindex="0"]')).toHaveCount(1);
+  await expectTabStop(group, align(page, "start"));
+  await settle(page);
+  await expectTabStop(group, align(page, "start"));
+
+  // Focus leaves inside the arrow's own task and the value then changes before any render: the
+  // blur's microtask restores the pressed Start, and only the after-render reconciliation can move
+  // the stop to End, whose binding already holds "0" while Start's holds "-1".
+  await align(page, "end").focus();
+  await settle(page);
+  await expectTabStop(group, align(page, "end"));
+  await group.evaluate((root) => {
+    const document = root.ownerDocument;
+    const outside = document.querySelector<HTMLElement>('[data-testid="alignment-outside"]')!;
+    const writeEnd = document.querySelector<HTMLElement>('[data-testid="script-alignment"]')!;
+
+    document.addEventListener(
+      "keydown",
+      () => {
+        outside.focus();
+        queueMicrotask(() => {
+          for (const element of root.querySelectorAll("[tabindex]")) {
+            element.setAttribute("data-microtask-tabindex", element.getAttribute("tabindex") ?? "");
+          }
+
+          writeEnd.click();
+        });
+      },
+      { once: true },
+    );
+  });
+  await page.keyboard.press("ArrowLeft");
+  await expect(page.getByTestId("alignment-outside")).toBeFocused();
+  await expect(align(page, "start")).toHaveAttribute("data-microtask-tabindex", "0");
+  await expect(align(page, "center")).toHaveAttribute("data-microtask-tabindex", "-1");
+  await expect(align(page, "end")).toHaveAttribute("data-microtask-tabindex", "-1");
+  await settle(page);
+  await expect(page.getByTestId("alignment-value")).toHaveText("end");
+  await expectTabStop(group, align(page, "end"));
 });
 
 test("U4: focus repair never presses or steals focus; items removed or disabled during activation", async ({

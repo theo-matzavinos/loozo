@@ -92,6 +92,7 @@ export class OrigamiToolbarState {
     ɵOrigamiRovingFocusOptions.provideFactory(() => ({
       orientation: inject(ToolbarContext).orientation,
       preferred: computed<readonly string[]>(() => [contentFocusValue]),
+      rovingTabIndex: true,
     })),
     OrigamiToolbarOptions.provideExisting(() => OrigamiToolbar),
   ],

@@ -190,6 +190,7 @@ export class ɵOrigamiRadioGroupRoot {
 
           return [value];
         }),
+        rovingTabIndex: true,
       };
     }),
   ],
