@@ -3,7 +3,8 @@
 //
 //   gNNNN/            layout page; a context stage that refuses a call without a user and
 //                     narrows it to a string, .use(timing), and the gNNNN namespace (a query
-//                     and a mutation); canMatch, resolve and title from two helper modules
+//                     and a mutation; g0000's also has the large query and mutation);
+//                     canMatch, resolve and title from two helper modules
 //     static/l0..l6   seven static leaves under a transparent directory; l1 has a title
 //     $id/            numberParam, layout page; the gNNNNItem namespace (a query and a
 //                     mutation), and a canActivate, resolve and title that call it
@@ -16,6 +17,47 @@ import { dirname, join } from "node:path";
 import { blockSize } from "./fixture.mjs";
 
 const leaves = 7;
+
+// g0000's large query returns rowCount rows of this shape, about 1 MB as JSON, and the runtime
+// phase sends the same rows to its large mutation.
+export const rowCount = 14_000;
+
+export function makeRow(id) {
+  return { id, name: `row-${id}`, tags: ["a", "b"], score: id / 7 };
+}
+
+// Built on the first call, so module load, readiness and the small requests don't include it. The
+// schema only checks that rows is an array.
+const largeServerModule = `
+type Row = { id: number; name: string; tags: string[]; score: number };
+let rows: Row[] | undefined;
+
+export function largeRows(): Row[] {
+  if (rows === undefined) {
+    rows = [];
+
+    for (let id = 0; id < ${rowCount}; id++) {
+      rows.push({ id, name: \`row-\${id}\`, tags: ["a", "b"], score: id / 7 });
+    }
+  }
+
+  return rows;
+}
+
+export const rowsSchema: Schema<{ readonly rows: readonly Row[] }, { readonly rows: readonly unknown[] }> = {
+  "~standard": {
+    version: 1,
+    vendor: "bench",
+    validate(value) {
+      if (typeof value !== "object" || value === null || !("rows" in value) || !Array.isArray(value.rows)) {
+        return { issues: [{ message: "Rows required", path: ["rows"] }] };
+      }
+
+      return { value: { rows: value.rows } };
+    },
+  },
+};
+`;
 
 function blockName(block) {
   return `g${String(block).padStart(4, "0")}`;
@@ -206,11 +248,23 @@ export async function writeLaunchFixture(consumer, routes, { middleware = true }
     middlewareCount = 0;
   }
 
-  await write("src/bench.server.ts", serverModule);
+  await write("src/bench.server.ts", serverModule + largeServerModule);
 
   for (let block = 0; block < blocks; block++) {
     const name = blockName(block);
     const root = `src/routes/${name}`;
+    let imports = rootImports;
+    let largeProcedures = "";
+
+    if (block === 0) {
+      imports += ", largeRows, rowsSchema";
+      largeProcedures = `
+      large: query({ handler: () => largeRows() }),
+      largeWrite: mutation({
+        input: rowsSchema,
+        handler: ({ input }) => ({ count: input.rows.length }),
+      }),`;
+    }
 
     // Distinct per-block helpers that read distinct globals, so no two fold into one.
     await write(
@@ -231,7 +285,7 @@ export async function writeLaunchFixture(consumer, routes, { middleware = true }
       `${root}/route.ts`,
       `import { defineRoute } from "@loozo/angular-launch";
 import { forbidden } from "@loozo/angular-launch/server";
-import { ${rootImports} } from "../../bench.server.js";
+import { ${imports} } from "../../bench.server.js";
 import { allowed } from "./guard-helper.js";
 import { value } from "./resolver-helper.js";
 
@@ -251,7 +305,7 @@ export default defineRoute("${name}", {})
       write: mutation({
         input: textSchema,
         handler: ({ input, context }) => ({ user: context.user, text: input.text }),
-      }),
+      }),${largeProcedures}
     },
   }))
   .canMatch([() => allowed()])
@@ -352,7 +406,7 @@ export default defineRoute("detail", { parent });
     contextStages: blocks,
     middleware: middlewareCount,
     namespaces: blocks * 2,
-    procedures: blocks * 4,
+    procedures: blocks * 4 + 2,
     maxDepth: 3,
   };
 }

@@ -7,6 +7,9 @@
 //     $id/            numberParam, layout page
 //       detail/       leaf with the inherited id
 //
+// g0000's static/l3, l4 and l5 are the runtime phase's screens (see screens below), the same size
+// at every route count.
+//
 // static/ keeps the leaves from overlapping $id (/gNNNN/$id would otherwise match /gNNNN/l0).
 // gNNNN and gNNNN/$id have children, so both load their children's records lazily from their
 // children tables: two per block. The root callbacks keep each block's root copy and helpers in
@@ -15,6 +18,19 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export const blockSize = 10;
+// The runtime phase's screens: g0000 leaves whose pages render many typed links or route readers,
+// each reached from the shell's bench link. `metric` is the runtime key its navigation records.
+export const screens = [
+  { name: "links", leaf: 3, link: "screen-links", metric: "linksNavigateMs", size: 500 },
+  { name: "readers", leaf: 4, link: "screen-readers", metric: "readersNavigateMs", size: 100 },
+  {
+    name: "activeReaders",
+    leaf: 5,
+    link: "screen-active",
+    metric: "activeReadersNavigateMs",
+    size: 100,
+  },
+];
 const leaves = 7;
 
 // The route the serve phase edits: g0000/static/l0 has no callbacks of its own, so adding a
@@ -87,15 +103,118 @@ export default class Page {
 `;
 }
 
+// A screen's template: its items inside [data-bench-content], then the hidden route marker. The
+// items are written out at generation time: an @for would pull Angular's repeater runtime into the
+// startup bundle, even from a lazy page.
+function screenTemplate(route, item, size) {
+  let items = "";
+
+  for (let index = 0; index < size; index++) {
+    items += item(index);
+  }
+
+  return `<h1>{{ route.title() }}</h1><div data-bench-content>${items}</div><span data-bench-page="${route}" hidden></span>`;
+}
+
+// g0000/static/l3: typed links to g0000/$id, built once in a computed and read through @let.
+function linksPageSource(route, { size }) {
+  const template = screenTemplate(
+    route,
+    (index) => `<a [routerLink]="renderedLinks[${index}]">${index}</a>`,
+    size,
+  );
+
+  return `import { Component, computed } from "@angular/core";
+import { RouterLink } from "@angular/router";
+import { injectRoute } from "./route.generated.js";
+import { destination as item } from "../../$id/destination.generated.js";
+
+const ids = Array.from({ length: ${size} }, (_, id) => id);
+
+@Component({
+  imports: [RouterLink],
+  template: \`@let renderedLinks = links();${template}\`,
+})
+export default class Page {
+  readonly route = injectRoute();
+  readonly links = computed(() => ids.map((id) => this.route.link({ to: item, params: { id } })));
+}
+`;
+}
+
+// g0000/static/l4: injectRoute() readers rendering the route's title, params and search. A local
+// JSON.stringify formats them: JsonPipe shares a module with eager directives.
+function readersPageSource(route, { size }) {
+  const template = screenTemplate(route, () => "<bench-reader />", size);
+
+  return `import { Component } from "@angular/core";
+import { injectRoute } from "./route.generated.js";
+
+@Component({
+  selector: "bench-reader",
+  template: \`<span data-bench-title>{{ route.title() ?? "(untitled)" }}</span><span data-bench-params>{{ json(route.params()) }}</span><span data-bench-search>{{ json(route.search()) }}</span>\`,
+})
+class Reader {
+  readonly route = injectRoute();
+  readonly json = JSON.stringify;
+}
+
+@Component({
+  imports: [Reader],
+  template: \`${template}\`,
+})
+export default class Page {
+  readonly route = injectRoute();
+}
+`;
+}
+
+// g0000/static/l5: injectActiveRoute() readers, each binding whether the active route is l5 and
+// rendering its title.
+function activeReadersPageSource(route, { size }) {
+  const template = screenTemplate(route, () => "<bench-active-reader />", size);
+
+  return `import { Component } from "@angular/core";
+import { injectActiveRoute } from "../../../../../generated/routes.generated.js";
+import { injectRoute } from "./route.generated.js";
+import { destination } from "./destination.generated.js";
+
+@Component({
+  selector: "bench-active-reader",
+  template: \`<span [attr.data-bench-active]="active()?.is(destination) ? 'true' : null">{{ active()?.title() ?? "(untitled)" }}</span>\`,
+})
+class ActiveReader {
+  readonly active = injectActiveRoute();
+  readonly destination = destination;
+}
+
+@Component({
+  imports: [ActiveReader],
+  template: \`${template}\`,
+})
+export default class Page {
+  readonly route = injectRoute();
+}
+`;
+}
+
+const screenPages = { 3: linksPageSource, 4: readersPageSource, 5: activeReadersPageSource };
+
 // The shell reads the deepest active route and narrows it to g0000/$id with is(). Its bench links
 // are the runtime phase's navigations: cold to the last block's static/l1, an unvisited branch,
-// and warm between g0000's static/l0 and static/l1.
+// warm between g0000's static/l0 and static/l1, and one to each screen.
 function shellSource(lastBlock, { remembered = false } = {}) {
   // The remembered workload's warm links carry a page size, so each warm commit writes it.
   let warmQuery = "";
 
   if (remembered) {
     warmQuery = ' [queryParams]="{ pageSize: 50 }"';
+  }
+
+  let screenLinks = "";
+
+  for (const { leaf, link } of screens) {
+    screenLinks += `<a data-bench="${link}" routerLink="/g0000/static/l${leaf}"${warmQuery}>${link}</a>`;
   }
 
   return `import { Component, computed } from "@angular/core";
@@ -106,7 +225,7 @@ import { destination as selected } from "./routes/g0000/$id/destination.generate
 @Component({
   selector: "proof-app",
   imports: [RouterLink, RouterOutlet],
-  template: \`<p>{{ id() }} {{ title() }}</p><button (click)="next()">Next</button><a data-bench="cold" routerLink="/${lastBlock}/static/l1">Cold</a><a data-bench="warm-a" routerLink="/g0000/static/l0"${warmQuery}>Warm A</a><a data-bench="warm-b" routerLink="/g0000/static/l1"${warmQuery}>Warm B</a><router-outlet />\`,
+  template: \`<p>{{ id() }} {{ title() }}</p><button (click)="next()">Next</button><a data-bench="cold" routerLink="/${lastBlock}/static/l1">Cold</a><a data-bench="warm-a" routerLink="/g0000/static/l0"${warmQuery}>Warm A</a><a data-bench="warm-b" routerLink="/g0000/static/l1"${warmQuery}>Warm B</a>${screenLinks}<router-outlet />\`,
 })
 export default class Shell {
   readonly active = injectActiveRoute();
@@ -221,15 +340,22 @@ export default defineRoute("${name}", ${facts})
 
     for (let leaf = 0; leaf < leaves; leaf++) {
       const resolve = block === 0 && leaf === 2;
+      const route = `${name}/static/l${leaf}`;
+      let page = pageSource({ route, sibling: "../l1", resolved: resolve });
+
+      if (block === 0) {
+        for (const screen of screens) {
+          if (screen.leaf === leaf) {
+            page = screenPages[leaf](route, screen);
+          }
+        }
+      }
 
       await write(
         `${root}/static/l${leaf}/route.ts`,
         leafRouteSource(leaf, { title: leaf === 1, resolve }),
       );
-      await write(
-        `${root}/static/l${leaf}/page.ts`,
-        pageSource({ route: `${name}/static/l${leaf}`, sibling: "../l1", resolved: resolve }),
-      );
+      await write(`${root}/static/l${leaf}/page.ts`, page);
     }
 
     await write(
@@ -260,6 +386,12 @@ export default defineRoute("detail", { parent });
 
   await write("src/shell.ts", shellSource(blockName(blocks - 1), { remembered }));
 
+  const screenSizes = {};
+
+  for (const { name, size } of screens) {
+    screenSizes[name] = size;
+  }
+
   if (remembered) {
     await write("src/main.ts", rememberedMainSource);
   } else {
@@ -277,5 +409,6 @@ export default defineRoute("detail", { parent });
     resolvers: blocks + 1,
     maxDepth: 3,
     rememberedOwners: remembered ? blocks : 0,
+    screens: screenSizes,
   };
 }
