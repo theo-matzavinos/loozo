@@ -2,6 +2,14 @@ import { test, expect } from "./contract-test.js";
 import { bootstrapHeld, fixture, stopRetentionObservation } from "./observation.js";
 import { pauseExitOnStart, resumeAnimations } from "./animations.js";
 import type { Locator } from "playwright/test";
+import type { ErrorRecord } from "./contract-test.js";
+
+declare global {
+  interface Window {
+    /** Each `invalid` the document saw in capture: the target's `data-role` and its trust. */
+    invalidEvents?: { role: string | null; trusted: boolean }[];
+  }
+}
 
 const core = (page: Parameters<typeof fixture>[0], info: Parameters<typeof fixture>[2]) =>
   fixture(page, "core", info);
@@ -1052,6 +1060,238 @@ test("L7: a Collapsible Panel's state, read through its template reference, reta
   });
   await part("trigger").click();
   await expect(part("gated")).toHaveCount(1);
+});
+
+/** Records every `invalid` the document sees, before any Panel's own capture listener runs. */
+async function recordInvalid(page: Parameters<typeof fixture>[0]): Promise<void> {
+  await page.evaluate(() => {
+    window.invalidEvents = [];
+    document.addEventListener(
+      "invalid",
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+
+        window.invalidEvents?.push({
+          role: target?.getAttribute("data-role") ?? null,
+          trusted: event.isTrusted,
+        });
+      },
+      true,
+    );
+  });
+}
+
+/** Takes the `invalid` events recorded since the last call. */
+async function takeInvalid(
+  page: Parameters<typeof fixture>[0],
+): Promise<{ role: string | null; trusted: boolean }[]> {
+  return page.evaluate(() => {
+    const events = window.invalidEvents ?? [];
+
+    window.invalidEvents = [];
+
+    return events;
+  });
+}
+
+/** The engine's console report that it couldn't focus the invalid control named `name`. */
+function notFocusable(name: string) {
+  const pattern = new RegExp(`invalid form control with name=.${name}. is not focusable`);
+
+  return {
+    description: `the engine's "not focusable" report for '${name}'`,
+    matches: (record: ErrorRecord) => record.source === "console" && pattern.test(record.text),
+  };
+}
+
+/** The collapsed hiding the Panel uses for `until-found` in this engine. */
+async function untilFound(panel: Locator): Promise<string> {
+  const supportsReveal = await panel.evaluate((node) => "onbeforematch" in node);
+
+  if (supportsReveal) {
+    return "until-found";
+  }
+
+  return "";
+}
+
+test("L8: native validation expands a collapsed Panel holding its form's first invalid control, so the browser focuses it; disabled blocks it and co-applied hiding stays", async ({
+  page,
+  runtimeErrors,
+}, info) => {
+  runtimeErrors.expectExactly([notFocusable("email"), notFocusable("email")]);
+  await core(page, info);
+  await recordInvalid(page);
+
+  const part = (role: string) =>
+    page.locator(`[data-collapsible-case="invalid"] [data-role="${role}"]`);
+  const panel = part("panel");
+  const field = part("required");
+  const collapsed = await untilFound(panel);
+
+  // A trusted submit: the Panel expands before the browser picks the control to focus.
+  await expect(panel).toHaveAttribute("hidden", collapsed);
+  await part("submit").click();
+  await expect(field).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await expect(panel).toHaveAttribute("data-expanded", "");
+  await expect(panel).not.toHaveAttribute("hidden", /.*/);
+  await expect(part("expanded")).toHaveText("true");
+  await expect(part("outputs")).toHaveText("1");
+
+  // The same with ordinary hiding.
+  await part("trigger").click();
+  await part("hidden").click();
+  await expect(panel).toHaveAttribute("hidden", "");
+  await part("submit").click();
+  await expect(field).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await expect(panel).toHaveAttribute("data-expanded", "");
+  await expect(panel).not.toHaveAttribute("hidden", /.*/);
+  await expect(part("outputs")).toHaveText("3");
+
+  // Disabled blocks it: the browser can't focus the field and reports so.
+  await part("trigger").click();
+  await part("disable").click();
+  await expect(part("root")).toHaveAttribute("data-disabled", "");
+  await expect(panel).toHaveAttribute("hidden", "");
+  await part("submit").click();
+  await expect(part("submit")).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await settle(page);
+  await expect(panel).toHaveAttribute("hidden", "");
+  await expect(part("expanded")).toHaveText("false");
+  await expect(part("outputs")).toHaveText("4");
+
+  // Script validation fires the same trusted event and expands too.
+  await part("disable").click();
+  await expect(part("root")).not.toHaveAttribute("data-disabled", /.*/);
+  await page.evaluate(() =>
+    document
+      .querySelector<HTMLFormElement>('[data-collapsible-case="invalid"] form')
+      ?.reportValidity(),
+  );
+  await expect(field).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await expect(panel).not.toHaveAttribute("hidden", /.*/);
+  await expect(part("outputs")).toHaveText("5");
+
+  // Every submit leaves an invalid form unsubmitted.
+  await expect(part("submits")).toHaveText("0");
+
+  // A co-applied Tabs Panel on an unselected tab keeps its own hiding, so the browser can't
+  // focus the field there either.
+  const tabs = (role: string) =>
+    page.locator(`[data-collapsible-case="invalid-tabs"] [data-role="${role}"]`);
+
+  await tabs("notes-tab").click();
+  await expect(tabs("panel")).toHaveAttribute("hidden", "");
+  await tabs("submit").click();
+  await expect(tabs("submit")).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await settle(page);
+  await expect(tabs("panel")).toHaveAttribute("hidden", "");
+  await expect(tabs("panel")).toHaveAttribute("data-expanded", "");
+
+  // A Panel on a component host whose own template holds the field.
+  const hosted = (role: string) =>
+    page.locator(`[data-collapsible-case="invalid-component"] [data-role="${role}"]`);
+
+  await expect(hosted("panel")).toHaveAttribute("hidden", collapsed);
+  await hosted("submit").click();
+  await expect(hosted("required")).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await expect(hosted("panel")).toHaveAttribute("data-expanded", "");
+  await expect(hosted("panel")).not.toHaveAttribute("hidden", /.*/);
+});
+
+test("L8: a Panel the field's own focus listener collapses again settles collapsed with its collapsed hiding", async ({
+  page,
+}, info) => {
+  await core(page, info);
+
+  const part = (role: string) =>
+    page.locator(`[data-collapsible-case="invalid"] [data-role="${role}"]`);
+  const panel = part("panel");
+  const collapsed = await untilFound(panel);
+
+  // The field's own focus listener collapses the root as the browser focuses it.
+  await part("collapse-on-focus").click();
+  await expect(panel).toHaveAttribute("hidden", collapsed);
+  await part("submit").click();
+  await expect(part("outputs")).toHaveText("2");
+  await settle(page);
+  await expect(part("expanded")).toHaveText("false");
+  await expect(panel).not.toHaveAttribute("data-expanded", /.*/);
+  await expect(panel).toHaveAttribute("hidden", collapsed);
+});
+
+test("L8: an expansion refused synchronously from the root's output isn't unhidden before the browser reports, so it can't focus the field, and settles hidden", async ({
+  page,
+  runtimeErrors,
+}, info) => {
+  runtimeErrors.expectExactly([notFocusable("email")]);
+  await core(page, info);
+  await recordInvalid(page);
+
+  const part = (role: string) =>
+    page.locator(`[data-collapsible-case="invalid"] [data-role="${role}"]`);
+  const panel = part("panel");
+  const collapsed = await untilFound(panel);
+
+  await part("veto").click();
+  await expect(panel).toHaveAttribute("hidden", collapsed);
+  await part("submit").click();
+  await expect(part("submit")).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "required", trusted: true }]);
+  await expect(part("outputs")).toHaveText("2");
+  await settle(page);
+  await expect(part("expanded")).toHaveText("false");
+  await expect(panel).not.toHaveAttribute("data-expanded", /.*/);
+  await expect(panel).toHaveAttribute("hidden", collapsed);
+  await expect(part("submits")).toHaveText("0");
+});
+
+test("A10: native validation opens the Single Accordion item holding the form's first invalid control, not a later one", async ({
+  page,
+  runtimeErrors,
+}, info) => {
+  runtimeErrors.expectExactly([notFocusable("c")]);
+  await core(page, info);
+  await recordInvalid(page);
+
+  const part = (role: string) =>
+    page.locator(`[data-accordion-case="invalid"] [data-role="${role}"]`);
+  const collapsed = await untilFound(part("b-panel"));
+
+  await expect(part("a-panel")).not.toHaveAttribute("hidden", /.*/);
+  await expect(part("b-panel")).toHaveAttribute("hidden", collapsed);
+  await expect(part("c-panel")).toHaveAttribute("hidden", collapsed);
+
+  // b and c are both empty: b's item opens and its field is focused; c's stays closed.
+  await part("submit").click();
+  await expect(part("b-field")).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([
+    { role: "b-field", trusted: true },
+    { role: "c-field", trusted: true },
+  ]);
+  await expect(part("value")).toHaveText("b");
+  await expect(part("b-panel")).toHaveAttribute("data-expanded", "");
+  await expect(part("b-panel")).not.toHaveAttribute("hidden", /.*/);
+  await settle(page);
+  await expect(part("b-field")).toBeFocused();
+  await expect(part("a-panel")).toHaveAttribute("hidden", collapsed);
+  await expect(part("c-panel")).toHaveAttribute("hidden", collapsed);
+
+  // With b filled, c is the first invalid control: its item opens instead.
+  await part("b-field").fill("Filled");
+  await part("submit").click();
+  await expect(part("c-field")).toBeFocused();
+  expect(await takeInvalid(page)).toEqual([{ role: "c-field", trusted: true }]);
+  await expect(part("value")).toHaveText("c");
+  await settle(page);
+  await expect(part("b-panel")).toHaveAttribute("hidden", collapsed);
+  await expect(part("submits")).toHaveText("0");
 });
 
 test("A7: an Accordion Item's state, read through its template reference, follows the selection and the combined disabled state", async ({

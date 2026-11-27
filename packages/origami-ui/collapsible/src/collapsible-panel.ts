@@ -2,6 +2,7 @@ import {
   DestroyRef,
   Directive,
   ElementRef,
+  Renderer2,
   computed,
   forwardRef,
   inject,
@@ -44,11 +45,44 @@ export abstract class OrigamiCollapsiblePanelOptions {
 }
 
 /**
+ * Whether no validation candidate before `control` in its form's `elements` is currently invalid,
+ * or `control` has no form owner. Validating a form dispatches `invalid` on each invalid control
+ * in tree order, then the browser focuses the first one it can, so only that control's Panels open.
+ */
+function isFirstInvalidControl(control: Element): boolean {
+  if (!("form" in control) || !(control.form instanceof HTMLFormElement)) {
+    return true;
+  }
+
+  for (const element of control.form.elements) {
+    if (element === control) {
+      return true;
+    }
+
+    const isInvalid =
+      "willValidate" in element &&
+      element.willValidate === true &&
+      "validity" in element &&
+      element.validity instanceof ValidityState &&
+      !element.validity.valid;
+
+    if (isInvalid) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Composes Presence and remains unhidden through finite exit, hiding only once closed.
  * `data-expanded` observes desired expansion. `aria-labelledby` names only the mounted
  * Trigger. `until-found` uses native reveal where supported, otherwise ordinary hidden;
  * enabled `beforematch` requests expansion idempotently. Disabled collapsed Panels use
- * ordinary hidden to prevent the platform's non-cancelable reveal. Requires a nearest root owner.
+ * ordinary hidden to prevent the platform's non-cancelable reveal. A trusted `invalid` on a
+ * descendant control that is its form's first invalid control requests expansion in either hiding
+ * mode and, when granted, applies its own `hidden` change at once so the browser can focus the
+ * control. Requires a nearest root owner.
  * Consumers supply any region role, heading hierarchy, content semantics and motion CSS.
  */
 @Directive({
@@ -110,8 +144,17 @@ export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
   });
 
   constructor() {
+    // `invalid` doesn't bubble, so a descendant control's reaches the Panel only in capture.
+    const stopInvalid = inject(Renderer2).listen(
+      this.#host,
+      "invalid",
+      (event: Event) => this.#invalid(event),
+      { capture: true },
+    );
+
     this.#destroyRef.onDestroy(() => {
       this.#destroyed = true;
+      stopInvalid();
     });
   }
 
@@ -129,5 +172,48 @@ export class OrigamiCollapsiblePanel implements OrigamiCollapsiblePanelOptions {
     if (this.#context.hiding() === "until-found" && this.#supportsReveal) {
       this.#context.reveal();
     }
+  }
+
+  /**
+   * A descendant control failed validation. When it is its form's first invalid control, request
+   * expansion and, once granted, apply this Panel's `hidden` change at once: the browser focuses the
+   * control right after this event, before Angular renders.
+   */
+  #invalid(event: Event): void {
+    const control = event.target;
+
+    const isDescendantControl =
+      event.isTrusted && control instanceof Element && control !== this.#host;
+
+    if (this.#destroyed || !isDescendantControl || !isFirstInvalidControl(control)) {
+      return;
+    }
+
+    const wasHidden = this.hidden() !== null;
+
+    this.#context.reveal();
+
+    // A synchronous expansion output may have destroyed this Panel.
+    if (this.#destroyed) {
+      return;
+    }
+
+    // A synchronous output listener or replaced Options may have refused the expansion.
+    const isGranted = this.#context.expanded();
+    // Reading the binding's value also makes Presence observe the open intent, so if the Panel
+    // collapses again before Angular renders, the binding still passes through `null` and then
+    // writes its collapsed value.
+    const isShown = this.hidden() === null;
+
+    if (!wasHidden || !isGranted || !isShown) {
+      return;
+    }
+
+    // The browser focuses the control right after this event, before Angular renders: apply this
+    // Panel's own binding change now, as the render would, and leave any other `hidden` binding
+    // on the host to its owner.
+    this.#host.removeAttribute("hidden");
+    // WebKit decides whether former until-found content is focusable from its last layout.
+    this.#host.getBoundingClientRect();
   }
 }
