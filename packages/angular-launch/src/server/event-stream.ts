@@ -211,12 +211,10 @@ export function eventStream(
       try {
         data = serializeJson(step.value);
       } catch (error) {
-        // The handler is still suspended at its yield.
+        // The handler is still suspended at its yield: return its iterator, then fail with
+        // this error, whatever returning throws.
         ending = true;
-        void Promise.resolve(start.iterator.return?.()).then(
-          () => start.finished.reject(error),
-          start.finished.reject,
-        );
+        void settleStopped(start, Promise.reject(error));
         await finish(controller);
 
         return;
