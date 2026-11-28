@@ -895,11 +895,12 @@ test("isRequestScope rejects a scope with any one malformed member, null ones in
   const scope = createRequestScope(app, new Request("http://127.0.0.1/todos"));
   const state = scope[scopeMarker];
 
-  assert.deepEqual(Object.keys(scope), ["request"], "only request is an own string key");
+  assert.deepEqual(Object.keys(scope), ["request"], "request is the only enumerable string key");
   assert.equal(isRequestScope(scope), true);
 
   const malformed = {
     "null scope": null,
+    "primitive scope": "scope",
     "no brand": { request: scope.request },
     "null brand": { request: scope.request, [scopeMarker]: null },
     "primitive brand": { request: scope.request, [scopeMarker]: "state" },

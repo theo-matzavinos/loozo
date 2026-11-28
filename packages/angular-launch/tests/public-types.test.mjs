@@ -26,16 +26,22 @@ const routeEntry = fileURLToPath(
   new URL(`../${manifest.exports["./_route"].types}`, import.meta.url),
 );
 
-// Types Launch's own declarations reference package-locally: inside `LaunchSpec` (the input
-// contribution), `Procedure` (`DeclaredFailure`), `RemoteStep` (`ProcedureDefinition`), and
-// `RemoteOf` and `QueriesOf` (`ChainNamespaces`). Consumers name only those outer types, so these
-// stay unexported; packed.mjs's declaration emit proves that on an installed consumer.
-const packageLocal = new Set([
-  "LaunchInput",
+// The only references to unexported types Launch's declarations may make, each from its named
+// owners: types the owners' declarations name package-locally, which consumers never spell, as
+// packed.mjs's declaration emit proves on an installed consumer. A new owner, or a same-named type
+// declared elsewhere, fails the check. Line numbers are dropped so edits elsewhere don't matter.
+const packageLocal = [
+  "ChainNamespaces (route-types.d.ts) referenced by RemoteFor at route-types.d.ts, QueriesOf at tanstack-query/queries.d.ts",
+  "DeclaredFailure (server/errors.d.ts) referenced by Procedure at server/definitions.d.ts",
+  "LaunchInput (route-types.d.ts) referenced by LaunchSpec at route-types.d.ts",
+  "ProcedureDefinition (server/definitions.d.ts) referenced by RemoteStep at route-types.d.ts",
+];
+const packageLocalNames = [
   "ChainNamespaces",
-  "ProcedureDefinition",
   "DeclaredFailure",
-]);
+  "LaunchInput",
+  "ProcedureDefinition",
+];
 
 const routeNames = ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"];
 
@@ -85,8 +91,8 @@ function location(root, node) {
 //
 // `problems` lists anything that would make that check pass without looking: compiler errors
 // (such as a missing module), a public entry with no exports, and exports or references that
-// don't resolve to a declaration. A type named in `unexported` passes unexported.
-function checkDeclarations(directory, files, unexportedNames = new Set()) {
+// don't resolve to a declaration.
+function checkDeclarations(directory, files) {
   // With / separators, as TypeScript names its source files on every platform.
   const root = directory.split(sep).join("/");
   const program = ts.createProgram(files, {
@@ -228,7 +234,7 @@ function checkDeclarations(directory, files, unexportedNames = new Set()) {
           }
         }
 
-        if (!isInlined && !isPublic && !unexportedNames.has(symbol.name)) {
+        if (!isInlined && !isPublic) {
           const key = `${symbol.name} (${relative(root, declarations[0].getSourceFile().fileName)})`;
           const sites = unexported.get(key) ?? new Set();
 
@@ -268,10 +274,19 @@ function checkDeclarations(directory, files, unexportedNames = new Set()) {
 }
 
 await test("published declarations only reference types exported from public entries or /_route, or package-local ones", () => {
-  const { problems, offenders } = checkDeclarations(dist, [...entries, routeEntry], packageLocal);
+  const { problems, offenders } = checkDeclarations(dist, [...entries, routeEntry]);
+  const withoutLines = [];
+
+  for (const offender of offenders) {
+    withoutLines.push(offender.replace(/:\d+/g, ""));
+  }
 
   assert.deepEqual(problems, [], "Published declarations must resolve completely");
-  assert.deepEqual(offenders, [], "Referenced types must be exported from a public entry");
+  assert.deepEqual(
+    withoutLines,
+    packageLocal,
+    "A type a declaration references must be nameable: exported from a public entry, from /_route if only declaration emit needs it, or one of the package-local references listed above",
+  );
 });
 
 await test("the package-local and route-extension types stay off the public entries, and /_route exports exactly the route-extension ones", () => {
@@ -284,12 +299,22 @@ await test("the package-local and route-extension types stay off the public entr
   });
   const checker = program.getTypeChecker();
 
+  // Each export's own spelling and, through an alias such as `export type { A as B }`, the
+  // name of the declaration it resolves to.
   function exportedNames(file) {
     const module = checker.getSymbolAtLocation(program.getSourceFile(file));
     const names = [];
 
     for (const symbol of checker.getExportsOfModule(module)) {
       names.push(symbol.name);
+
+      if (symbol.flags & ts.SymbolFlags.Alias) {
+        const target = checker.getAliasedSymbol(symbol);
+
+        if (target.name !== symbol.name) {
+          names.push(target.name);
+        }
+      }
     }
 
     return names;
@@ -299,7 +324,9 @@ await test("the package-local and route-extension types stay off the public entr
 
   for (const file of entries) {
     for (const name of exportedNames(file)) {
-      if (packageLocal.has(name) || routeNames.includes(name)) {
+      const isPrivate = packageLocalNames.includes(name) || routeNames.includes(name);
+
+      if (isPrivate) {
         leaked.push(`${name} (${relative(dist, file)})`);
       }
     }
@@ -804,7 +831,11 @@ await test("callProcedure types its options from the route's root stage and its 
 });
 
 await test("the route-seam and bookkeeping types aren't importable, and a request scope exposes only request", () => {
-  const rootNames = [
+  // Each line must fail with its own diagnostic, naming the module or type and the missing name,
+  // so a typo can't stand in for the removal.
+  const removed = [];
+
+  for (const name of [
     "LaunchSpec",
     "LaunchStep",
     "ContextStep",
@@ -812,31 +843,44 @@ await test("the route-seam and bookkeeping types aren't importable, and a reques
     "RemoteStep",
     "LaunchInput",
     "ChainNamespaces",
-  ];
-  const lines = [];
-
-  for (const name of rootNames) {
-    lines.push(`// @ts-expect-error not exported from the root`);
-    lines.push(`import type { ${name} } from "@loozo/angular-launch";`);
+  ]) {
+    removed.push({ entry: "@loozo/angular-launch", name });
   }
 
   for (const name of ["ProcedureDefinition", "DeclaredFailure"]) {
-    lines.push(`// @ts-expect-error not exported from /server`);
-    lines.push(`import type { ${name} } from "@loozo/angular-launch/server";`);
+    removed.push({ entry: "@loozo/angular-launch/server", name });
+  }
+
+  const lines = [];
+  const expected = [];
+
+  for (const { entry, name } of removed) {
+    lines.push(`import type { ${name} } from "${entry}";`);
+    expected.push({ line: lines.length, code: /TS(2305|2724)/, text: `"${entry}"`, name });
   }
 
   lines.push(
     `import type { RequestScope } from "@loozo/angular-launch/server";`,
     `declare const scope: RequestScope;`,
     `const request: Request = scope.request;`,
-    `// @ts-expect-error the app identity is private`,
-    `scope.appId;`,
-    `// @ts-expect-error the binding token is private`,
-    `scope.binding;`,
-    `void request;`,
   );
+
+  for (const name of ["appId", "binding"]) {
+    lines.push(`scope.${name};`);
+    expected.push({ line: lines.length, code: /TS2339/, text: "RequestScope", name });
+  }
+
+  lines.push(`void request;`);
 
   const { messages } = program({ "removed.ts": lines.join("\n") });
 
-  assert.deepEqual(messages, []);
+  assert.equal(messages.length, expected.length, messages.join("\n"));
+
+  for (const [index, { line, code, text, name }] of expected.entries()) {
+    const message = messages[index];
+
+    assert.ok(message.startsWith(`removed.ts:${line} `), message);
+    assert.match(message, code);
+    assert.ok(message.includes(text) && message.includes(`'${name}'`), message);
+  }
 });

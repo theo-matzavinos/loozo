@@ -215,7 +215,7 @@ const refused = await handleRpc(application, new Request('http://test/_rpc/'+id+
 assert.equal(refused.status, 403); assert.equal((await refused.json()).error.code, 'FORBIDDEN');
 assert.equal(stages, 2);
 const scope = createRequestScope(application, new Request('http://test'));
-assert.deepEqual(Object.keys(scope),['request'],'a scope exposes only request'); assert.equal(stages, 2, 'a scope runs no stage');
+assert.deepEqual(Object.keys(scope),['request'],'request is the only enumerable string key of a scope'); assert.equal(stages, 2, 'a scope runs no stage');
 const launch=JSON.parse(await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8'));
 const routerGeneration=router.exports['./_generation'];
 assert.equal(typeof routerGeneration.types,'string');assert.equal(typeof routerGeneration.node,'string');assert.equal(routerGeneration.default,undefined);
@@ -369,8 +369,10 @@ await writeFile(
 await run("pnpm", ["exec", "tsc", "-p", "tsconfig.nodenext.json"], consumer, "types-nodenext");
 
 // Application exports inferred from public server APIs must emit declarations: every type
-// their inferred types name has to be public (TS2883 otherwise). Only an installed package
-// shows this; a workspace source path would be written as a relative import instead.
+// their inferred types name has to be nameable through an export, a public entry or, for the
+// route-extension types only declaration emit needs, /_route (TS2883 otherwise). Only an
+// installed package shows this; a workspace source path would be written as a relative import
+// instead.
 await writeFile(
   join(consumer, "src/declarations.ts"),
   `import {defineRoute} from '@loozo/angular-launch';
@@ -586,7 +588,7 @@ await writeFile(
         "packed Node runtime exports and actual browser resolver rejection",
         "packed seam declarations",
         "declaration emit names LaunchSpec and the step types through /_route for full and partial chains",
-        "a request scope's only own key is request",
+        "request is a request scope's only enumerable string key",
         "producer generation with genuine mutation and declared-error metadata",
         "cold/session byte+mtime parity, invalid-edit repair and updated output parity",
         "metadata-only export swap rejects warm/cold generate/check, blocks identity publication and repairs on the same session",
