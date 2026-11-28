@@ -470,7 +470,7 @@ test("from Launch 1.0.0 on, prerelease identifiers don't hide or invent a TanSta
     launchTanstack: "^5.0.0",
   });
 
-  await moveTanstack(kept, "^5.1.0-rc6+build.6");
+  await moveTanstack(kept, "^5.1.0-0rc.6+build.06");
   await assertBumps(kept, "angular-launch", "patch", "1.2.4");
 });
 
@@ -481,7 +481,15 @@ test("on the 1.x line, a TanStack peer range other than ^, ~ or exact versions i
       "m",
     );
 
-  for (const range of [">=5.0.0 <7", "", "5.0.0-rc_", "^5.0.0 || 6.0.0-rc..1"]) {
+  for (const range of [
+    ">=5.0.0 <7",
+    "",
+    "5.0.0-rc_",
+    "^5.0.0 || 6.0.0-rc..1",
+    "^05.0.0",
+    "5.0.0-01",
+    "^5.0.0 || ^06.0.0",
+  ]) {
     const released = await fixture(t, {
       versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
       launchPin: "1.4.0",

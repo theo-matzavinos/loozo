@@ -49,15 +49,21 @@ function parseVersion(label, version) {
   return { major: Number(major), minor: Number(minor), patch: Number(patch) };
 }
 
+// SemVer 2.0.0's grammar: numbers and numeric prerelease identifiers have no leading zero.
+const number = String.raw`(?:0|[1-9]\d*)`;
+const prerelease = String.raw`(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*)`;
+const build = String.raw`[\dA-Za-z-]+`;
+const semverPart = new RegExp(
+  String.raw`^\s*[\^~]?(${number})\.${number}\.${number}` +
+    String.raw`(?:-${prerelease}(?:\.${prerelease})*)?(?:\+${build}(?:\.${build})*)?\s*$`,
+);
+
 // The majors a peer range admits: 5 for ^5.0.0-rc.5, and 5 and 6 for ^5.0.0 || ~6.1.0. It
 // reads only a || list of ^, ~ or exact versions, where the majors the range names are the
 // ones it admits, and refuses anything else.
 function rangeMajors(label, range) {
   return range.split("||").map((part) => {
-    const match =
-      /^\s*[\^~]?(\d+)\.\d+\.\d+(?:-[\dA-Za-z-]+(?:\.[\dA-Za-z-]+)*)?(?:\+[\dA-Za-z-]+(?:\.[\dA-Za-z-]+)*)?\s*$/.exec(
-        part,
-      );
+    const match = semverPart.exec(part);
 
     if (!match) {
       throw new Error(
