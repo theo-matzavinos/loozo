@@ -72,6 +72,7 @@ for (const directory of [
   "scroll-area/src",
   "meter/src",
   "query-field/src",
+  "pagination/src",
 ]) {
   await collect(directory);
 }
@@ -357,6 +358,13 @@ const directiveDefaults = {
   "OrigamiMeter.min": ["0", /\b0\b/],
   "OrigamiMeter.max": ["100", /\b100\b/],
   "OrigamiMeter.valueText": ["null", /\bnull\b/i],
+  "OrigamiPagination.page": ["1", /\b1\b/],
+  "OrigamiPagination.total": ["required", /required/i],
+  "OrigamiPagination.pageSize": ["required", /required/i],
+  "OrigamiPagination.siblings": ["1", /\b1\b/],
+  "OrigamiPagination.boundaries": ["1", /\b1\b/],
+  "OrigamiPaginationItem.page": ["required", /required/i],
+  "OrigamiPaginationLink.page": ["required", /required/i],
   "OrigamiQueryField.query": ["empty string", /""|empty/i],
   "OrigamiQueryField.analysis": ["null", /\bnull\b/i],
   "OrigamiQueryField.disabled": ["false", /\bfalse\b/i],

@@ -31,6 +31,7 @@ import { Workload as Avatar } from "./avatar";
 import { Workload as ScrollArea } from "./scroll-area";
 import { Workload as Meter } from "./meter";
 import { Workload as QueryField } from "./query-field";
+import { Workload as Pagination } from "./pagination";
 import { Workload as Utils } from "./utils";
 
 // Every entry's workload in one application.
@@ -69,6 +70,7 @@ import { Workload as Utils } from "./utils";
     ScrollArea,
     Meter,
     QueryField,
+    Pagination,
     Utils,
   ],
   template: `
@@ -104,6 +106,7 @@ import { Workload as Utils } from "./utils";
     <bench-scroll-area />
     <bench-meter />
     <bench-query-field />
+    <bench-pagination />
     <bench-utils />
   `,
 })

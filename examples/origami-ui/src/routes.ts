@@ -228,6 +228,16 @@ export const routes: Routes = [
       import("./fixtures/meter-block.js").then((module) => module.MeterBlockFixture),
   },
   {
+    path: "pagination",
+    loadComponent: () =>
+      import("./fixtures/pagination-deferred.js").then((module) => module.PaginationDeferred),
+  },
+  {
+    path: "pagination-block",
+    loadComponent: () =>
+      import("./fixtures/pagination-block.js").then((module) => module.PaginationBlockFixture),
+  },
+  {
     path: "query-field",
     loadComponent: () =>
       import("./fixtures/query-field-deferred.js").then((module) => module.QueryFieldDeferred),
