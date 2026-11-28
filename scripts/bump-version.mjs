@@ -6,13 +6,18 @@
 // - From 1.0.0 on: breaking changes need a major and features (`feat`) a minor.
 // Launch also pins the router's current version as its exact peer dependency and in
 // its README install command. While Launch is 0.x, moving that pin across a router
-// minor or major needs a Launch minor. Origami also moves the version fold's ng-add
-// installs to the new release.
+// minor or major needs a Launch minor. From Launch 1.0.0 on, moving it across a router
+// major needs a Launch major and across a router minor a Launch minor, and a
+// @tanstack/angular-query peer range that names a major its range at Launch's last
+// release didn't needs a Launch major; on the 1.x line, the release entering it included,
+// that range must be a || list of ^, ~ or exact versions. Origami also moves the version
+// fold's ng-add installs to the new release.
 //
 // Run it from the repository root: its paths and release-notes.mjs's git commands
 // resolve against the working directory.
 //
 // Usage: node scripts/bump-version.mjs <package> [patch|minor|major]
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { changesSinceRelease } from "./release-notes.mjs";
@@ -44,6 +49,32 @@ function parseVersion(label, version) {
   return { major: Number(major), minor: Number(minor), patch: Number(patch) };
 }
 
+// SemVer 2.0.0's grammar: numbers and numeric prerelease identifiers have no leading zero.
+const number = String.raw`(?:0|[1-9]\d*)`;
+const prerelease = String.raw`(?:0|[1-9]\d*|\d*[A-Za-z-][\dA-Za-z-]*)`;
+const build = String.raw`[\dA-Za-z-]+`;
+const semverPart = new RegExp(
+  String.raw`^\s*[\^~]?(${number})\.${number}\.${number}` +
+    String.raw`(?:-${prerelease}(?:\.${prerelease})*)?(?:\+${build}(?:\.${build})*)?\s*$`,
+);
+
+// The majors a peer range admits: 5 for ^5.0.0-rc.5, and 5 and 6 for ^5.0.0 || ~6.1.0. It
+// reads only a || list of ^, ~ or exact versions, where the majors the range names are the
+// ones it admits, and refuses anything else.
+function rangeMajors(label, range) {
+  return range.split("||").map((part) => {
+    const match = semverPart.exec(part);
+
+    if (!match) {
+      throw new Error(
+        `Can't bump ${name}: ${label} ${range} isn't a || list of ^, ~ or exact versions`,
+      );
+    }
+
+    return Number(match[1]);
+  });
+}
+
 const manifest = await readManifest(name);
 const current = parseVersion("version", manifest.version);
 
@@ -62,17 +93,20 @@ function requireAtLeast(level, reason, subjects) {
 }
 
 const { since, breaking, features } = changesSinceRelease(name);
+// Every level this release needs, checked highest first so the first refusal names the
+// level that clears them all.
+const floors = [];
 
 if (current.major > 0) {
   if (breaking.length > 0) {
-    requireAtLeast("major", `these changes since ${since} are breaking`, breaking);
+    floors.push(["major", `these changes since ${since} are breaking`, breaking]);
   }
 
   if (features.length > 0) {
-    requireAtLeast("minor", `these changes since ${since} are features`, features);
+    floors.push(["minor", `these changes since ${since} are features`, features]);
   }
 } else if (current.minor > 0 && breaking.length > 0) {
-  requireAtLeast("minor", `these changes since ${since} are breaking`, breaking);
+  floors.push(["minor", `these changes since ${since} are breaking`, breaking]);
 }
 
 let router;
@@ -80,19 +114,57 @@ let router;
 if (name === "angular-launch") {
   router = await readManifest("angular-router");
 
-  const pin = manifest.peerDependencies["@loozo/angular-router"];
-  const pinned = parseVersion("router pin", pin);
-  const next = parseVersion("router version", router.version);
-  const crossesMinor = next.major !== pinned.major || next.minor !== pinned.minor;
+  const stable = current.major > 0;
+  // From 1.0.0 on, floors compare against Launch's last release, so a pin or peer edited
+  // since then still counts as a move.
+  let released;
 
-  // How a stable (1.x) Launch moves its pin is undecided (Launch B8), so no rule applies there yet.
-  if (current.major === 0 && crossesMinor) {
-    requireAtLeast(
-      "minor",
-      `its @loozo/angular-router pin moves from ${pin} to ${router.version}`,
-      [],
+  if (stable && since) {
+    released = JSON.parse(
+      execFileSync("git", ["show", `${since}:packages/${name}/package.json`], { encoding: "utf8" }),
     );
   }
+
+  const routerName = "@loozo/angular-router";
+  const pin = released?.peerDependencies?.[routerName] ?? manifest.peerDependencies[routerName];
+  const pinned = parseVersion("router pin", pin);
+  const next = parseVersion("router version", router.version);
+  const pinMove = `its ${routerName} pin moves from ${pin} to ${router.version}`;
+
+  if (next.major !== pinned.major) {
+    floors.push([stable ? "major" : "minor", pinMove, []]);
+  } else if (next.minor !== pinned.minor) {
+    floors.push(["minor", pinMove, []]);
+  }
+
+  const tanstack = "@tanstack/angular-query";
+  const peers = manifest.peerDependencies;
+  const releasedPeers = released?.peerDependencies ?? {};
+
+  // Every release on the 1.x line, the one entering it included, has a range the next one
+  // can read.
+  if ((stable || bump === "major") && Object.hasOwn(peers, tanstack)) {
+    const majors = rangeMajors(`its ${tanstack} peer range`, peers[tanstack]);
+
+    if (Object.hasOwn(releasedPeers, tanstack)) {
+      const releasedRange = releasedPeers[tanstack];
+      const releasedMajors = rangeMajors(`its ${tanstack} peer range at ${since}`, releasedRange);
+
+      if (majors.some((major) => !releasedMajors.includes(major))) {
+        floors.push([
+          "major",
+          `its ${tanstack} peer range moves from ${releasedRange} to ${peers[tanstack]}`,
+          [],
+        ]);
+      }
+    }
+  }
+}
+
+floors.sort(([a], [b]) => levels.indexOf(b) - levels.indexOf(a));
+
+for (const [level, reason, subjects] of floors) {
+  requireAtLeast(level, reason, subjects);
 }
 
 if (bump === "major") {
