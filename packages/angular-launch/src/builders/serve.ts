@@ -23,6 +23,7 @@ import {
   type LocaleTable,
   type LocaleWords,
 } from "@loozo/angular-router/_generation";
+import { GenerationLockedError } from "../generation/output-lock.js";
 import { createBuilderSession, type BuilderSession } from "../generation/run.js";
 import { forwardChannels, type DevServerMiddleware } from "./channel-forwarding.js";
 import { buildTargetOptions, message, type JsonObject } from "./options.js";
@@ -35,6 +36,8 @@ const devServerBuilder = "@angular/build:dev-server";
 // rename, whose unlinks chokidar holds back 100 ms to pair them with re-adds. A pass waits for the
 // burst to go quiet, so it runs once and reads the finished change.
 const settleDelay = 150;
+// While another run holds the output's lock, a refused pass is tried again this often.
+const lockedRetryDelay = 500;
 
 // Generation's own marked outputs in the scan directory; their events need no further pass. The
 // output directory can't overlap the scan directory, so its files never reach the watcher. The
@@ -87,8 +90,20 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
       let stopped = false;
       // One pass at a time. "pending" lasts until the initial generation starts, which covers the
       // edits before it. An edit during a "running" pass makes it "rerun": exactly one more pass
-      // follows it, however many edits arrive.
-      let regeneration: "pending" | "idle" | "running" | "rerun" = "pending";
+      // follows it, however many edits arrive. A pass refused because another run holds the output's
+      // lock makes it "waiting" until the retry, which reads every edit made meanwhile.
+      let regeneration: "pending" | "idle" | "running" | "rerun" | "waiting" = "pending";
+      // The retry of a refused pass, outside `pass`, which has settled by then.
+      let retry: NodeJS.Timeout | undefined;
+      // Whether the latest later pass was refused by the lock.
+      let locked = false;
+      // The refusal last logged in the current wait, so a wait logs again only when it changes.
+      let lastRefusal: string | undefined;
+      // Ends the initial pass's wait: on stop, or, once its delay is over, when a settled burst
+      // wants its pass.
+      let wake: (() => void) | undefined;
+      // Whether the initial pass's retry delay is over.
+      let retryDue = false;
       // The latest pass, settled once idle; stopping waits for it.
       let pass: Promise<unknown> = Promise.resolve();
       // What start() acquired, released last-acquired first. Each release runs as stop() is called;
@@ -187,6 +202,8 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
 
         stopped = true;
         clearTimeout(settling);
+        clearTimeout(retry);
+        wake?.();
 
         const closing = [pass.catch(() => undefined)];
 
@@ -220,24 +237,73 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         context.logger.warn(changedTableWarning(started, current));
       }
 
+      // Logs a refusal by the lock unless this wait already logged the same one.
+      function refused(error: GenerationLockedError): void {
+        if (error.message === lastRefusal) {
+          return;
+        }
+
+        lastRefusal = error.message;
+        context.logger.warn(`${error.message} Serve will generate once it's free.`);
+      }
+
       // Later passes log their failures and keep serving.
       function startPass(): void {
+        if (stopped) {
+          return;
+        }
+
         configWatch.refresh();
         regeneration = "running";
         pass = regenerate().then(
           (words) => {
             succeeded = true;
+            lastRefusal = undefined;
             compareTable(words);
           },
           (error) => {
             succeeded = false;
+
+            if (error instanceof GenerationLockedError) {
+              locked = true;
+
+              // Stopping, serve won't retry, so it doesn't say it will.
+              if (!stopped) {
+                refused(error);
+              }
+
+              return;
+            }
+
+            lastRefusal = undefined;
             context.logger.error(message(error));
           },
         );
         void pass.then(passEnded);
       }
 
+      // A due retry leaves a settling burst to start the pass once it's quiet.
+      function retryPass(): void {
+        retry = undefined;
+
+        if (stopped || settling !== undefined) {
+          return;
+        }
+
+        startPass();
+      }
+
       function passEnded(): void {
+        if (locked && !stopped) {
+          locked = false;
+          regeneration = "waiting";
+          retry = setTimeout(retryPass, lockedRetryDelay);
+
+          return;
+        }
+
+        locked = false;
+
         if (regeneration === "rerun" && !stopped) {
           startPass();
 
@@ -252,7 +318,43 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
           startPass();
         } else if (regeneration === "running") {
           regeneration = "rerun";
+        } else if (regeneration === "waiting") {
+          // A settled burst during a wait runs its pass now. The initial pass's wait keeps its delay,
+          // then ends for the burst.
+          if (wake) {
+            if (retryDue) {
+              wake();
+            }
+
+            return;
+          }
+
+          clearTimeout(retry);
+          retry = undefined;
+          startPass();
         }
+      }
+
+      // The initial pass's wait for a lock: the retry delay, then any burst still settling.
+      async function waitForLock(): Promise<void> {
+        const woken = Promise.withResolvers<void>();
+
+        wake = woken.resolve;
+        retryDue = false;
+        retry = setTimeout(() => {
+          retry = undefined;
+          retryDue = true;
+
+          // The burst's edited() wakes this wait once it's quiet.
+          if (settling === undefined) {
+            woken.resolve();
+          }
+        }, lockedRetryDelay);
+
+        await woken.promise;
+        wake = undefined;
+        clearTimeout(retry);
+        retry = undefined;
       }
 
       async function start(): Promise<void> {
@@ -302,7 +404,7 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
 
         const configFile = resolve(application, launch.tsconfig);
         const scanRoot = resolve(dirname(configFile), launch.scanDirectories[0]);
-        session = createBuilderSession(context.workspaceRoot, launch);
+        session = createBuilderSession(context.workspaceRoot, launch, "Launch serve builder");
         releases.push(() => session.dispose());
 
         // A catalog edit regenerates too: bytes stay the same, so only the per-locale check runs.
@@ -350,30 +452,55 @@ const builder: Builder<ServeOptions> = createBuilder<ServeOptions>(
         // The initial pass reads every change so far, so a burst still settling needs no pass.
         clearTimeout(settling);
         settling = undefined;
-        configWatch.refresh();
-        regeneration = "running";
 
-        const initial = regenerate();
         let words: LocaleWords | undefined;
 
-        pass = initial;
+        // Another run holding the output's lock delays the dev server until this pass can run.
+        for (;;) {
+          configWatch.refresh();
+          regeneration = "running";
 
-        try {
-          words = await initial;
-        } catch (error) {
-          // The dev server never starts on a failed initial generation; report it as a build failure.
-          context.logger.error(message(error));
-          await stop();
-          subscriber.next({ success: false });
-          subscriber.complete();
+          const initial = regenerate();
 
-          return;
+          pass = initial;
+
+          try {
+            words = await initial;
+
+            break;
+          } catch (error) {
+            if (error instanceof GenerationLockedError) {
+              if (stopped) {
+                return;
+              }
+
+              refused(error);
+              regeneration = "waiting";
+              await waitForLock();
+
+              if (stopped) {
+                return;
+              }
+
+              continue;
+            }
+
+            // The dev server never starts on a failed initial generation; report it as a build
+            // failure.
+            context.logger.error(message(error));
+            await stop();
+            subscriber.next({ success: false });
+            subscriber.complete();
+
+            return;
+          }
         }
 
         if (stopped) {
           return;
         }
 
+        lastRefusal = undefined;
         succeeded = true;
         // Before a queued pass can compare its table with it.
         started = tableOf(words);

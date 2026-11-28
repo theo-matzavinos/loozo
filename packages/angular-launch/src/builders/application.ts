@@ -83,7 +83,12 @@ const builder: Builder<JsonObject> = createBuilder<JsonObject>(
           launch.localization = await projectLocalization(context, project, official.polyfills);
         }
 
-        const words = await runGeneration(context.workspaceRoot, launch, () => stopped);
+        const words = await runGeneration(
+          context.workspaceRoot,
+          launch,
+          () => stopped,
+          "Launch application builder",
+        );
 
         // Angular's own builder needs a project target to localize, so a build without one fails
         // there.

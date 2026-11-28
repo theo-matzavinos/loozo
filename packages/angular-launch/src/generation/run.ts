@@ -30,6 +30,7 @@ import type {
   Sources,
 } from "@loozo/angular-router/_generation";
 import type { ClientMethod } from "../remote-client.js";
+import { lockOutput } from "./output-lock.js";
 import { emitRedirects } from "./redirects.js";
 
 // One procedure's browser metadata, as JSON in its route's copy data.
@@ -743,14 +744,27 @@ function checkGeneratedDomain(
   }
 }
 
+function requireInside(application: string, file: string): void {
+  const suffix = relative(application, file);
+
+  if (suffix === ".." || suffix.startsWith(`..${sep}`) || resolve(application, suffix) !== file) {
+    throw new Error(`Launch source/output escapes application workspace: ${file}`);
+  }
+}
+
 /**
  * Generation for the builders: {@link generate}, resolving to each non-source locale's text for
- * every route word when `translateSegments` is on, and undefined otherwise.
+ * every route word when `translateSegments` is on, and undefined otherwise. The run holds its
+ * output directory's lock from before discovery until after publication, so a second run into the
+ * same output fails with a `GenerationLockedError` instead of publishing from a stale plan.
+ *
+ * @param label - What the run is, for another run's contention error.
  */
 export async function runGeneration(
   workspace: string,
   options: GenerationOptions,
   stopped: () => boolean,
+  label: string,
   compiler?: GenerationCompilerState,
 ): Promise<LocaleWords | undefined> {
   // The built package root (dist/ in the workspace, the tarball root when installed).
@@ -758,28 +772,51 @@ export async function runGeneration(
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   const launchEntry = await realpath(resolve(root, manifest.exports["."].types));
   const application = await realpath(workspace);
-
-  function requireInside(file: string): void {
-    const suffix = relative(application, file);
-
-    if (suffix === ".." || suffix.startsWith(`..${sep}`) || resolve(application, suffix) !== file) {
-      throw new Error(`Launch source/output escapes application workspace: ${file}`);
-    }
-  }
-
   const config = resolve(application, options.tsconfig);
+  const output = resolve(application, options.outDirectory);
 
-  requireInside(config);
-  requireInside(resolve(application, options.outDirectory));
+  requireInside(application, config);
+  requireInside(application, output);
 
   for (const directory of options.scanDirectories) {
-    requireInside(resolve(dirname(config), directory));
+    requireInside(application, resolve(dirname(config), directory));
   }
 
+  const release = await lockOutput(output, label);
+  let words: LocaleWords | undefined;
+
+  try {
+    words = await generateLocked(application, launchEntry, options, stopped, compiler);
+  } catch (error) {
+    try {
+      await release();
+    } catch (cleanup) {
+      // Both reach the log: the run's own failure first, then the lock it left behind.
+      throw new Error(`${(error as Error).message}\n${(cleanup as Error).message}`, {
+        cause: error,
+      });
+    }
+
+    throw error;
+  }
+
+  await release();
+
+  return words;
+}
+
+// runGeneration's work once it holds the output's lock.
+async function generateLocked(
+  application: string,
+  launchEntry: string,
+  options: GenerationOptions,
+  stopped: () => boolean,
+  compiler: GenerationCompilerState | undefined,
+): Promise<LocaleWords | undefined> {
   const sources = await discoverLaunchRoutes(application, options, compiler?.discovery);
 
   for (const file of sources.parsed.fileNames) {
-    requireInside(file);
+    requireInside(application, file);
   }
 
   // TS 6 defaults strict checking on, but each explicit false overrides it.
@@ -890,6 +927,9 @@ export async function runGeneration(
   return words;
 }
 
+// The label of runs through the public generation API, in another run's contention error.
+const apiLabel = "Launch generation API";
+
 /**
  * Generates the router's and Launch's files for an application, or checks them.
  *
@@ -909,7 +949,10 @@ export async function runGeneration(
  * `skipLibCheck: false`, before anything is written, so a failed run changes nothing.
  * Files are then written one at a time without rollback; a write error partway through
  * can leave some files updated, which the next successful run repairs. Generation only
- * replaces or removes files carrying its ownership marker, and removes stale ones.
+ * replaces or removes files carrying its ownership marker, and removes stale ones. A run
+ * holds a lock on its output directory from before reading the sources until it has
+ * written, so a second run into the same output, from this process or another of the same
+ * user, fails without reading or writing instead of publishing from an outdated plan.
  *
  * @example
  * ```js
@@ -936,14 +979,14 @@ export async function runGeneration(
  * marker, or, with `check`, a generated file is out of date; with `translateSegments`, also
  * when `localization` is missing, the build lacks the `@angular/localize/init` polyfill, a
  * locale's catalog fails the router's checks, or no application file imports
- * `provideRedirectTranslation`.
+ * `provideRedirectTranslation`; and when another run holds the output's lock, naming it.
  */
 export async function generate(
   workspace: string,
   options: GenerationOptions,
   stopped: () => boolean = () => false,
 ): Promise<void> {
-  await runGeneration(workspace, options, stopped);
+  await runGeneration(workspace, options, stopped, apiLabel);
 }
 
 /**
@@ -953,8 +996,8 @@ export async function generate(
  * Node-only. For long-running tools that regenerate repeatedly, such as after file
  * changes. A session doesn't watch files; you decide when to call `generate`. Edits
  * inside the application are picked up by the next call. Create a new session after
- * moving the application directory or changing dependencies. Don't run two sessions or
- * generators against the same output at once.
+ * moving the application directory or changing dependencies. A call made while another
+ * run generates into the same output fails, as {@link generate} does.
  *
  * @example
  * ```js
@@ -982,7 +1025,7 @@ export function createGenerationSession(
   workspace: string,
   options: Omit<GenerationOptions, "check">,
 ): GenerationSession {
-  const session = createBuilderSession(workspace, options);
+  const session = createBuilderSession(workspace, options, apiLabel);
 
   return {
     async generate(options, stopped) {
@@ -992,7 +1035,11 @@ export function createGenerationSession(
   };
 }
 
-/** {@link createGenerationSession} for the builders, whose calls resolve to the locale words. */
+/**
+ * {@link createGenerationSession} for the builders, whose calls resolve to the locale words.
+ *
+ * @param label - What the session's runs are, for another run's contention error.
+ */
 export function createBuilderSession(
   workspace: string,
   {
@@ -1003,6 +1050,7 @@ export function createBuilderSession(
     translateSegments,
     localization,
   }: Omit<GenerationOptions, "check">,
+  label: string,
 ): BuilderSession {
   const application = resolve(workspace);
   const fixed = {
@@ -1057,7 +1105,7 @@ export function createBuilderSession(
         return false;
       }
 
-      const work = runGeneration(application, { ...fixed, check }, isStopped, compiler);
+      const work = runGeneration(application, { ...fixed, check }, isStopped, label, compiler);
 
       active = work;
 

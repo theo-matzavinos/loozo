@@ -2078,11 +2078,15 @@ export default class Page {
     put(root, "src/config.ts", providerImport),
   ]);
 
-  const session = createBuilderSession(root, {
-    ...options,
-    translateSegments: true,
-    localization: localization(root),
-  });
+  const session = createBuilderSession(
+    root,
+    {
+      ...options,
+      translateSegments: true,
+      localization: localization(root),
+    },
+    "generation test",
+  );
 
   return { root, session };
 }
