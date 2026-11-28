@@ -124,6 +124,8 @@ All three engines run every selected cell. Both tiers run reduced motion only on
 
 ## Release gate: `pnpm run test:full`
 
+`matrix-summary.mjs --reset`, then `acceptance:gate-checks` (steps 1–8), then step 9:
+
 1. `acceptance:skips`: the source skip check.
 2. `acceptance:prepare`: build the library, stage the example and run a clean, strict npm installation (`--strict-peer-deps`, no legacy/force resolution, no lifecycle scripts) of the whole pinned closure, then verify it.
 3. `typecheck`, `snippets:check` (the README's code examples, against the built package) and `acceptance:typecheck`.
@@ -136,13 +138,13 @@ All three engines run every selected cell. Both tiers run reduced motion only on
 
 The 12 `reduce` projects run only the Presence specs (`core`, `composition`, `popover`, `tooltip`, `lifetimes`, `hydration`), as in the commit tier: the cases that need the project's reduced-motion preference to cover Presence and its composers, because consumer CSS removes the animations Presence would wait for. Other specs aren't selected for it: their cases exercise nothing the preference changes (a shared fixture such as `core` has reduced-motion rules, but only for its Presence elements); ScrollArea's hide transition reacts to the preference (a press during it reaches the content instead of the Scrollbar) but no case covers that; Toast's TO5 sets the preference itself in every project.
 
-Both `test:full` and `acceptance:matrix` start with `matrix-summary.mjs --reset`. It refuses an inherited `ORIGAMI_SUITE`, `ORIGAMI_BROWSER` or `ORIGAMI_MATRIX_TARGET`, so calibration and the matrix always cover every engine and group, and it deletes the group results and summary from earlier runs. The summary takes no arguments; pnpm appends extra `test:full` arguments to it, so they fail the gate instead of focusing it.
+Both `test:full` and `acceptance:matrix` start with `matrix-summary.mjs --reset`. It refuses an inherited `ORIGAMI_SUITE`, `ORIGAMI_BROWSER` or `ORIGAMI_MATRIX_TARGET`, so calibration and the matrix always cover every engine and group, and it deletes the result files the summary reads and the summary from earlier runs; traces and other diagnostics stay. The summary takes no arguments; pnpm appends extra `test:full` arguments to it, so they fail the gate instead of focusing it.
 
 It stops at the first failing step. Use `NG_BUILD_MAX_WORKERS=2 pnpm run test:full` on small hosts. Every product run warms its servers first (`warm-servers.mjs`): under concurrent first requests, a cold development server can render a deferred route without its content. On the reference host (16 logical cores), `test:full` takes about 40 minutes and `test:commit` about 15.
 
 `matrix-summary.mjs` lists the complete product inventory from the configuration and requires that:
 
-- each of the four group results was written after the reset;
+- it reads every `product/*/playwright-results.json`: in `test:full` the four group results, written after its reset; in the Release gate the twelve shard results, which the `summary` job downloads from that run into a fresh checkout (no reset runs there);
 - every discovered row in the tier's projects (all 24 for `test:full`, 15 for `test:commit`) was executed exactly once;
 - every row passed or is a known hydration applicability skip: one of the listed `hydration.spec.ts` tests (by title), skipped by an authored `test.skip(condition, reason)` in a project whose `hydration` metadata it does not apply to. Any other skip fails, so a new applicability skip must be added to that list;
 - there were no unexpected, flaky or interrupted results and no top-level errors.
@@ -150,13 +152,22 @@ It stops at the first failing step. Use `NG_BUILD_MAX_WORKERS=2 pnpm run test:fu
 It writes `.acceptance-evidence/product/matrix-summary.json`, which records:
 
 - the commit and any uncommitted paths;
-- browser versions from the readiness check;
+- browser versions from the all-engine readiness check;
 - the consumer's Angular, APF and Floating UI versions, Playwright and Node;
-- per-project counts and the skip reasons.
+- per-project counts and the skip reasons;
+- in CI, each shard's own receipts (its consumer installation, one-engine readiness and, for a production shard, the P1 check of the build it served), and which job produced each receipt.
 
 ## Gates in CI
 
-The repository's workflows run both gates on GitHub-hosted `ubuntu-latest` runners (4 vCPU), with `NG_BUILD_MAX_WORKERS=2`: the **CI** workflow's `origami-commit-gate` job runs `test:commit` for every pull request that reaches Origami, and the **Release gate** workflow's `test-full` job runs `test:full` for every push to `main`. A pull request reaches Origami when it changes `packages/origami-ui`, its example under `examples/origami-ui`, or anything outside every workspace package (the lockfile, `scripts/`, `.github/`); otherwise the job is skipped, which passes its required check. The runner is disposable, so it installs the engines with `playwright install --with-deps` instead of private WebKit libraries. The geometry cases measure text-sized boxes calibrated on the reference host, where the fixtures' `system-ui` and `sans-serif` resolve to Liberation Sans; each job installs [`fonts.conf`](fonts.conf) as the user's fontconfig so the runner measures that font instead of DejaVu Sans. Each job uploads `.acceptance-evidence/` as an artifact, also when it fails.
+The repository's workflows run both gates on GitHub-hosted `ubuntu-latest` runners (4 vCPU), with `NG_BUILD_MAX_WORKERS=2` wherever they build: the **CI** workflow's `origami-commit-gate` job runs `test:commit` for every pull request that reaches Origami, and the **Release gate** workflow runs the release gate for every push to `main`, split across parallel jobs (below). A pull request reaches Origami when it changes `packages/origami-ui`, its example under `examples/origami-ui`, or anything outside every workspace package (the lockfile, `scripts/`, `.github/`); otherwise the job is skipped, which passes its required check. The runner is disposable, so it installs the engines with `playwright install --with-deps` instead of private WebKit libraries. The geometry cases measure text-sized boxes calibrated on the reference host, where the fixtures' `system-ui` and `sans-serif` resolve to Liberation Sans; each job that runs a browser installs [`fonts.conf`](fonts.conf) as the user's fontconfig so the runner measures that font instead of DejaVu Sans. Each job uploads its evidence as an artifact, also when it fails.
+
+The Release gate runs `test:full`'s steps as 14 jobs, about 30 minutes when runners are free:
+
+- `checks`: `acceptance:gate-checks`, every step but the product matrix; artifact `origami-release-checks`.
+- `shard`, 12 entries, one per runtime-hydration group × engine (`ORIGAMI_MATRIX_TARGET`, `ORIGAMI_BROWSER`): `acceptance:prepare`, that engine's readiness, then `acceptance:test`. A production shard first builds its group's output and runs P1's bundle identity on it (`bundle-checks.mjs --output`), then serves exactly that build (`ORIGAMI_PREBUILT=1`), as `test:full` serves the builds `acceptance:bundles` checked. Artifact `origami-release-shard-<group>-<engine>`: its `product/<group>-<engine>/` results, diagnostics and `receipts/`. Every shard runs to the end, so a red run shows every failing group and engine.
+- `summary`, after all of them pass: `acceptance:prepare`, the shards' results and the `checks` readiness receipt, then `matrix-summary.mjs`; artifact `origami-release-summary`.
+
+A release commit's push skips every job and the run concludes `skipped`. To recover from a failed shard, use **Re-run failed jobs**: it reruns that shard and the summary on the same commit, and the summary reads the rerun's results with the other shards' from the first attempt. A new `workflow_dispatch` run also works. Dispatching shares the push runs' concurrency group, so a dispatch replaces a waiting push run (and the reverse); dispatch only while none is waiting.
 
 ## Focused runs
 
@@ -174,15 +185,15 @@ Always set `ORIGAMI_MATRIX_TARGET` for focused product runs. `--project`/`--grep
 
 A `reduce` project runs only the Presence specs in both tiers, and `--grep` can't widen a project's own selection: `--project=chromium-development-eager-reduce -g '\bSA5\b'` finds no tests. To check another case under reduced motion, emulate the preference in the test (`page.emulateMedia({ reducedMotion: "reduce" })`, as TO5 does).
 
-| Variable                   | Effect                                                                                                                                                                    |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ORIGAMI_SUITE`            | `product` (default) or `calibration`                                                                                                                                      |
-| `ORIGAMI_MATRIX_TARGET`    | `development-eager`, `development-incremental`, `production-eager` or `production-incremental`: one server and its six projects                                           |
-| `ORIGAMI_BROWSER`          | `chromium`, `firefox` or `webkit`: restrict projects; other engines' setup is not evaluated                                                                               |
-| `ORIGAMI_PREBUILT=1`       | Production servers serve existing `.scratch/consumer/dist/consumer-{eager,incremental}` instead of building first; only `test:full` sets it, right after `acceptance:aot` |
-| `ORIGAMI_TIER`             | `release` (default) or `commit`: the commit gate's selection (see [Commit gate](#commit-gate-pnpm-run-testcommit)); both run `reduce` projects on the Presence specs only |
-| `ORIGAMI_FORENSIC=1`       | Record whole-source/dependency fingerprints before and after a run and fail if they differ                                                                                |
-| `ORIGAMI_WEBKIT_DEPS_ROOT` | Private WebKit libraries; when set, a missing or stale setup is an error                                                                                                  |
+| Variable                   | Effect                                                                                                                                                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORIGAMI_SUITE`            | `product` (default) or `calibration`                                                                                                                                                                                                               |
+| `ORIGAMI_MATRIX_TARGET`    | `development-eager`, `development-incremental`, `production-eager` or `production-incremental`: one server and its six projects                                                                                                                    |
+| `ORIGAMI_BROWSER`          | `chromium`, `firefox` or `webkit`: restrict projects; other engines' setup is not evaluated                                                                                                                                                        |
+| `ORIGAMI_PREBUILT=1`       | Production servers serve existing `.scratch/consumer/dist/consumer-{eager,incremental}` instead of building first; `test:full` sets it right after `acceptance:aot`, a Release gate production shard after building and P1-checking its own output |
+| `ORIGAMI_TIER`             | `release` (default) or `commit`: the commit gate's selection (see [Commit gate](#commit-gate-pnpm-run-testcommit)); both run `reduce` projects on the Presence specs only                                                                          |
+| `ORIGAMI_FORENSIC=1`       | Record whole-source/dependency fingerprints before and after a run and fail if they differ                                                                                                                                                         |
+| `ORIGAMI_WEBKIT_DEPS_ROOT` | Private WebKit libraries; when set, a missing or stale setup is an error                                                                                                                                                                           |
 
 ## Optional checks
 
@@ -205,8 +216,9 @@ Copy a run elsewhere to keep it.
 
 Release qualification is:
 
-- `test:full` green from a clean checkout of an identified commit (`tier` `release` and `uncommitted` empty in `matrix-summary.json`);
-- that summary plus the four group results and the readiness, package, type and bundle receipts in `.acceptance-evidence/`;
+- in CI, which Publish requires: a green Release gate run on the released commit or on any commit from it back to its nearest non-release ancestor (release commits only move versions), whose `summary` job certified it, with its `origami-release-summary`, `origami-release-shard-*` and `origami-release-checks` artifacts as the summary, results and readiness, package, type and bundle receipts;
+- elsewhere: `test:full` green from a clean checkout of an identified commit, with that summary, the result files it read and the receipts in `.acceptance-evidence/`;
+- either way, `tier` `release` and `uncommitted` empty in `matrix-summary.json`;
 - the D1 whole-subject semantic review, below.
 
 A run from an uncommitted tree needs a saved patch or `acceptance:forensic`; a commit SHA does not identify unrecorded edits.
