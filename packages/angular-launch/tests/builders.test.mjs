@@ -410,6 +410,31 @@ await test("check: true passes on fresh output and fails on stale output, writin
   await put("src/routes/todos/route.ts", rpc);
 });
 
+await test("application fails at once, writing nothing, while another run holds the output's lock", async () => {
+  const { lockOutput } = await import("../dist/generation/output-lock.js");
+  const { realpath } = await import("node:fs/promises");
+  const before = await snapshot();
+  const calledBefore = callsOf("application").length;
+  const release = await lockOutput(
+    resolve(await realpath(fixture), "generated"),
+    "lock test holder",
+  );
+
+  try {
+    const refused = await run("build");
+
+    assert.equal(refused.output.success, false);
+    assert.match(
+      refused.errors,
+      /already running for .*generated in this process: lock test holder, pid/,
+    );
+    assert.deepEqual(await snapshot(), before);
+    assert.equal(callsOf("application").length, calledBefore, "Angular's builder doesn't run");
+  } finally {
+    await release();
+  }
+});
+
 await test("application rejects watch: true before generating", async () => {
   const before = await snapshot();
   const { output, error } = await run("build", "watch");
@@ -515,6 +540,59 @@ await test("serve regenerates after route edits, not for an unrelated file outsi
     syncBuiltinESMExports();
     await served.stop();
     await put("src/helper.ts", "export const helper = 1;\n");
+  }
+});
+
+await test("serve waits for another run's lock, then generates the edit it was refused for", async () => {
+  const { lockOutput } = await import("../dist/generation/output-lock.js");
+  const { realpath } = await import("node:fs/promises");
+  const output = resolve(await realpath(fixture), "generated");
+
+  await put("src/routes/todos/route.ts", rpc);
+
+  const served = await start("serve");
+  let release;
+
+  try {
+    await waitFor(
+      () => served.outputs.some((output) => output.success),
+      "dev server never started",
+    );
+    release = await lockOutput(output, "lock test holder");
+
+    const warnings = served.logs.length;
+
+    await put(
+      "src/routes/todos/route.ts",
+      rpc.replace("list:", "held: query({ handler: () => 1 }),\n  list:"),
+    );
+    await waitFor(
+      () =>
+        served.logs
+          .slice(warnings)
+          .some(
+            (entry) =>
+              entry.level === "warn" &&
+              /lock test holder, pid \d+, .*Serve will generate once it's free\.$/.test(
+                entry.message,
+              ),
+          ),
+      "the refusal wasn't logged",
+    );
+    await new Promise((done) => setTimeout(done, 1200));
+    assert.doesNotMatch(await read("src/routes/todos/route.generated.ts"), /\bheld\b/);
+
+    await release();
+    release = undefined;
+    await waitFor(
+      async () => /\bheld\b/.test(await read("src/routes/todos/route.generated.ts")),
+      "the refused edit wasn't generated after the lock was released",
+    );
+    assert.equal(served.error, undefined);
+  } finally {
+    await release?.();
+    await served.stop();
+    await put("src/routes/todos/route.ts", rpc);
   }
 });
 

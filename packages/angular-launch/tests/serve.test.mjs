@@ -69,11 +69,12 @@ mock.module("chokidar", {
 
 mock.module(new URL("../dist/generation/run.js", import.meta.url).href, {
   exports: {
-    createBuilderSession(workspace, options) {
+    createBuilderSession(workspace, options, label) {
       const current = scenario;
       const session = {
         workspace,
         options,
+        label,
         disposals: 0,
         disposal: teardownPromise(current.holdTeardown),
         generate(generateOptions, isStopped) {
@@ -216,6 +217,8 @@ async function* devServer(options, context, extensions) {
 }
 
 const { default: serveBuilder } = await import("../dist/builders/serve.js");
+const { GenerationLockedError } = await import("../dist/generation/output-lock.js");
+const lockedRetryDelay = 500;
 
 // The settle delay runs on these; until() and settle() wait on setImmediate instead.
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -1867,4 +1870,242 @@ test("after a failed pass, asset events run passes until one succeeds", async ()
   assert.equal(state.passes.length, 4, "A success makes asset events inert again");
 
   await run.stop();
+});
+
+// The output lock (SPEC "Generation and builders"): a pass another run's lock refuses waits for it.
+function lockedBy(holder) {
+  return new GenerationLockedError(
+    `Launch generation is already running for /app/generated: ${holder}.`,
+  );
+}
+
+test("serve passes its label to the session", async () => {
+  const { run, scenario: state } = await started();
+
+  assert.equal(state.sessions[0].label, "Launch serve builder");
+
+  await run.stop();
+});
+
+test("an initial pass refused by the lock waits, logs each distinct refusal once, then starts the dev server", async () => {
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.passes[0].reject(lockedBy("pid 7"));
+  await settle();
+  assert.equal(state.servers.length, 0);
+  assert.deepEqual(warnings(state), [
+    "Launch generation is already running for /app/generated: pid 7. Serve will generate once it's free.",
+  ]);
+
+  mock.timers.tick(lockedRetryDelay - 1);
+  await settle();
+  assert.equal(state.passes.length, 1, "No retry before the delay");
+  mock.timers.tick(1);
+  await until(() => state.passes.length === 2, "the first retry");
+  state.passes[1].reject(lockedBy("pid 7"));
+  await settle();
+  assert.equal(warnings(state).length, 1, "The same refusal isn't logged again");
+
+  mock.timers.tick(lockedRetryDelay);
+  await until(() => state.passes.length === 3, "the second retry");
+  state.passes[2].reject(lockedBy("pid 9"));
+  await settle();
+  assert.equal(warnings(state).length, 2, "A different holder is logged");
+
+  mock.timers.tick(lockedRetryDelay);
+  await until(() => state.passes.length === 4, "the third retry");
+  state.passes[3].reject(lockedBy("pid 7"));
+  await settle();
+  assert.equal(warnings(state).length, 3, "A refusal logged before the last one is logged again");
+
+  // An edit during the attempt that runs queues one pass after it, before the dev server.
+  mock.timers.tick(lockedRetryDelay);
+  await until(() => state.passes.length === 5, "the fourth retry");
+  await change(state);
+  state.passes[4].resolve();
+  await until(() => state.passes.length === 6, "the edit's pass");
+  state.passes[5].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+  assert.deepEqual(errors(state), []);
+  await settle();
+  assert.equal(state.passes.length, 6);
+
+  await run.stop();
+});
+
+test("an edit that settles before the initial pass's retry is due doesn't bring the retry forward", async () => {
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.passes[0].reject(lockedBy("pid 7"));
+  await settle();
+
+  mock.timers.tick(50);
+  await change(state);
+  await settle();
+  assert.equal(state.passes.length, 1, "No attempt before the delay");
+
+  mock.timers.tick(lockedRetryDelay - 50 - settleDelay);
+  await until(() => state.passes.length === 2, "the retry");
+  state.passes[1].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+test("an edit settling when the initial pass's retry falls due runs one attempt, once it's quiet", async () => {
+  const { run, scenario: state } = await serve();
+
+  await until(() => state.watchers.length === 1, "the watcher");
+  watcherOf(state).emit("ready");
+  await until(() => state.passes.length === 1, "the initial generation");
+  state.passes[0].reject(lockedBy("pid 7"));
+  await settle();
+
+  mock.timers.tick(lockedRetryDelay - 100);
+  await touch(state);
+  mock.timers.tick(100);
+  await settle();
+  assert.equal(state.passes.length, 1, "The due retry leaves the settling edit to start it");
+
+  mock.timers.tick(settleDelay - 100);
+  await until(() => state.passes.length === 2, "the attempt after the edit settles");
+  state.passes[1].resolve();
+  await until(() => state.servers.length === 1, "the dev server");
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  await run.stop();
+});
+
+test("a later pass refused by the lock retries until it runs, covering edits made meanwhile", async () => {
+  const { run, scenario: state } = await started();
+
+  await change(state);
+  await until(() => state.passes.length === 2, "the second pass");
+  state.passes[1].reject(lockedBy("pid 7"));
+  await settle();
+  assert.equal(errors(state).length, 0);
+  assert.equal(warnings(state).length, 1);
+
+  mock.timers.tick(lockedRetryDelay);
+  await until(() => state.passes.length === 3, "the retry");
+  state.passes[2].reject(lockedBy("pid 7"));
+  await settle();
+  assert.equal(warnings(state).length, 1);
+
+  // An edit during the wait runs its pass once it settles, ahead of the retry.
+  await change(state);
+  await until(() => state.passes.length === 4, "the edit's pass");
+  state.passes[3].resolve();
+  await settle();
+  mock.timers.tick(lockedRetryDelay * 2);
+  await settle();
+  assert.equal(state.passes.length, 4, "The cancelled retry doesn't run");
+  assert.equal(state.servers[0].stopped, false);
+
+  // A later wait logs its refusal again.
+  await change(state);
+  await until(() => state.passes.length === 5, "the next pass");
+  state.passes[4].reject(lockedBy("pid 7"));
+  await settle();
+  assert.equal(warnings(state).length, 2);
+
+  await run.stop();
+});
+
+test("a later retry falling due while an edit settles leaves it to that edit's pass", async () => {
+  const { run, scenario: state } = await started();
+
+  await change(state);
+  await until(() => state.passes.length === 2, "the second pass");
+  state.passes[1].reject(lockedBy("pid 7"));
+  await settle();
+
+  mock.timers.tick(lockedRetryDelay - 100);
+  await touch(state);
+  mock.timers.tick(100);
+  await settle();
+  assert.equal(state.passes.length, 2);
+
+  mock.timers.tick(settleDelay - 100);
+  await until(() => state.passes.length === 3, "the edit's pass");
+  state.passes[2].resolve();
+  await settle();
+  mock.timers.tick(lockedRetryDelay);
+  await settle();
+  assert.equal(state.passes.length, 3);
+
+  await run.stop();
+});
+
+test("stopping during the initial wait, or before a refusal arrives, ends serve without retrying", async () => {
+  for (const when of ["waiting", "in flight"]) {
+    const { run, scenario: state } = await serve();
+
+    await until(() => state.watchers.length === 1, "the watcher");
+    watcherOf(state).emit("ready");
+    await until(() => state.passes.length === 1, "the initial generation");
+
+    let stopped = false;
+
+    if (when === "waiting") {
+      state.passes[0].reject(lockedBy("pid 7"));
+      await settle();
+      void run.stop().then(() => (stopped = true));
+    } else {
+      void run.stop().then(() => (stopped = true));
+      await settle();
+      state.passes[0].reject(lockedBy("pid 7"));
+    }
+
+    await until(() => stopped, `the stop (${when})`);
+    mock.timers.tick(lockedRetryDelay * 2);
+    await settle();
+    assert.equal(state.passes.length, 1, when);
+    assert.equal(state.servers.length, 0, when);
+    released(state);
+
+    if (when === "in flight") {
+      assert.deepEqual(warnings(state), [], "A refusal after stop isn't logged");
+    }
+  }
+});
+
+test("stopping during a later wait, or before its refusal arrives, runs no retry", async () => {
+  for (const when of ["waiting", "in flight"]) {
+    const { run, scenario: state } = await started();
+
+    await change(state);
+    await until(() => state.passes.length === 2, "the second pass");
+
+    let stopped = false;
+
+    if (when === "waiting") {
+      state.passes[1].reject(lockedBy("pid 7"));
+      await settle();
+      void run.stop().then(() => (stopped = true));
+    } else {
+      void run.stop().then(() => (stopped = true));
+      await settle();
+      state.passes[1].reject(lockedBy("pid 7"));
+    }
+
+    await until(() => stopped, `the stop (${when})`);
+    mock.timers.tick(lockedRetryDelay * 2);
+    await settle();
+    assert.equal(state.passes.length, 2, when);
+    released(state);
+
+    if (when === "in flight") {
+      assert.deepEqual(warnings(state), [], "A refusal after stop isn't logged");
+    }
+  }
 });
