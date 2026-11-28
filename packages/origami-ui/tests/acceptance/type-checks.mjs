@@ -136,6 +136,7 @@ import { OrigamiProgressOptions, type OrigamiProgressState } from '@loozo/origam
 import { OrigamiAvatarImageOptions, type OrigamiAvatarState, type OrigamiAvatarStatus } from '@loozo/origami-ui/avatar';
 import { OrigamiScrollAreaOptions, OrigamiScrollAreaScrollbarOptions, type OrigamiScrollAreaState, type OrigamiScrollAreaOrientation } from '@loozo/origami-ui/scroll-area';
 import { OrigamiMeterOptions, type OrigamiMeterState } from '@loozo/origami-ui/meter';
+import { OrigamiPaginationOptions, OrigamiPaginationItemOptions, type OrigamiPaginationState, type OrigamiPaginationRecord } from '@loozo/origami-ui/pagination';
 import type { Observable } from 'rxjs';
 import { OrigamiQueryFieldOptions, OrigamiQueryFieldInputOptions, OrigamiQueryFieldContentOptions, OrigamiQueryFieldSuggestionOptions, type OrigamiQueryFieldState, type OrigamiQueryAnalysis, type OrigamiQuerySuggestion, type OrigamiQuerySegment, type OrigamiQueryToken, type OrigamiQueryRange } from '@loozo/origami-ui/query-field';
 import type { OrigamiPopoverSide, OrigamiPopoverAlign } from '@loozo/origami-ui/popover';
@@ -666,6 +667,56 @@ const meterText: string = meterState.valueText();
 void meterValue;
 void meterPercent;
 void meterText;
+// Positive: whole Pagination factories, with a plain writable page and computed counts.
+OrigamiPaginationOptions.provideFactory(() => ({page: signal(1), total: signal(95), pageSize: signal(10), siblings: signal(1), boundaries: signal(1)}));
+OrigamiPaginationOptions.provideFactory(() => ({page: model(3), total: computed(() => 95), pageSize: computed(() => 10), siblings: computed(() => 2), boundaries: computed(() => 0)}));
+// @ts-expect-error a Pagination factory must supply total
+OrigamiPaginationOptions.provideFactory(() => ({page: signal(1), pageSize: signal(10), siblings: signal(1), boundaries: signal(1)}));
+// @ts-expect-error a Pagination factory must supply pageSize
+OrigamiPaginationOptions.provideFactory(() => ({page: signal(1), total: signal(95), siblings: signal(1), boundaries: signal(1)}));
+// @ts-expect-error Pagination page is writable: parts write it
+OrigamiPaginationOptions.provideFactory(() => ({page: computed(() => 1), total: signal(95), pageSize: signal(10), siblings: signal(1), boundaries: signal(1)}));
+// @ts-expect-error Pagination page is a number, never a string
+OrigamiPaginationOptions.provideFactory(() => ({page: signal('1'), total: signal(95), pageSize: signal(10), siblings: signal(1), boundaries: signal(1)}));
+// @ts-expect-error Pagination total is a number, never null
+OrigamiPaginationOptions.provideFactory(() => ({page: signal(1), total: signal<number | null>(null), pageSize: signal(10), siblings: signal(1), boundaries: signal(1)}));
+OrigamiPaginationItemOptions.provideFactory(() => ({page: computed(() => 3)}));
+// @ts-expect-error a page item's page is a number, never a string
+OrigamiPaginationItemOptions.provideFactory(() => ({page: signal('3')}));
+declare const paginationState: OrigamiPaginationState;
+// @ts-expect-error Pagination State page is readonly
+paginationState.page.set(2);
+// @ts-expect-error Pagination State range is readonly
+paginationState.range.set([]);
+const paginationPage: number = paginationState.page();
+const paginationCount: number = paginationState.pageCount();
+const paginationFrom: number = paginationState.from();
+const paginationTo: number = paginationState.to();
+const paginationPrevious: number | null = paginationState.previous();
+const paginationNext: number | null = paginationState.next();
+const paginationRange: readonly OrigamiPaginationRecord[] = paginationState.range();
+// @ts-expect-error previous is null on the first page
+const paginationPreviousNumber: number = paginationState.previous();
+for (const record of paginationRange) {
+  if (record.type === 'page') {
+    const recordPage: number = record.page;
+    const recordKey: \`page-\${number}\` = record.key;
+    void recordPage;
+    void recordKey;
+  } else {
+    const gapKey: 'ellipsis-start' | 'ellipsis-end' = record.key;
+    // @ts-expect-error a gap has no page
+    void record.page;
+    void gapKey;
+  }
+}
+void paginationPage;
+void paginationCount;
+void paginationFrom;
+void paginationTo;
+void paginationPrevious;
+void paginationNext;
+void paginationPreviousNumber;
 // Positive: whole query field factories typed by the consumer's suggestion; State is readonly.
 interface LabelledSuggestion extends OrigamiQuerySuggestion { readonly label: string; }
 OrigamiQueryFieldOptions.provideFactory<LabelledSuggestion>(() => ({query: signal(''), analysis: signal<OrigamiQueryAnalysis<LabelledSuggestion> | null>(null), disabled: signal(false)}));
@@ -1134,6 +1185,16 @@ abstract class AbstractQueryField {
   abstract readonly analysis: Signal<OrigamiQueryAnalysis | null>;
   abstract readonly disabled: Signal<boolean>;
 }
+abstract class AbstractPagination {
+  abstract readonly page: WritableSignal<number>;
+  abstract readonly total: Signal<number>;
+  abstract readonly pageSize: Signal<number>;
+  abstract readonly siblings: Signal<number>;
+  abstract readonly boundaries: Signal<number>;
+}
+abstract class AbstractPaginationItem {
+  abstract readonly page: Signal<number>;
+}
 abstract class AbstractMeter {
   abstract readonly value: Signal<number>;
   abstract readonly min: Signal<number>;
@@ -1256,6 +1317,10 @@ export const providers: Provider[] = [
   OrigamiProgressOptions.provideExisting(() => AbstractProgress),
   OrigamiMeterOptions.provideFactory(() => ({value: signal(40), min: signal(10), max: signal(70), valueText: signal<string | null>(null)})),
   OrigamiMeterOptions.provideExisting(() => AbstractMeter),
+  OrigamiPaginationOptions.provideFactory(() => ({page: signal(1), total: signal(95), pageSize: signal(10), siblings: signal(1), boundaries: signal(1)})),
+  OrigamiPaginationOptions.provideExisting(() => AbstractPagination),
+  OrigamiPaginationItemOptions.provideFactory(() => ({page: signal(3)})),
+  OrigamiPaginationItemOptions.provideExisting(() => AbstractPaginationItem),
   OrigamiQueryFieldOptions.provideExisting(() => AbstractQueryField),
   OrigamiAvatarImageOptions.provideFactory(() => ({src: signal<string | null>('/avatar.png')})),
   OrigamiAvatarImageOptions.provideExisting(() => AbstractAvatarImage),
@@ -1614,6 +1679,34 @@ import { OrigamiMeter } from "@loozo/origami-ui/meter";
 @Directive({ selector: "[appGauge]", hostDirectives: [{ directive: OrigamiMeter, inputs: ["min", "max"] }] })
 export class AppGauge {}`,
     directives: "AppGauge",
+    members: "",
+  },
+  pagination: {
+    imports: `import { OrigamiPagination, OrigamiPaginationItem, OrigamiPaginationLink, OrigamiPaginationFirst, OrigamiPaginationPrevious, OrigamiPaginationNext, OrigamiPaginationLast, OrigamiPaginationState } from "@loozo/origami-ui/pagination";`,
+    directives:
+      "OrigamiPagination, OrigamiPaginationItem, OrigamiPaginationLink, OrigamiPaginationFirst, OrigamiPaginationPrevious, OrigamiPaginationNext, OrigamiPaginationLast",
+    members: `
+  readonly page = signal(1);
+  readonly text = signal("1");
+  readonly total = signal(95);
+  readonly maybe = signal<number | undefined>(95);
+  numberOutput(value: number): void { void value; }
+  observeState(state: OrigamiPaginationState): void { void state; }`,
+  },
+  "pagination-composer": {
+    imports: `import { Directive } from "@angular/core";
+import { OrigamiPagination } from "@loozo/origami-ui/pagination";
+@Directive({ selector: "[appPager]", hostDirectives: [{ directive: OrigamiPagination, inputs: ["page", "pageSize"] }] })
+export class AppPager {}`,
+    directives: "AppPager",
+    members: "",
+  },
+  "pagination-item-composer": {
+    imports: `import { Directive } from "@angular/core";
+import { OrigamiPagination, OrigamiPaginationItem } from "@loozo/origami-ui/pagination";
+@Directive({ selector: "button[appPageButton]", hostDirectives: [OrigamiPaginationItem] })
+export class AppPageButton {}`,
+    directives: "OrigamiPagination, AppPageButton",
     members: "",
   },
   "query-field": {
@@ -2759,6 +2852,113 @@ const templates = [
       code: -992019,
       span: "OrigamiMeter",
       message: /Required input 'value' from host directive OrigamiMeter must be exposed/,
+      inImports: true,
+    },
+  },
+  {
+    name: "pagination-positive",
+    family: "pagination",
+    template: `<nav ogPagination #p="ogPagination" [(page)]="page" [total]="total()" pageSize="10" [siblings]="2" boundaries="0" aria-label="Pages" (pageChange)="numberOutput($event)"><button ogPaginationFirst>First</button><button ogPaginationPrevious>Previous</button>@for (item of p.state.range(); track item.key) { @if (item.type === "page") { <button ogPaginationItem [page]="item.page">{{ item.page }}</button><a ogPaginationLink [page]="item.page" href="?page={{ item.page }}">{{ item.page }}</a> } @else { <span aria-hidden="true">…</span> } }<button ogPaginationNext>Next</button><button ogPaginationLast>Last</button><span (click)="numberOutput(p.state.page()); numberOutput(p.state.from()); observeState(p.state)"></span></nav><div ogPagination total="5" pageSize="2"><button ogPaginationItem page="1">1</button></div>`,
+  },
+  {
+    name: "pagination-total-missing",
+    family: "pagination",
+    template: `<nav ogPagination pageSize="10"></nav>`,
+    expected: {
+      code: -998008,
+      span: "nav",
+      message: /Required input 'total' from directive OrigamiPagination must be specified/,
+    },
+  },
+  {
+    name: "pagination-page-size-missing",
+    family: "pagination",
+    template: `<nav ogPagination [total]="total()"></nav>`,
+    expected: {
+      code: -998008,
+      span: "nav",
+      message: /Required input 'pageSize' from directive OrigamiPagination must be specified/,
+    },
+  },
+  {
+    name: "pagination-total-null",
+    family: "pagination",
+    template: `<nav ogPagination [total]="null" pageSize="10"></nav>`,
+    expected: {
+      code: 2322,
+      span: "total",
+      message: /null.*not assignable to type 'string \| number'/s,
+    },
+  },
+  {
+    name: "pagination-total-undefined",
+    family: "pagination",
+    template: `<nav ogPagination [total]="maybe()" pageSize="10"></nav>`,
+    expected: {
+      code: 2322,
+      span: "total",
+      message: /undefined.*not assignable to type 'string \| number'/s,
+    },
+  },
+  {
+    name: "pagination-page-string-model",
+    family: "pagination",
+    template: `<nav ogPagination [(page)]="text" [total]="total()" pageSize="10"></nav>`,
+    expected: {
+      code: 2322,
+      span: "page",
+      message: /Type 'string' is not assignable to type 'number'/,
+    },
+  },
+  {
+    name: "pagination-item-page-missing",
+    family: "pagination",
+    template: `<nav ogPagination [total]="total()" pageSize="10"><button ogPaginationItem>1</button></nav>`,
+    expected: {
+      code: -998008,
+      span: "button",
+      message: /Required input 'page' from directive OrigamiPaginationItem must be specified/,
+    },
+  },
+  {
+    name: "pagination-item-page-null",
+    family: "pagination",
+    template: `<nav ogPagination [total]="total()" pageSize="10"><button ogPaginationItem [page]="null">1</button></nav>`,
+    expected: {
+      code: 2322,
+      span: "page",
+      message: /null.*not assignable to type 'string \| number'/s,
+    },
+  },
+  {
+    name: "pagination-link-page-undefined",
+    family: "pagination",
+    template: `<nav ogPagination [total]="total()" pageSize="10"><a ogPaginationLink [page]="maybe()">1</a></nav>`,
+    expected: {
+      code: 2322,
+      span: "page",
+      message: /undefined.*not assignable to type 'string \| number'/s,
+    },
+  },
+  {
+    name: "pagination-composer-unexposed-total",
+    family: "pagination-composer",
+    template: `<nav appPager pageSize="10"></nav>`,
+    expected: {
+      code: -992019,
+      span: "OrigamiPagination",
+      message: /Required input 'total' from host directive OrigamiPagination must be exposed/,
+      inImports: true,
+    },
+  },
+  {
+    name: "pagination-item-composer-unexposed-page",
+    family: "pagination-item-composer",
+    template: `<nav ogPagination total="5" pageSize="1"><button appPageButton></button></nav>`,
+    expected: {
+      code: -992019,
+      span: "OrigamiPaginationItem",
+      message: /Required input 'page' from host directive OrigamiPaginationItem must be exposed/,
       inImports: true,
     },
   },

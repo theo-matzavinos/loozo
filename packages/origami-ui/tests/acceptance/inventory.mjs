@@ -344,10 +344,24 @@ export const inventory = {
     "OrigamiQuerySuggestion",
     "OrigamiQueryToken",
   ],
+  pagination: [
+    "OrigamiPagination",
+    "OrigamiPaginationOptions",
+    "OrigamiPaginationState",
+    "OrigamiPaginationRecord",
+    "OrigamiPaginationItem",
+    "OrigamiPaginationItemOptions",
+    "OrigamiPaginationLink",
+    "OrigamiPaginationFirst",
+    "OrigamiPaginationPrevious",
+    "OrigamiPaginationNext",
+    "OrigamiPaginationLast",
+  ],
 };
 
 export const typeOnly = new Set([
   "OrigamiCollectionRecord",
+  "OrigamiPaginationRecord",
   "OrigamiPresencePhase",
   "OrigamiCollapsibleHiding",
   "OrigamiPopoverSide",

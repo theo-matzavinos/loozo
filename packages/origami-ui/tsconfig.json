@@ -46,7 +46,8 @@
       "@loozo/origami-ui/avatar": ["./avatar/src/public-api.ts"],
       "@loozo/origami-ui/scroll-area": ["./scroll-area/src/public-api.ts"],
       "@loozo/origami-ui/meter": ["./meter/src/public-api.ts"],
-      "@loozo/origami-ui/query-field": ["./query-field/src/public-api.ts"]
+      "@loozo/origami-ui/query-field": ["./query-field/src/public-api.ts"],
+      "@loozo/origami-ui/pagination": ["./pagination/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {
@@ -88,6 +89,7 @@
     "avatar/src/**/*.ts",
     "scroll-area/src/**/*.ts",
     "meter/src/**/*.ts",
-    "query-field/src/**/*.ts"
+    "query-field/src/**/*.ts",
+    "pagination/src/**/*.ts"
   ]
 }

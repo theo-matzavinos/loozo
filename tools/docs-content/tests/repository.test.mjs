@@ -352,6 +352,7 @@ test("origami's empty root is left out and its secondary entry points list the p
     "@loozo/origami-ui/scroll-area",
     "@loozo/origami-ui/meter",
     "@loozo/origami-ui/query-field",
+    "@loozo/origami-ui/pagination",
     "@loozo/origami-ui/utils",
   ]);
   assert.deepEqual(names["@loozo/origami-ui/utils"], [
@@ -406,6 +407,7 @@ test("origami's empty root is left out and its secondary entry points list the p
   assert.equal(names["@loozo/origami-ui/scroll-area"].length, 9);
   assert.equal(names["@loozo/origami-ui/meter"].length, 3);
   assert.equal(names["@loozo/origami-ui/query-field"].length, 16);
+  assert.equal(names["@loozo/origami-ui/pagination"].length, 11);
   assert.deepEqual(origami.generatedApi, []);
 });
 
@@ -462,6 +464,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
     "scroll-area:Scroll area",
     "meter:Meter",
     "query-field:Query field",
+    "pagination:Pagination",
     "utils:Utilities",
   ]);
 
@@ -477,7 +480,7 @@ test("origami's README sections and entry-point READMEs are its guide pages", ()
   assert.match(toggle, /<figcaption><code>snippets\/src\/toggle\/bold-format.ts<\/code>/);
 });
 
-test("origami's guide pages run the 42 snippets that export one component", async () => {
+test("origami's guide pages run the 43 snippets that export one component", async () => {
   const loaders = await readFile(join(out, "content/demos.generated.ts"), "utf8");
   const ids = [];
 
@@ -485,7 +488,7 @@ test("origami's guide pages run the 42 snippets that export one component", asyn
     ids.push(match[1]);
   }
 
-  assert.equal(ids.length, 42);
+  assert.equal(ids.length, 43);
   assert.ok(ids.includes("origami-ui/snippets/src/toggle/mute.ts"));
 
   const kinds = [];
@@ -566,6 +569,7 @@ test("origami's playgrounds get a control for each input and model of their comp
     "scroll-area/address-table.ts": ["hideDelay:input:number"],
     "meter/arrivals-gauge.ts": ["period:model:number", "noData:model:boolean"],
     "query-field/report-search.ts": ["disabled:input:boolean"],
+    "pagination/results-pager.ts": ["page:model:number", "total:model:number"],
   });
 });
 

@@ -205,6 +205,16 @@ export const routes: Routes = [
       import("./fixtures/meter-block.js").then((module) => module.MeterBlockFixture),
   },
   {
+    path: "pagination",
+    loadComponent: () =>
+      import("./fixtures/pagination.js").then((module) => module.PaginationFixture),
+  },
+  {
+    path: "pagination-block",
+    loadComponent: () =>
+      import("./fixtures/pagination-block.js").then((module) => module.PaginationBlockFixture),
+  },
+  {
     path: "query-field",
     loadComponent: () =>
       import("./fixtures/query-field.js").then((module) => module.QueryFieldFixture),
