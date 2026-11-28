@@ -14,7 +14,7 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 - `@angular/build` `~22.3.0`, for the builders. The range is narrow on purpose: the application builder's options schema is Angular's own at the version Launch was built against, so an option added in a later Angular minor is rejected until Launch is rebuilt against that minor. Launch follows the router's [Angular version policy](../angular-router/README.md#angular-versions) and releases in lockstep with it.
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
-- A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
+- A `package.json` with a `name` in the workspace root, the directory with `angular.json`. The name is part of the generated app identity.
 - Optionally, `@tanstack/angular-query` `^5.0.0` for the [TanStack Query integration](tanstack-query/README.md) (supported as tested, with 5.108.4), and `@angular/localize` for [translated URLs](#translated-urls).
 
 Install both packages:
@@ -156,7 +156,7 @@ Generation runs inside two Angular builders that replace your project's `build` 
 }
 ```
 
-`ng build` and `ng serve` then generate first, and `ng serve` regenerates as you edit. `ng run my-app:build:check` verifies the generated files without writing them, for CI. `tsconfig` is the TypeScript config generation reads; `tsConfig` is Angular's own compilation config. They can be the same file.
+`ng build` and `ng serve` then generate first, and `ng serve` regenerates as you edit. `ng run my-app:build:check` verifies the generated files without writing them, then runs the build as usual, for CI. `tsconfig` is the TypeScript config generation reads; `tsConfig` is Angular's own compilation config. They can be the same file.
 
 Include the generated files in your app tsconfig: `"include": ["src/**/*.ts", "generated/**/*.ts"]`. See [Builders](#builders) for the builder options and [Generation](#generation) for what gets written.
 
@@ -1443,23 +1443,18 @@ Export the handler as `reqHandler`; Angular's dev server and build don't look fo
 
 ## Generation
 
-The [builders](#builders) run generation for you. Underneath, it's a Node function you can also call from your own tools:
+The [builders](#builders) run generation; there's no programmatic API. Both read these options from the application build target:
 
-```ts
-generate(workspace: string, options: GenerationOptions, stopped?: () => boolean): Promise<void>;
-```
+| Option              | Type       | Description                                                                                   |
+| ------------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `tsconfig`          | `string`   | Your app tsconfig, relative to the workspace root (the directory with `angular.json`)         |
+| `scanDirectories`   | `string[]` | Exactly one route directory, relative to the tsconfig's directory                             |
+| `outDirectory`      | `string`   | Where the app-wide generated files go, relative to the workspace root                         |
+| `tanstackQuery`     | `boolean`  | Also add `route.queries`; see [TanStack Query](tanstack-query/README.md)                      |
+| `translateSegments` | `boolean`  | Translate static segments per Angular localize build; see [Translated URLs](#translated-urls) |
+| `check`             | `boolean`  | Verify generated files without writing them; fails if anything is out of date                 |
 
-| Option              | Type           | Description                                                                                                |
-| ------------------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| `tsconfig`          | `string`       | Your app tsconfig, relative to `workspace`                                                                 |
-| `scanDirectories`   | `string[]`     | Exactly one route directory, relative to the tsconfig's directory                                          |
-| `outDirectory`      | `string`       | Where the app-wide generated files go, relative to `workspace`                                             |
-| `tanstackQuery`     | `boolean`      | Also add `route.queries`; see [TanStack Query](tanstack-query/README.md)                                   |
-| `translateSegments` | `boolean`      | Translate static segments per Angular localize build; see [Translated URLs](#translated-urls)              |
-| `localization`      | `Localization` | The build's `i18n` and polyfills, required with `translateSegments`; the builders read it from the project |
-| `check`             | `boolean`      | Verify generated files without writing them; fails if anything is out of date                              |
-
-`workspace` is the absolute path of the application directory (the one with its `package.json`). The tsconfig, scan directory and output directory must all be inside it. `stopped` lets a caller cancel: if it returns `true` before writing starts, nothing is written.
+The tsconfig, scan directory and output directory must all be inside the workspace. For an app under `projects/todos`, `tsconfig` is `projects/todos/tsconfig.app.json` and `scanDirectories` is relative to that file's directory, such as `["src/routes"]`.
 
 Generation reads your source without running it. It writes the router's files, with Launch's additions, plus its own:
 
@@ -1475,11 +1470,9 @@ Before writing, generation type-checks the generated files, your route declarati
 
 Generated browser code contains only names, kinds and error metadata, never your schemas, stages, middleware or handlers: a route copy drops the server steps and the imports only they used, and names their types through an erased `import type` of its own `route.ts`. Keep server-only modules out of anything a page imports at runtime; the example names them `*.server.ts`. Each route copy loads with the record that reads it: a top-level route's with `routes.generated.ts`, in the startup bundle, and a nested route's with its parent's lazily loaded children, as the router's [lazy route children](../angular-router/README.md#lazy-route-children) describes.
 
-`server.generated.ts` binds Launch's internal `bindApplication`, `createRequestScope`, `handleRpc`, `handleChannelUpgrade` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name and the generation tsconfig's and output directory's paths within the app, so neither route edits nor moving the whole app directory change it.
+`server.generated.ts` binds Launch's internal `bindApplication`, `createRequestScope`, `handleRpc`, `handleChannelUpgrade` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the workspace root's `package.json` name and the generation tsconfig's and output directory's paths within the workspace, so route edits and moving the whole workspace don't change it; it changes only when the name or one of those two workspace-relative paths does.
 
 In this release, RPC URLs are `/_rpc/<namespace>/<procedure>`, so moving a route or the generation tsconfig doesn't change them. Everything below `/_rpc/` is wire format, which a release may change, so don't point health checks or other tools at a procedure's URL. The example doesn't commit generated files: every build regenerates them, and its `check` configuration (`ng run todos:build:check`) verifies them without writing.
-
-`@loozo/angular-launch/generation` is Node-only.
 
 ### Builders
 
@@ -1500,34 +1493,9 @@ All `@angular/build:dev-server` options, set in `angular.json` or on the command
 
 Invalid options stop the serve builder before it generates anything, and so does an invalid build target. The build target must not resolve `check: true`, because serving always writes generated files. The initial generation must succeed before the dev server starts; if it fails, the error is logged and the builder reports a failed build. If another run is generating into the same output, serve waits for it instead (see below).
 
-The builder then watches the scan directory and regenerates when files are added, changed or removed there. Wherever they live, it also checks the generation tsconfig, the configs it extends, the not-yet-created config files TypeScript looks for while resolving them, the package manifests whose `exports` choose a base, the application's `package.json` and, with `translateSegments`, the catalogs every 500 ms, so editing, deleting or recreating one of them starts a pass, also when the watcher misses it, such as a rewrite that keeps the modification time. A change only this check sees starts a pass within about 0.65 s when none is running, timers run on time and no later change restarts the 150 ms delay. A config named through a package-local `#imports` alias in a directory that doesn't exist yet is picked up at the next tsconfig or `package.json` save instead. A pass starts once changes have been quiet for 150 ms, so saving several files at once or renaming a directory runs one pass. Passes run one at a time; changes during a pass cause one more. A config file or catalog inside the scan directory can reach both the watcher and the check, and rarely runs one more pass when a signal settles after a pass has already started, such as a save during a pass, so a failing edit can log its error twice. A watcher event for adding, changing or removing a template, style, image, font or Markdown file (`.html`, `.css`, `.scss`, `.sass`, `.less`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, `.svg`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.otf` or `.md`) doesn't regenerate, since generation never reads one as a source; Angular's dev server still rebuilds for it. Such a file still regenerates when it's a symlink or a translation catalog, or when it changes during a pass or after a failed one, and the check above still covers it when it's the generation tsconfig or a config it extends. A failed pass is logged and the server keeps running; the next change retries. When another run, such as a `ng build`, is generating into the same output, serve logs a warning naming it and runs its pass once that run finishes, checking every 500 ms; a serve started during that run starts its dev server then. The same wait applies when the warning names a lock or recovery file to delete: serve carries on once you've deleted it. Other files, such as a server module a stage imports, don't trigger generation: route copies name their types through their route's declaration, not as text, so there's nothing to regenerate, and Angular's build still checks them. A route edit rebuilds twice, once for the edit and once for its regenerated copy, so the first reload can briefly pair new server code with the old copy.
+The builder then watches the scan directory and regenerates when files are added, changed or removed there. Wherever they live, it also checks the generation tsconfig, the configs it extends, the not-yet-created config files TypeScript looks for while resolving them, the package manifests whose `exports` choose a base, the workspace root's `package.json` and, with `translateSegments`, the catalogs every 500 ms, so editing, deleting or recreating one of them starts a pass, also when the watcher misses it, such as a rewrite that keeps the modification time. A change only this check sees starts a pass within about 0.65 s when none is running, timers run on time and no later change restarts the 150 ms delay. A config named through a package-local `#imports` alias in a directory that doesn't exist yet is picked up at the next tsconfig or `package.json` save instead. A pass starts once changes have been quiet for 150 ms, so saving several files at once or renaming a directory runs one pass. Passes run one at a time; changes during a pass cause one more. A config file or catalog inside the scan directory can reach both the watcher and the check, and rarely runs one more pass when a signal settles after a pass has already started, such as a save during a pass, so a failing edit can log its error twice. A watcher event for adding, changing or removing a template, style, image, font or Markdown file (`.html`, `.css`, `.scss`, `.sass`, `.less`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, `.svg`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.otf` or `.md`) doesn't regenerate, since generation never reads one as a source; Angular's dev server still rebuilds for it. Such a file still regenerates when it's a symlink or a translation catalog, or when it changes during a pass or after a failed one, and the check above still covers it when it's the generation tsconfig or a config it extends. A failed pass is logged and the server keeps running; the next change retries. When another run, such as a `ng build`, is generating into the same output, serve logs a warning naming it and runs its pass once that run finishes, checking every 500 ms; a serve started during that run starts its dev server then. The same wait applies when the warning names a lock or recovery file to delete: serve carries on once you've deleted it. Other files, such as a server module a stage imports, don't trigger generation: route copies name their types through their route's declaration, not as text, so there's nothing to regenerate, and Angular's build still checks them. A route edit rebuilds twice, once for the edit and once for its regenerated copy, so the first reload can briefly pair new server code with the old copy.
 
 Polling is on by default because Angular 22.2.2's native file watcher misses edits to files inside a renamed directory, which leaves the dev server serving stale output. It costs some idle CPU. Set `"poll": false` in the serve target to go back to native file events; Angular's own configuration then applies, including a `poll` on the build target. A positive number overrides the build target's `poll`; `0` is rejected. On the command line, `--poll` accepts milliseconds only. `poll` configures Angular's dev-server watcher; Launch's own watcher uses native file events, and its config check keeps its 500 ms interval.
-
-### Generation sessions
-
-`generate` starts from scratch on every call. A long-running tool that regenerates repeatedly (for example, after file changes) can create a session instead, which reuses compiler work between calls:
-
-```js
-import { createGenerationSession } from "@loozo/angular-launch/generation";
-
-const session = createGenerationSession(workspace, {
-  tsconfig: "tsconfig.app.json",
-  scanDirectories: ["src/routes"],
-  outDirectory: "generated",
-});
-
-try {
-  await session.generate();
-  // …after the next change:
-  await session.generate();
-  await session.generate({ check: true });
-} finally {
-  await session.dispose();
-}
-```
-
-The options are fixed when the session is created. Edits inside the app, including moves, are picked up by the next call; to move the app directory itself, dispose the session and create a new one. A session doesn't watch files and isn't coordinated with Angular's own watcher: you decide when to call `generate`, and must not start a second call before the previous one settles, since overlapping calls are rejected. A failed call doesn't break the session; the next call starts clean. After you change dependencies, create a new session. `dispose()` stops publishing from any active call, waits for it, and makes later calls reject. A call made while another run generates into the same output fails, naming that run.
 
 ## Limitations
 

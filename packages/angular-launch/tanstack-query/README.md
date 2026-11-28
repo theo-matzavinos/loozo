@@ -14,7 +14,7 @@ Install the adapter:
 pnpm add --save-exact @tanstack/angular-query@5.108.4
 ```
 
-Turn on the `tanstackQuery` generation option in your `@loozo/angular-launch:application` build target (or pass `tanstackQuery: true` to `generate`):
+Turn on the `tanstackQuery` generation option in your `@loozo/angular-launch:application` build target:
 
 ```json
 "options": {
