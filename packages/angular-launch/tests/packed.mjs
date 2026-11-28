@@ -164,10 +164,11 @@ import {RpcError, defineRoute} from '@loozo/angular-launch';
 import * as client from '@loozo/angular-launch';
 import * as server from '@loozo/angular-launch/server';
 import * as generatedServer from '@loozo/angular-launch/_server';
+import * as routeSpec from '@loozo/angular-launch/_route';
 import {bindApplication, createRequestScope, handleRpc} from '@loozo/angular-launch/_server';
 import {discoverLaunchRoutes,createValidationProgram} from '@loozo/angular-router/_generation';
 const require=createRequire(import.meta.url);
-for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-router/_generation']) {
+for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-launch/_route','@loozo/angular-router/_generation']) {
  assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
 }
 // Nothing generated imports Launch internals besides the server binding's entry.
@@ -188,6 +189,8 @@ assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedire
 // The optional peer isn't installed here: the root and server entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
 assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','readCookies','redirect']);
+// /_route only names route types for declaration emit: nothing at runtime.
+assert.deepEqual(Object.keys(routeSpec),[]);
 assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer','runProcedure']);
 const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
@@ -212,7 +215,7 @@ const refused = await handleRpc(application, new Request('http://test/_rpc/'+id+
 assert.equal(refused.status, 403); assert.equal((await refused.json()).error.code, 'FORBIDDEN');
 assert.equal(stages, 2);
 const scope = createRequestScope(application, new Request('http://test'));
-assert.equal(scope.appId, application.id); assert.equal(stages, 2, 'a scope runs no stage');
+assert.deepEqual(Object.keys(scope),['request'],'request is the only enumerable string key of a scope'); assert.equal(stages, 2, 'a scope runs no stage');
 const launch=JSON.parse(await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8'));
 const routerGeneration=router.exports['./_generation'];
 assert.equal(typeof routerGeneration.types,'string');assert.equal(typeof routerGeneration.node,'string');assert.equal(routerGeneration.default,undefined);
@@ -366,8 +369,10 @@ await writeFile(
 await run("pnpm", ["exec", "tsc", "-p", "tsconfig.nodenext.json"], consumer, "types-nodenext");
 
 // Application exports inferred from public server APIs must emit declarations: every type
-// their inferred types name has to be public (TS2883 otherwise). Only an installed package
-// shows this; a workspace source path would be written as a relative import instead.
+// their inferred types name has to be nameable through an export, a public entry or, for the
+// route-extension types only declaration emit needs, /_route (TS2883 otherwise). Only an
+// installed package shows this; a workspace source path would be written as a relative import
+// instead.
 await writeFile(
   join(consumer, "src/declarations.ts"),
   `import {defineRoute} from '@loozo/angular-launch';
@@ -378,7 +383,15 @@ export function labelStage({ context }: StageArgs<{ value: number }>) { return {
 export const route = defineRoute('declared', {}).context(() => ({ value: 1 })).use(labelled).remote(({ query }) => ({ declared: { list: query({ handler: ({ context }) => context.value }) } })).resolve({ list: ({ remote }) => remote.declared.list() });
 export const child = defineRoute('child', { parent: route }).context(labelStage).remote(({ query }) => ({ child: { label: query({ handler: ({ context }) => context.label }) } }));
 export function errorsOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors; }
-export function statusOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors.NOT_FOUND.status; }`,
+export function statusOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors.NOT_FOUND.status; }
+// Routes that still offer steps name LaunchStep and those steps' signatures too.
+export const bare = defineRoute('bare', {});
+export const contextOnly = defineRoute('context-only', {}).context(() => ({ value: 1 }));
+export const useOnly = defineRoute('use-only', {}).use(labelled);
+export const contextChild = defineRoute('context-child', { parent: contextOnly });
+// A helper typed from a route's .remote parameter infers its ProcedureDefinition namespace map.
+type RemoteFactory = Parameters<typeof bare.remote>[0];
+export const buildNamespaces = (build: RemoteFactory, builder: ProcedureBuilder<{}>) => build(builder);`,
 );
 await writeFile(
   join(consumer, "tsconfig.declarations.json"),
@@ -404,6 +417,24 @@ await run(
   consumer,
   "types-declarations",
 );
+
+// A route's emitted type names the route-extension types through /_route, full and partial
+// chains alike; the declarations aren't published API (SPEC §Stability), but emitting them works.
+const emittedDeclarations = await readFile(
+  join(consumer, "declarations/src/declarations.d.ts"),
+  "utf8",
+);
+
+for (const name of [
+  "ContextStep",
+  "LaunchSpec",
+  "LaunchStep",
+  "ProcedureDefinition",
+  "RemoteStep",
+  "UseStep",
+]) {
+  assert.ok(emittedDeclarations.includes('import("@loozo/angular-launch/_route").' + name), name);
+}
 
 // A consumer with the optional TanStack peer: the subpaths resolve, generation with
 // tanstackQuery type-checks, and the generated factories type-check under both resolutions.
@@ -531,7 +562,6 @@ await run(
   queriesConsumer,
   "tanstack-query-types-nodenext",
 );
-
 const lock = await readFile(join(consumer, "pnpm-lock.yaml"), "utf8");
 
 assert.ok(lock.includes("22.3.0") && lock.includes("6.0.3") && lock.includes("7.8.2"));
@@ -548,6 +578,8 @@ await writeFile(
         "normal private pnpm installation",
         "packed Node runtime exports and actual browser resolver rejection",
         "packed seam declarations",
+        "declaration emit names LaunchSpec and the step types through /_route for full and partial chains",
+        "request is a request scope's only enumerable string key",
         "producer generation with genuine mutation and declared-error metadata",
         "cold/session byte+mtime parity, invalid-edit repair and updated output parity",
         "metadata-only export swap rejects warm/cold generate/check, blocks identity publication and repairs on the same session",

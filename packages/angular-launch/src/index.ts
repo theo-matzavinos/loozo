@@ -1,16 +1,5 @@
 export { defineRoute } from "./route.js";
-export type {
-  ChainContext,
-  ChainNamespaces,
-  ContextOf,
-  ContextStep,
-  LaunchInput,
-  LaunchSpec,
-  LaunchStep,
-  RemoteOf,
-  RemoteStep,
-  UseStep,
-} from "./route-types.js";
+export type { ChainContext, ContextOf, RemoteOf } from "./route-types.js";
 export { RpcError, frameworkFailures } from "./client.js";
 export type {
   CallOptions,
