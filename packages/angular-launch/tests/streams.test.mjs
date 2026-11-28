@@ -436,8 +436,18 @@ test("custom iterators: a next() that throws fails the stream, and a cancelled s
   assert.deepEqual(seen, ["return started", "return finished", "next rejected: database failed"]);
 });
 
-test("custom iterators: a value that isn't strict JSON fails the call when return() throws instead of rejecting", async () => {
+test("custom iterators: a value that isn't strict JSON fails the call with INTERNAL, also when return() throws an outcome, synchronously or not", async () => {
   const seen = [];
+  const notJson = (returned) => ({
+    handler: () => ({
+      [Symbol.asyncIterator]: () => ({
+        next() {
+          return Promise.resolve({ done: false, value: Number.NaN });
+        },
+        return: returned,
+      }),
+    }),
+  });
   const namespaces = {
     live: {
       use: [
@@ -452,32 +462,45 @@ test("custom iterators: a value that isn't strict JSON fails the call when retur
         }),
       ],
       build: ({ stream }) => ({
-        notJson: stream({
-          handler: () => ({
-            [Symbol.asyncIterator]: () => ({
-              next() {
-                return Promise.resolve({ done: false, value: Number.NaN });
-              },
-              return() {
-                throw new Error("return failed");
-              },
-            }),
+        throwing: stream(
+          notJson(() => {
+            throw forbidden();
           }),
-        }),
+        ),
+        rejecting: stream(notJson(() => Promise.reject(forbidden()))),
       }),
     },
   };
 
-  let notJson;
-  const log = await logged(async () => {
-    notJson = await events(await handle(namespaces, post("/_rpc/live/notJson", null)));
-  });
+  for (const name of ["throwing", "rejecting"]) {
+    // A call that never settles keeps its keep-alive timer running: abort it so a failure ends.
+    const request = new AbortController();
+    let frames;
 
-  assert.deepEqual(notJson, [
-    'event: error\ndata: {"status":500,"error":{"code":"INTERNAL","message":"Internal server error","data":null}}',
-  ]);
-  assert.deepEqual(seen, ["next rejected: return failed"]);
-  assert.match(String(log[0][1]), /return failed/);
+    seen.length = 0;
+
+    try {
+      const log = await logged(async () => {
+        const response = await handle(
+          namespaces,
+          new Request(post(`/_rpc/live/${name}`, null), { signal: request.signal }),
+        );
+
+        frames = await events(response);
+      });
+
+      assert.deepEqual(frames, [
+        'event: error\ndata: {"status":500,"error":{"code":"INTERNAL","message":"Internal server error","data":null}}',
+      ]);
+      assert.deepEqual(seen, ["next rejected: RPC values must be strict JSON"]);
+      assert.deepEqual(
+        log.map((entry) => String(entry[1])),
+        ["Error: RPC forbidden", "TypeError: RPC values must be strict JSON"],
+      );
+    } finally {
+      request.abort();
+    }
+  }
 });
 
 test("a request aborted before its stream is read stops the stream, also before the handler started", async () => {
