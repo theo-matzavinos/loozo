@@ -2,12 +2,12 @@
 
 ## breaking changes
 
-origami-ui and fold-ui publish `0.0.x` versions and Launch `0.x` versions since 0.1.0; none of them owes compatibility before 1.0. the router follows semantic versioning from 1.0.0: its `SPEC.md` "Stability" section is the public contract.
+origami-ui and fold-ui publish `0.0.x` versions and Launch `0.x` versions since 0.1.0; none of them owes compatibility before 1.0. the router and Launch each follow semantic versioning from their own 1.0.0: each one's `SPEC.md` "Stability" section is its public contract.
 
-- change any public API, contract or behavior when it improves the design, the router's after 1.0 included. don't seek approval or flag a change as risky merely because it breaks. the design itself still needs loozo's approval before implementation, like any interface change.
-- don't add deprecations, compatibility shims, aliases, fallbacks for old shapes or migration notes, in the router after 1.0 too. update every in-repo caller, example, doc and spec in the same change.
-- changes don't bump versions; Publish picks the bump. a break in a `0.0.x` package ships in its next `0.0.x`, a break in Launch in its next minor, and a break in the router from 1.0.0 in its next major. mark every break with `!`. Publish refuses a bump below what the commit subjects since the last release need: from 1.0, `!` needs a major and `feat` a minor; on `0.x`, `!` needs a minor.
-- while Launch is on `0.x`, a router minor or major makes Launch's next release a minor, which Publish enforces.
+- change any public API, contract or behavior when it improves the design, the router's and Launch's after their 1.0 included. don't seek approval or flag a change as risky merely because it breaks. the design itself still needs loozo's approval before implementation, like any interface change.
+- don't add deprecations, compatibility shims, aliases, fallbacks for old shapes or migration notes, in the router and Launch after their 1.0 too. update every in-repo caller, example, doc and spec in the same change.
+- changes don't bump versions; Publish picks the bump. a break in a `0.0.x` package ships in its next `0.0.x`, a break in Launch on `0.x` in its next minor, and a break in the router or Launch from its 1.0.0 in its next major. mark every break with `!`. Publish refuses a bump below what the commit subjects since the last release need: from 1.0, `!` needs a major and `feat` a minor; on `0.x`, `!` needs a minor.
+- Launch pins the router exactly, so a pin move sets a floor on Launch's next release: while Launch is on `0.x`, a router minor or major makes it a minor, which Publish enforces; from Launch 1.0.0, a router minor makes it at least a minor and a router major a major.
 
 ## origami composition
 

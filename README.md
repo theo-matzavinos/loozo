@@ -37,7 +37,7 @@ Pack and publish only from `dist/`; publishing from a package root fails on purp
 
 ## Releasing
 
-Release a package from the Actions tab: run the **Publish** workflow on `main`, pick the package and pick a `patch`, `minor` or `major` bump. The router's [versioning policy](packages/angular-router/README.md#versions) says which one a release needs. The workflow:
+Release a package from the Actions tab: run the **Publish** workflow on `main`, pick the package and pick a `patch`, `minor` or `major` bump. The router's [versioning policy](packages/angular-router/README.md#versions) and Launch's [Versions](packages/angular-launch/README.md#versions) say which one a release needs. The workflow:
 
 1. Bumps the package with `scripts/bump-version.mjs`, which refuses a level below what the commits since the last release need and never raises one on its own. On `0.0.x` any level goes. From `0.1.0` until `1.0.0`, a patch fails when a commit is marked breaking (`!`); release a minor instead. From `1.0.0` on, a breaking commit needs a major and a `feat` commit a minor. A Launch release also pins Launch to the router version on `main`, so release the router first when it changed. While Launch is `0.x`, a pin that moves across a router minor or major needs a Launch minor; a router patch can ship in a Launch patch. An Origami release also moves the Origami version fold's `ng add` installs to the new release. A fold release ships the Origami version on `main`, so release Origami first when fold relies on unreleased Origami changes.
 2. Builds the package and the workspace packages it depends on, then runs its `check`, `typecheck` and `test`, plus `tests/packed.mjs` when the package has one.

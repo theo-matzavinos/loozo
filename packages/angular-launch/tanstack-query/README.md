@@ -255,7 +255,7 @@ TanStack's own structural sharing turns a `"__proto__"` key in a refetched resul
 - No infinite queries, mutation cancellation or persistence. Optimistic updates and invalidation are TanStack's, as [above](#invalidation): Launch adds no helpers for them.
 - No options for [streams](../README.md#calling-streams): `route.queries` leaves them out. TanStack's `streamedQuery` keeps a query fetching until its stream ends, and the Angular adapter keeps the app from becoming stable while a query is fetching, which would hold hydration open as long as the stream runs. It's also still `experimental_streamedQuery` in query-core 5.108.4. Follow the stream with [`connect()`](../README.md#following-streams-and-channels-with-connect) instead.
 - No options for [channels](../README.md#calling-channels) either, for the same reasons; use `connect()`.
-- A narrowed active-route handle's `queries` uses the `QueryClient` of the `injectActiveRoute()` caller, not one a route provides: a route-level `QueryClient` reaches only that route's own `injectRoute()`.
+- A narrowed active-route handle's `queries` uses the `QueryClient` of the `injectActiveRoute()` call's injector, not the route's: a shell outside the route doesn't see a route-level `QueryClient`, while the route's own page does.
 - Errors aren't dehydrated: a failed server query runs again in the browser.
 - Only `@tanstack/angular-query`, not `@tanstack/angular-query-experimental`, which TanStack deprecated in its favor.
 - No special handling for `@defer`: queries in a deferred block follow the same window, so ones that mount after the app is stable refetch when stale.
