@@ -21,7 +21,7 @@ import { forbidden, middleware } from "../dist/server/index.js";
 import {
   createRequestScope,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
   runProcedure,
 } from "../dist/server/generated.js";
 import { bound } from "./fixtures/application.mjs";
@@ -144,7 +144,7 @@ async function rendering(namespaces, callback) {
           },
         },
       },
-      provideLaunchServer(app),
+      provideRenderingBackend(app),
     ],
     parent,
   );

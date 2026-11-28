@@ -57,7 +57,7 @@ src/
             └── route.generated.ts  generated: the browser copy, Remote and Context, injectRoute()
 generated/
 ├── routes.generated.ts          router: routes for provideRouter, injectActiveRoute()
-└── server.generated.ts          createRequestScope, handleRequest, handleUpgrade, provideServer
+└── server.generated.ts          createRequestScope, handleRequest, handleUpgrade, provideLaunchServer
 ```
 
 Import `defineRoute` from `@loozo/angular-launch` instead of the router in every `route.ts`. It's the router's `defineRoute` with three more steps offered first, `.context()`, `.use()` and `.remote()`, each at most once and in that order, before the router's own steps. All three run only on the server: the router writes each route's browser copy, `route.generated.ts`, without them, and Launch adds the route's procedure metadata, its `Remote` and `Context` types and `remote` on its `injectRoute()` handle. `server.generated.ts` imports the routes themselves, so the server runs the steps.
@@ -179,18 +179,18 @@ export const config: ApplicationConfig = {
 
 To have pages follow a procedure's [`redirect()` and `notFound()`](#redirects-and-not-found), add [`rpcNavigationErrors`](#navigating-on-outcomes) to `provideRouter`. With [translated URLs](#translated-urls), add `provideRedirectTranslation()` here too.
 
-The server config adds the generated `provideServer()`, after `provideHttpClient()`:
+The server config adds the generated `provideLaunchServer()`, after `provideHttpClient()`:
 
 ```ts
 // src/config.server.ts
 import { mergeApplicationConfig } from "@angular/core";
 import { provideServerRendering, withRoutes } from "@angular/ssr";
-import { provideServer } from "../generated/server.generated";
+import { provideLaunchServer } from "../generated/server.generated";
 import { config } from "./config";
 import { rendering } from "./rendering";
 
 export const serverConfig = mergeApplicationConfig(config, {
-  providers: [provideServerRendering(withRoutes(rendering)), provideServer()],
+  providers: [provideServerRendering(withRoutes(rendering)), provideLaunchServer()],
 });
 ```
 
@@ -1182,7 +1182,7 @@ if (isMainModule(import.meta.url)) {
 }
 ```
 
-Pass `handleUpgrade` the same `allowedHosts` and `origins` as `handleRequest`: it checks [hosts](#hosts) and [origins](#cross-origin-requests) the same way, before a context exists. The listener builds a web `Request` from the upgrade (the protocol from the socket, the host from `Host`; like Angular's default, it trusts no proxy headers), writes refusals to the socket as plain HTTP responses, and accepts the rest with [`ws`](https://github.com/websockets/ws), with the call's headers and cookies on the `101`. Upgrades outside `/_rpc/` are left to the server's other `upgrade` listeners. It pings each open socket every 15 seconds and drops one that doesn't answer, and closes a socket whose message is over `maxPayload` bytes with 1009, which the client sees as a `TypeError`:
+Pass `handleUpgrade` the same `allowedHosts` and `allowedOrigins` as `handleRequest`: it checks [hosts](#hosts) and [origins](#cross-origin-requests) the same way, before a context exists. The listener builds a web `Request` from the upgrade (the protocol from the socket, the host from `Host`; like Angular's default, it trusts no proxy headers), writes refusals to the socket as plain HTTP responses, and accepts the rest with [`ws`](https://github.com/websockets/ws), with the call's headers and cookies on the `101`. Upgrades outside `/_rpc/` are left to the server's other `upgrade` listeners. It pings each open socket every 15 seconds and drops one that doesn't answer, and closes a socket whose message is over `maxPayload` bytes with 1009, which the client sees as a `TypeError`:
 
 ```ts
 createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }), {
@@ -1207,7 +1207,7 @@ Passing `allowedHosts` to `AngularNodeAppEngine` replaces its own read of `NG_AL
 
 `handleRequest` answers only RPCs it can prove come from the app's own origin. The rest get `FORBIDDEN` (403), logged with the reason, before a context is created:
 
-1. An `Origin` listed in `origins` passes.
+1. An `Origin` listed in `allowedOrigins` passes.
 2. Otherwise, if the request has `Sec-Fetch-Site`, it must be `same-origin`. `same-site` (a sibling subdomain), `cross-site` and `none` are refused.
 3. Otherwise, if it has `Origin`, that must equal the request URL's origin.
 4. A request with neither header is refused. There's no `Referer` fallback and no opt-out.
@@ -1215,7 +1215,7 @@ Passing `allowedHosts` to `AngularNodeAppEngine` replaces its own read of `NG_AL
 Launch's browser client always sends one of the two headers. curl, scripts, Node's `fetch` and server-to-server callers send neither, so they must send `Origin` with the app's origin. Browsers send `Sec-Fetch-Site` only to HTTPS and `localhost`, so a plain-HTTP deployment on any other hostname relies on `Origin` matching the request URL. Behind a proxy that rewrites `Host`, that URL isn't the public one, and those calls are refused until you list the public origin:
 
 ```ts
-const rpc = await handleRequest(web, { allowedHosts, origins: ["https://app.example.com"] });
+const rpc = await handleRequest(web, { allowedHosts, allowedOrigins: ["https://app.example.com"] });
 ```
 
 List a sibling site's origin the same way to pass Launch's check. For HTTP RPCs and streams that isn't enough on its own: the browser sends a CORS preflight before the JSON `POST`, which Launch refuses, so your host must answer it and add CORS headers to responses. Channels need no CORS. Only HTTP requests are checked: calls made during server rendering carry the page request, whose `Sec-Fetch-Site` is `cross-site` or `none` on an ordinary navigation, and run without these checks.
@@ -1461,7 +1461,7 @@ Generation reads your source without running it. It writes the router's files, w
 | File                                    | Contents                                                                                                                                                                                       |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `route.generated.ts` beside each route  | The router's browser copy without the server steps, carrying the route's procedure metadata, `Remote`, `Context` and `remote` on `injectRoute()`; `Queries` and `queries` with `tanstackQuery` |
-| `<outDirectory>/server.generated.ts`    | `createRequestScope`, `handleRequest`, `handleUpgrade` and `provideServer`, bound to every route with a server step                                                                            |
+| `<outDirectory>/server.generated.ts`    | `createRequestScope`, `handleRequest`, `handleUpgrade` and `provideLaunchServer`, bound to every route with a server step                                                                      |
 | `<outDirectory>/redirects.generated.ts` | With `translateSegments` only: `provideRedirectTranslation`, every static route word with the router's message for it                                                                          |
 
 Each file carries an ownership marker comment. Generation only replaces or removes files with those exact names and markers, fails rather than overwrite an unmarked file or a symlink in their place, and removes stale ones, including the `rpc.generated.ts` and `context.generated.d.ts` files an earlier Launch version wrote. Unchanged files aren't rewritten. Everything is validated before anything is written, so a run that fails validation changes nothing. Only one run generates into an output at a time, among your own processes on this machine: a run started while another holds that output, such as `ng build` during a `ng serve` pass, fails before reading your routes or writing anything, and names the other run's builder, pid and start time. A lock left by a run that was killed, such as by `Ctrl+C`, is normally cleared by the next run. If the run was killed in the instant it was writing its lock, or the error otherwise names a lock or recovery file it can't attribute to a running process, nothing clears it for you: a build keeps failing and a serve keeps waiting until you check that no build or serve of this app is running and delete the file the message names. The lock covers runs of your own user on this machine that use the same temporary directory. Spell each output directory the same way in every target: Launch tells spellings apart, except for letter case and Unicode normalization on Windows and macOS. Files are then written one at a time, with no rollback: a write error partway through, such as an unwritable file, or an interrupted run can leave some files updated and others not. The next successful run repairs them.
@@ -1470,7 +1470,7 @@ Before writing, generation type-checks the generated files, your route declarati
 
 Generated browser code contains only names, kinds and error metadata, never your schemas, stages, middleware or handlers: a route copy drops the server steps and the imports only they used, and names their types through an erased `import type` of its own `route.ts`. Keep server-only modules out of anything a page imports at runtime; the example names them `*.server.ts`. Each route copy loads with the record that reads it: a top-level route's with `routes.generated.ts`, in the startup bundle, and a nested route's with its parent's lazily loaded children, as the router's [lazy route children](../angular-router/README.md#lazy-route-children) describes.
 
-`server.generated.ts` binds Launch's internal `bindApplication`, `createRequestScope`, `handleRpc`, `handleChannelUpgrade` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the workspace root's `package.json` name and the generation tsconfig's and output directory's paths within the workspace, so route edits and moving the whole workspace don't change it; it changes only when the name or one of those two workspace-relative paths does.
+`server.generated.ts` binds Launch's internal `bindApplication`, `createRequestScope`, `handleRpc`, `handleChannelUpgrade` and `provideRenderingBackend` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the workspace root's `package.json` name and the generation tsconfig's and output directory's paths within the workspace, so route edits and moving the whole workspace don't change it; it changes only when the name or one of those two workspace-relative paths does.
 
 In this release, RPC URLs are `/_rpc/<namespace>/<procedure>`, so moving a route or the generation tsconfig doesn't change them. Everything below `/_rpc/` is wire format, which a release may change, so don't point health checks or other tools at a procedure's URL. The example doesn't commit generated files: every build regenerates them, and its `check` configuration (`ng run todos:build:check`) verifies them without writing.
 

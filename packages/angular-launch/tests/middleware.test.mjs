@@ -7,7 +7,7 @@ import { forbidden, middleware } from "../dist/server/index.js";
 import {
   createRequestScope,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
   runProcedure,
 } from "../dist/server/generated.js";
 import { application } from "./fixtures/application.mjs";
@@ -697,7 +697,7 @@ test("during server rendering, the signal aborts when HttpClient unsubscribes or
             },
           },
         },
-        provideLaunchServer(app),
+        provideRenderingBackend(app),
       ],
       parent,
     );

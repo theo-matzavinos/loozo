@@ -124,7 +124,7 @@ function refusedUpgrade(effects: ResponseEffects, reply: Reply, channel: Channel
 export async function handleChannelUpgrade(
   application: ApplicationBinding,
   request: Request,
-  { allowedHosts, origins = [], waitUntil }: HandleOptions,
+  { allowedHosts, allowedOrigins = [], waitUntil }: HandleOptions,
 ): Promise<Response | Upgrade | null> {
   const url = new URL(request.url);
 
@@ -146,7 +146,7 @@ export async function handleChannelUpgrade(
     return response(invalidInput());
   }
 
-  const crossSite = crossSiteReason(request, origins);
+  const crossSite = crossSiteReason(request, allowedOrigins);
 
   if (crossSite !== undefined) {
     console.error(`Launch refused a cross-origin RPC: ${crossSite}`);

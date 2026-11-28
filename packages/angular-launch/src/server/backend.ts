@@ -35,7 +35,7 @@ const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults
  *
  * @remarks
  * Internal: exported only from `@loozo/angular-launch/_server` for the generated
- * `provideServer` in `server.generated.ts`; add that to your server application config,
+ * `provideLaunchServer` in `server.generated.ts`; add that to your server application config,
  * after `provideHttpClient()`, instead of calling this.
  *
  * It replaces Angular's `HttpBackend` on the server. Calls from generated clients, and
@@ -75,7 +75,7 @@ const renderFaults = new InjectionToken<{ fault?: Error }>("Launch render faults
  * prerendering runs its calls with it.
  * @returns The environment providers for the server application.
  */
-export function provideLaunchServer(application: ApplicationBinding): EnvironmentProviders {
+export function provideRenderingBackend(application: ApplicationBinding): EnvironmentProviders {
   return makeEnvironmentProviders([
     { provide: renderFaults, useFactory: () => ({}) },
     {
@@ -311,7 +311,7 @@ export function provideLaunchServer(application: ApplicationBinding): Environmen
  * `FORBIDDEN`, so it fails too. Angular's prerendering can swallow resolver errors and still
  * report success, and a failed `injectQuery` only renders its error state, so return this
  * from your server bootstrap to fail the build instead of producing a broken page. The
- * application must include the generated `provideServer()`. Server-rendered pages are
+ * application must include the generated `provideLaunchServer()`. Server-rendered pages are
  * unaffected: their failures reach the caller as usual.
  *
  * It checks once the app is first stable, which covers calls from guards, resolvers and

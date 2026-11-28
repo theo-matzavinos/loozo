@@ -393,7 +393,7 @@ async function declaredReply(procedure: RuntimeProcedure, error: unknown): Promi
  *
  * @remarks
  * The shared pipeline behind {@link handleRpc} and the server-rendering backend of
- * {@link provideLaunchServer}. Internal; not exported from a public entry point. It
+ * {@link provideRenderingBackend}. Internal; not exported from a public entry point. It
  * never rejects: every failure becomes a framework failure reply, and
  * unexpected errors are logged on the server.
  *
@@ -652,7 +652,7 @@ export interface HandleOptions {
    * `https://app.example.com`: a public origin behind a proxy that rewrites `Host`, or a
    * sibling site. Defaults to none.
    */
-  readonly origins?: readonly string[];
+  readonly allowedOrigins?: readonly string[];
   /**
    * Keeps each call's work alive after its client leaves, on hosts that may otherwise cancel
    * it, such as Cloudflare Workers: pass `ctx.waitUntil.bind(ctx)`. Called once, as the call
@@ -693,11 +693,14 @@ export function hostAllowed(hostname: string, allowedHosts: readonly string[]): 
 }
 
 /** Why `request` can't be proven same-origin, or `undefined` when it can. */
-export function crossSiteReason(request: Request, origins: readonly string[]): string | undefined {
+export function crossSiteReason(
+  request: Request,
+  allowedOrigins: readonly string[],
+): string | undefined {
   const site = request.headers.get("sec-fetch-site");
   const origin = request.headers.get("origin");
 
-  if (origin !== null && origins.includes(origin)) {
+  if (origin !== null && allowedOrigins.includes(origin)) {
     return undefined;
   }
 
@@ -732,7 +735,7 @@ export function crossSiteReason(request: Request, origins: readonly string[]): s
  * be in `allowedHosts`, otherwise the reply is a plain-text 400 `Host not allowed`. It
  * must then be a `POST` with an `application/json` content type and no query string,
  * otherwise the reply is `INVALID_INPUT` with no issues. It must then come from the
- * app's own origin, otherwise the reply is `FORBIDDEN`: an `Origin` listed in `origins`
+ * app's own origin, otherwise the reply is `FORBIDDEN`: an `Origin` listed in `allowedOrigins`
  * passes; otherwise `Sec-Fetch-Site`, when sent, must be `same-origin`; otherwise
  * `Origin`, when sent, must equal the request URL's origin; a request with neither
  * header is refused. No stage runs for any of these refusals. A fresh request scope is
@@ -761,7 +764,7 @@ export function crossSiteReason(request: Request, origins: readonly string[]): s
 export async function handleRpc(
   application: ApplicationBinding,
   request: Request,
-  { allowedHosts, origins = [], waitUntil }: HandleOptions,
+  { allowedHosts, allowedOrigins = [], waitUntil }: HandleOptions,
 ): Promise<Response | null> {
   const url = new URL(request.url);
 
@@ -781,7 +784,7 @@ export async function handleRpc(
     return response(invalidInput());
   }
 
-  const crossSite = crossSiteReason(request, origins);
+  const crossSite = crossSiteReason(request, allowedOrigins);
 
   if (crossSite !== undefined) {
     console.error(`Launch refused a cross-origin RPC: ${crossSite}`);

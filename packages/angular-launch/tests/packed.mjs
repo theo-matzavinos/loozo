@@ -191,7 +191,7 @@ assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module
 assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','readCookies','redirect']);
 // /_route only names route types for declaration emit: nothing at runtime.
 assert.deepEqual(Object.keys(routeSpec),[]);
-assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer','runProcedure']);
+assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideRenderingBackend','runProcedure']);
 const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
   if (typeof value !== 'string') { return { issues: [{ message: 'private string detail' }] }; }
@@ -317,7 +317,7 @@ await assert.rejects(disposing.generate(),/disposed/);
 await generate(import.meta.dirname,options);
 assert.notEqual((await snapshot())['generated/server.generated.ts'].bytes,beforeDispose['generated/server.generated.ts'].bytes);
 const generated=await readFile(import.meta.dirname+'/generated/server.generated.ts','utf8');
-assert.ok(generated.includes("from '@loozo/angular-launch/_server';"));assert.ok(generated.includes('scopeFor(application, request)'));assert.ok(generated.includes('provideLaunchServer(application)'));
+assert.ok(generated.includes("from '@loozo/angular-launch/_server';"));assert.ok(generated.includes('scopeFor(application, request)'));assert.ok(generated.includes('provideRenderingBackend(application)'));
 const copy=await readFile(import.meta.dirname+'/src/routes/route.generated.ts','utf8');
 assert.ok(copy.includes('from "@loozo/angular-launch";'));assert.ok(!copy.includes('angular-launch/_generated'));assert.ok(!copy.includes('angular-launch/server'));
 console.log('Packed exports, generation, mutation/error payloads and lazy request scope: PASS');`,

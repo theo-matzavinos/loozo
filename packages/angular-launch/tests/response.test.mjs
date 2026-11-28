@@ -14,7 +14,7 @@ import {
   createRequestScope,
   handleChannelUpgrade,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
 } from "../dist/server/generated.js";
 import { application as bind, bound } from "./fixtures/application.mjs";
 
@@ -301,7 +301,7 @@ function render(namespaces, scope, responseInit) {
         },
       },
     },
-    provideLaunchServer(bound(application, namespaces)),
+    provideRenderingBackend(bound(application, namespaces)),
   ];
 
   if (responseInit !== undefined) {
@@ -468,7 +468,7 @@ test("a stage's cookies go on the response of the call that first ran it, once p
       { provide: RESPONSE_INIT, useValue: { headers } },
       { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
       { provide: FetchBackend, useValue: { handle: () => assert.fail("Unexpected fallback") } },
-      provideLaunchServer(app),
+      provideRenderingBackend(app),
     ],
     parent,
   );

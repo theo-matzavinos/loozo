@@ -40,7 +40,7 @@ mock.module("@loozo/angular-router/_generated", {
 const { RpcNotFound, RpcRedirect, rpcNavigationErrors, searchCookies } =
   await import("../dist/index.js");
 const { notFound, readCookies } = await import("../dist/server/index.js");
-const { createRequestScope, provideLaunchServer } = await import("../dist/server/generated.js");
+const { createRequestScope, provideRenderingBackend } = await import("../dist/server/generated.js");
 const { injectClient } = await import("../dist/remote-client.js");
 // Imported after the mock, as the fixture imports this package's root.
 const { application } = await import("./fixtures/application.mjs");
@@ -300,7 +300,7 @@ async function render(url, cookie, originalUrl) {
           providers: [
             provideServerRendering(),
             provideHttpClient(),
-            provideLaunchServer(filtered),
+            provideRenderingBackend(filtered),
             // Before the initial navigation starts.
             provideEnvironmentInitializer(() => {
               inject(angularRouter.Router).events.subscribe((event) => {

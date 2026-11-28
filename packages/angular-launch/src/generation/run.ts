@@ -463,7 +463,7 @@ function emitServer(
 
   lines.push(
     `import type { HandleOptions } from '@loozo/angular-launch/server';`,
-    `import { bindApplication, createRequestScope as scopeFor, handleChannelUpgrade, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';`,
+    `import { bindApplication, createRequestScope as scopeFor, handleChannelUpgrade, handleRpc, provideRenderingBackend } from '@loozo/angular-launch/_server';`,
   );
   const routes: string[] = [];
   // By code unit, so the order doesn't depend on the machine's locale.
@@ -503,7 +503,7 @@ function emitServer(
     `export const createRequestScope = (request: Request) => scopeFor(application, request);`,
     `export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(application, request, options);`,
     `export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(application, request, options);`,
-    `export const provideServer = () => provideLaunchServer(application);`,
+    `export const provideLaunchServer = () => provideRenderingBackend(application);`,
     "",
   );
   add(desired, file, lines.join("\n"));

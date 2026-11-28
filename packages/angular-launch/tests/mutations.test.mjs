@@ -25,7 +25,7 @@ import { builder } from "../dist/server/definitions.js";
 import {
   createRequestScope,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
   runProcedure,
 } from "../dist/server/generated.js";
 import { injectClient } from "../dist/remote-client.js";
@@ -476,7 +476,7 @@ test("native SSR denies admitted mutations before middleware/schema/handler/writ
                 },
               },
             },
-            provideLaunchServer(binding),
+            provideRenderingBackend(binding),
           ],
         },
         context,
