@@ -23,7 +23,7 @@ import { forbidden, middleware } from "../dist/server/index.js";
 import {
   createRequestScope,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
   runProcedure,
 } from "../dist/server/generated.js";
 import { bound } from "./fixtures/application.mjs";
@@ -357,7 +357,7 @@ test("native backend direct dispatch, exact MIME/origin/method/credentials and u
           },
         },
       },
-      provideLaunchServer(app),
+      provideRenderingBackend(app),
     ],
     parent,
   );

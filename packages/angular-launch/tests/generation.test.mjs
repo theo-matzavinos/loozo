@@ -258,7 +258,7 @@ void result; void session; void resolved; void length; void context; void remote
     [
       "// @loozo/angular-launch: owned server.generated.ts",
       "import type { HandleOptions } from '@loozo/angular-launch/server';",
-      "import { bindApplication, createRequestScope as scopeFor, handleChannelUpgrade, handleRpc, provideLaunchServer } from '@loozo/angular-launch/_server';",
+      "import { bindApplication, createRequestScope as scopeFor, handleChannelUpgrade, handleRpc, provideRenderingBackend } from '@loozo/angular-launch/_server';",
       // Declaration id order, by code unit.
       'import route0 from "../src/routes/+auth/route.js";',
       'import route1 from "../src/routes/left/route.js";',
@@ -273,7 +273,7 @@ void result; void session; void resolved; void length; void context; void remote
       "export const createRequestScope = (request: Request) => scopeFor(application, request);",
       "export const handleRequest = (request: Request, options: HandleOptions) => handleRpc(application, request, options);",
       "export const handleUpgrade = (request: Request, options: HandleOptions) => handleChannelUpgrade(application, request, options);",
-      "export const provideServer = () => provideLaunchServer(application);",
+      "export const provideLaunchServer = () => provideRenderingBackend(application);",
       "",
     ].join("\n"),
   );
@@ -1095,11 +1095,11 @@ import type {Input,Transformed,Todo} from '../../dto';`,
     `import {injectRoute} from './routes/left/route.generated';
 import type {Todo,ReadonlyTodo,Input,MutableInput,AliasTodo} from './dto';
 import {handleRequest, createRequestScope} from '../generated/server.generated';
-const handled:Promise<Response|null>=handleRequest(new Request('http://test'),{allowedHosts:['test'],origins:['https://public.test']});
+const handled:Promise<Response|null>=handleRequest(new Request('http://test'),{allowedHosts:['test'],allowedOrigins:['https://public.test']});
 // @ts-expect-error handleRequest requires options
 handleRequest(new Request('http://test'));
 // @ts-expect-error allowedHosts is required
-handleRequest(new Request('http://test'),{origins:[]});
+handleRequest(new Request('http://test'),{allowedOrigins:[]});
 // Creating a scope is synchronous and runs nothing.
 const scope=createRequestScope(new Request('http://test'));
 const request:Request=scope.request;
@@ -1852,7 +1852,11 @@ void namespace; void session; void procedure; void inputKey; void mutationKey; v
   await generate(root, { ...options, tanstackQuery: true });
   await generate(root, { ...options, tanstackQuery: true, check: true });
 
-  const session = createBuilderSession(root, { ...options, tanstackQuery: true }, "generation test");
+  const session = createBuilderSession(
+    root,
+    { ...options, tanstackQuery: true },
+    "generation test",
+  );
 
   try {
     await session.generate({ check: true });

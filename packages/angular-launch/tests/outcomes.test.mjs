@@ -25,7 +25,11 @@ import {
 import { firstValueFrom, Observable } from "rxjs";
 import { QueryClient } from "@tanstack/angular-query";
 import { finishLaunchRendering, middleware, notFound, redirect } from "../dist/server/index.js";
-import { createRequestScope, handleRpc, provideLaunchServer } from "../dist/server/generated.js";
+import {
+  createRequestScope,
+  handleRpc,
+  provideRenderingBackend,
+} from "../dist/server/generated.js";
 import { bound, application as bind } from "./fixtures/application.mjs";
 import { defineRoute } from "../dist/index.js";
 import { createUrl } from "@loozo/angular-router/_core";
@@ -257,7 +261,7 @@ function serverInjector(cookie = "alice") {
         { provide: PLATFORM_ID, useValue: "server" },
         { provide: FetchBackend, useValue: { handle: () => assert.fail("left the server") } },
         { provide: HttpClient, useFactory: () => new HttpClient(injectBackend()) },
-        provideLaunchServer(bound(application, namespaces)),
+        provideRenderingBackend(bound(application, namespaces)),
       ],
       parent,
     );
@@ -589,7 +593,7 @@ async function render(url, cookie = "alice") {
           providers: [
             provideServerRendering(),
             provideHttpClient(),
-            provideLaunchServer(bound(application, namespaces)),
+            provideRenderingBackend(bound(application, namespaces)),
             provideRouter(
               [
                 {
@@ -773,7 +777,7 @@ async function translatedCall(platform, name = "signIn") {
       { provide: REQUEST, useValue: scope?.request ?? null },
       { provide: DOCUMENT, useValue: { location: { href: "http://test/guarded" } } },
       { provide: FetchBackend, useValue: { handle: () => assert.fail("left the server") } },
-      provideLaunchServer(application),
+      provideRenderingBackend(application),
     );
   }
 

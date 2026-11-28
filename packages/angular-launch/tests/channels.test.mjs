@@ -164,12 +164,15 @@ function upgradeRequest(
   return new Request(`http://${host}${path}${search}`, { method, headers, signal });
 }
 
-function handle(namespaces, request) {
-  return handleChannelUpgrade(bound(application, namespaces), request, { allowedHosts: ["test"] });
+function handle(namespaces, request, options = {}) {
+  return handleChannelUpgrade(bound(application, namespaces), request, {
+    allowedHosts: ["test"],
+    ...options,
+  });
 }
 
-async function accepted(namespaces, request) {
-  const upgrade = await handle(namespaces, request);
+async function accepted(namespaces, request, options = {}) {
+  const upgrade = await handle(namespaces, request, options);
 
   assert.ok(upgrade !== null && !(upgrade instanceof Response), "Expected an upgrade");
 
@@ -354,6 +357,45 @@ test("pre-context refusals are HTTP responses, in order: host, then shape, then 
 
   assert.equal(contexts, before);
   assert.equal(ran, false);
+});
+
+test("a cross-origin upgrade is accepted only when allowedOrigins lists its Origin", async () => {
+  const namespaces = {
+    chat: {
+      build: ({ channel }) => ({
+        talk: channel({
+          message: anySchema,
+          handler: async function* () {
+            yield "hello";
+          },
+        }),
+      }),
+    },
+  };
+  const crossOrigin = () =>
+    upgradeRequest("/_rpc/chat/talk", null, { origin: "http://public.test" });
+  const log = await logged(async () => {
+    const unlisted = await handle(namespaces, crossOrigin());
+    const otherListed = await handle(namespaces, crossOrigin(), {
+      allowedOrigins: ["http://other.test"],
+    });
+
+    assert.equal(unlisted.status, 403);
+    assert.equal(otherListed.status, 403, "a list without this Origin still refuses it");
+  });
+
+  assert.equal(log.length, 2);
+
+  for (const entry of log) {
+    assert.match(String(entry[0]), /cross-origin RPC/);
+  }
+
+  const { socket } = await accepted(namespaces, crossOrigin(), {
+    allowedOrigins: ["http://public.test"],
+  });
+
+  await until(() => socket.closedWith !== undefined, "the end");
+  assert.deepEqual(socket.frames(), [{ value: "hello" }, { end: null }]);
 });
 
 test("RPC_NOT_FOUND for a non-channel over handleUpgrade and a channel over handleRequest; FORBIDDEN while rendering", async () => {

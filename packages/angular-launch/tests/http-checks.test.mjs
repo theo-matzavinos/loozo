@@ -100,7 +100,10 @@ test("hosts are matched exactly, by *.domain for subdomains only, or by *; other
 
 test("only requests proven same-origin pass: Sec-Fetch-Site first, then Origin, else refused", async () => {
   const own = "https://app.example.com";
-  const options = { allowedHosts: ["app.example.com"], origins: ["https://public.example.com"] };
+  const options = {
+    allowedHosts: ["app.example.com"],
+    allowedOrigins: ["https://public.example.com"],
+  };
 
   for (const [headers, allowed] of [
     [{ "sec-fetch-site": "same-origin" }, true],
@@ -149,7 +152,7 @@ test("only requests proven same-origin pass: Sec-Fetch-Site first, then Origin, 
     },
   );
 
-  assert.equal(response.status, 403, "origins defaults to none");
+  assert.equal(response.status, 403, "allowedOrigins defaults to none");
 });
 
 test("checks run in order: path, host, method/media/query, origin, then the stages", async () => {

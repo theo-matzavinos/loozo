@@ -25,7 +25,7 @@ import {
   bindApplication,
   createRequestScope,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
   runProcedure,
 } from "../dist/server/generated.js";
 import { RPC_CALL } from "../dist/remote-client.js";
@@ -68,7 +68,7 @@ function backend(application, scope, nativeRequest, fallback) {
       { provide: REQUEST, useValue: nativeRequest },
       { provide: DOCUMENT, useValue: { location: { href: prerenderedPage } } },
       { provide: FetchBackend, useValue: { handle: fallback } },
-      provideLaunchServer(application),
+      provideRenderingBackend(application),
     ],
     parent,
   );
@@ -575,7 +575,7 @@ test("native prerendering fails for calls before the page is first stable, not o
             providers: [
               provideServerRendering(),
               provideHttpClient(),
-              provideLaunchServer(application),
+              provideRenderingBackend(application),
               provideRouter([
                 { path: "about", component: Page, resolve: { result: () => post(resolved) } },
               ]),
@@ -680,7 +680,7 @@ test("native route discovery with blocking initial navigation completes, running
               providers: [
                 provideServerRendering(),
                 provideHttpClient(),
-                provideLaunchServer(application),
+                provideRenderingBackend(application),
                 provideRouter([root], withEnabledBlockingInitialNavigation()),
               ],
             },

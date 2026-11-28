@@ -13,7 +13,7 @@ import {
   bindApplication,
   createRequestScope,
   handleRpc,
-  provideLaunchServer,
+  provideRenderingBackend,
   runProcedure,
 } from "../dist/server/generated.js";
 
@@ -99,7 +99,7 @@ const entryPoints = {
         { provide: REQUEST, useValue: scope.request },
         { provide: DOCUMENT, useValue: { location: { href: scope.request.url } } },
         { provide: FetchBackend, useValue: { handle: () => assert.fail("Unexpected fallback") } },
-        provideLaunchServer(application),
+        provideRenderingBackend(application),
       ],
       parent,
     );
