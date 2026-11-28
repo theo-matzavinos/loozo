@@ -1205,7 +1205,7 @@ Passing `allowedHosts` to `AngularNodeAppEngine` replaces its own read of `NG_AL
 
 ### Cross-origin requests
 
-`handleRequest` answers only RPCs it can prove come from the app's own origin. The rest get `FORBIDDEN` (403), logged with the reason, before a context is created:
+`handleRequest` answers only RPCs it can prove come from the app's own origin or one you list in `allowedOrigins`. The rest get `FORBIDDEN` (403), logged with the reason, before a context is created:
 
 1. An `Origin` listed in `allowedOrigins` passes.
 2. Otherwise, if the request has `Sec-Fetch-Site`, it must be `same-origin`. `same-site` (a sibling subdomain), `cross-site` and `none` are refused.
