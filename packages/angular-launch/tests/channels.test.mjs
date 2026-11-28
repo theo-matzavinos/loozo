@@ -375,12 +375,20 @@ test("a cross-origin upgrade is accepted only when allowedOrigins lists its Orig
   const crossOrigin = () =>
     upgradeRequest("/_rpc/chat/talk", null, { origin: "http://public.test" });
   const log = await logged(async () => {
-    const response = await handle(namespaces, crossOrigin());
+    const unlisted = await handle(namespaces, crossOrigin());
+    const otherListed = await handle(namespaces, crossOrigin(), {
+      allowedOrigins: ["http://other.test"],
+    });
 
-    assert.equal(response.status, 403);
+    assert.equal(unlisted.status, 403);
+    assert.equal(otherListed.status, 403, "a list without this Origin still refuses it");
   });
 
-  assert.match(String(log[0][0]), /cross-origin RPC/);
+  assert.equal(log.length, 2);
+
+  for (const entry of log) {
+    assert.match(String(entry[0]), /cross-origin RPC/);
+  }
 
   const { socket } = await accepted(namespaces, crossOrigin(), {
     allowedOrigins: ["http://public.test"],
