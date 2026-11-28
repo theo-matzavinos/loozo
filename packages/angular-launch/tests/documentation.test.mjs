@@ -70,7 +70,6 @@ await test("public entry points are the documented ones", () => {
     ".",
     "./server",
     "./node",
-    "./generation",
     "./tanstack-query",
     "./testing",
   ]);

@@ -119,7 +119,6 @@ await writeFile(
 await writeFile(
   join(consumer, "src/consumer.ts"),
   `import { injectRoute, type Remote } from './routes/route.generated.js';
-import { generate, createGenerationSession, type GenerationSession } from '@loozo/angular-launch/generation';
 import { discoverLaunchRoutes, emitLaunchRoutes } from '@loozo/angular-router/_generation';
 const rpc: Remote = injectRoute().remote;
 const promise: Promise<number> = rpc.packed.read();
@@ -134,11 +133,7 @@ if (rpc.packed.write.isError(error) && error.code === 'NOT_FOUND') {
 }
 // @ts-expect-error mutations cannot opt into transfer cache
 rpc.packed.write({ transferCache: true });
-const session: GenerationSession = createGenerationSession('.', {tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated'});
-const update: Promise<void> = session.generate({check:true});
-const disposal: Promise<void> = session.dispose();
-void update; void disposal;
-void promise; void label; void kind; void write; void mutationKind; void generate; void discoverLaunchRoutes; void emitLaunchRoutes;`,
+void promise; void label; void kind; void write; void mutationKind; void discoverLaunchRoutes; void emitLaunchRoutes;`,
 );
 await writeFile(
   join(consumer, "tsconfig.json"),
@@ -162,7 +157,8 @@ await writeFile(
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir,readFile,readdir,stat,writeFile} from 'node:fs/promises';
-import {generate,createGenerationSession} from '@loozo/angular-launch/generation';
+import {dirname} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import { forbidden, middleware } from '@loozo/angular-launch/server';
 import {RpcError, defineRoute} from '@loozo/angular-launch';
 import * as client from '@loozo/angular-launch';
@@ -171,13 +167,19 @@ import * as generatedServer from '@loozo/angular-launch/_server';
 import {bindApplication, createRequestScope, handleRpc} from '@loozo/angular-launch/_server';
 import {discoverLaunchRoutes,createValidationProgram} from '@loozo/angular-router/_generation';
 const require=createRequire(import.meta.url);
-for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-launch/generation','@loozo/angular-router/_generation']) {
+for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-router/_generation']) {
  assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
 }
 // Nothing generated imports Launch internals besides the server binding's entry.
 for (const name of ['@loozo/angular-launch/_generated','@loozo/angular-launch/_tanstack-query']) {
  assert.throws(()=>require.resolve(name),/not exported|ERR_PACKAGE_PATH_NOT_EXPORTED/);
 }
+// Generation has no public entry: the builders run it.
+assert.throws(()=>require.resolve('@loozo/angular-launch/generation'),/not exported|ERR_PACKAGE_PATH_NOT_EXPORTED/);
+// The installed package's own generation, as its builders run it.
+const launchRoot=dirname(require.resolve('@loozo/angular-launch/package.json'));
+const {runGeneration,createBuilderSession}=await import(pathToFileURL(launchRoot+'/generation/run.js').href);
+const generate=(workspace,generationOptions,stopped=()=>false)=>runGeneration(workspace,generationOptions,stopped,'packed check');
 const router=JSON.parse(await readFile(require.resolve('@loozo/angular-router/package.json'),'utf8'));
 const entry=new URL(router.exports['./_generation'].types,'file://'+require.resolve('@loozo/angular-router/package.json'));
 assert.ok((await readFile(entry,'utf8')).includes('discoverLaunchRoutes'));
@@ -212,9 +214,9 @@ assert.equal(stages, 2);
 const scope = createRequestScope(application, new Request('http://test'));
 assert.equal(scope.appId, application.id); assert.equal(stages, 2, 'a scope runs no stage');
 const launch=JSON.parse(await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8'));
-for(const entry of [router.exports['./_generation'],launch.exports['./generation']]) {
-assert.equal(typeof entry.types,'string');assert.equal(typeof entry.node,'string');assert.equal(entry.default,undefined);
-}
+const routerGeneration=router.exports['./_generation'];
+assert.equal(typeof routerGeneration.types,'string');assert.equal(typeof routerGeneration.node,'string');assert.equal(routerGeneration.default,undefined);
+assert.equal(launch.exports['./generation'],undefined);
 const options={tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated'};
 async function snapshot() {
   const result={};
@@ -233,7 +235,7 @@ async function snapshot() {
 }
 await generate(import.meta.dirname,options);
 const cold=await snapshot();
-const session=createGenerationSession(import.meta.dirname,options);
+const session=createBuilderSession(import.meta.dirname,options,'packed check');
 try {
   await session.generate();
   await session.generate({check:true});
@@ -296,7 +298,7 @@ try {
 } finally {
   await session.dispose();
 }
-const disposing=createGenerationSession(import.meta.dirname,options);
+const disposing=createBuilderSession(import.meta.dirname,options,'packed check');
 await disposing.generate();
 const beforeDispose=await snapshot();
 const appManifest=import.meta.dirname+'/package.json';
@@ -326,7 +328,7 @@ const builderRequire = createRequire(join(repo, "examples/angular-launch/package
 const nativeRequire = createRequire(builderRequire.resolve("@angular/build/package.json"));
 const { build } = nativeRequire("esbuild");
 
-for (const entry of ["@loozo/angular-launch/generation", "@loozo/angular-router/_generation"]) {
+for (const entry of ["@loozo/angular-router/_generation"]) {
   await assert.rejects(
     build({
       stdin: {
@@ -472,9 +474,11 @@ import {createRequire} from 'node:module';
 import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {dirname,join,relative,resolve} from 'node:path';
-import {generate} from '@loozo/angular-launch/generation';
+import {pathToFileURL} from 'node:url';
 import * as queries from '@loozo/angular-launch/tanstack-query';
 const require=createRequire(import.meta.url);
+const launchRoot=dirname(require.resolve('@loozo/angular-launch/package.json'));
+const {runGeneration}=await import(pathToFileURL(launchRoot+'/generation/run.js').href);
 for (const name of ['@loozo/angular-launch/tanstack-query','@tanstack/angular-query']) {
   assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
 }
@@ -507,7 +511,7 @@ for (const match of guide.matchAll(/\\]\\(([^)\\s]+)\\)/g)) {
   }
 }
 assert.ok(guideLinks.length>0);
-await generate(import.meta.dirname,{tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated',tanstackQuery:true});
+await runGeneration(import.meta.dirname,{tsconfig:'tsconfig.json',scanDirectories:['src/routes'],outDirectory:'generated',tanstackQuery:true},()=>false,'packed check');
 const generated=await readFile(import.meta.dirname+'/src/routes/route.generated.ts','utf8');
 assert.ok(generated.includes('from "@loozo/angular-launch/tanstack-query";'));
 assert.ok(generated.includes('export type { routegen$type_Queries as Queries };'));
@@ -545,7 +549,7 @@ await writeFile(
         "packed Node runtime exports and actual browser resolver rejection",
         "packed seam declarations",
         "producer generation with genuine mutation and declared-error metadata",
-        "packed session types, cold/session byte+mtime parity, invalid-edit repair and updated output parity",
+        "cold/session byte+mtime parity, invalid-edit repair and updated output parity",
         "metadata-only export swap rejects warm/cold generate/check, blocks identity publication and repairs on the same session",
         "reentrant stop-predicate disposal suppresses changed publication and settles generation/disposal promises",
         "public and internal entry export lists",

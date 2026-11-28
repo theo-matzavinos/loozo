@@ -42,7 +42,7 @@ type MethodData = {
 };
 type ErrorData = { readonly code: string; readonly status: number; readonly message: string };
 
-/** Options for {@link generate} and {@link createGenerationSession}. */
+/** Launch's generation options, which the builders read from the application build target. */
 export interface GenerationOptions {
   /** The application's tsconfig, relative to the workspace. It must enable strict checking. */
   tsconfig: string;
@@ -77,12 +77,17 @@ export interface GenerationOptions {
   check?: boolean;
 }
 /**
- * A generation session created by {@link createGenerationSession}, reusing compiler
- * work between calls.
+ * A generation session for the serve builder, reusing compiler work between sequential calls.
+ *
+ * @remarks
+ * The session doesn't watch files; the serve builder decides when to call `generate`. Edits
+ * inside the application are picked up by the next call; moving the application directory or
+ * changing dependencies needs a new session. A call made while another run generates into the
+ * same output fails, as {@link runGeneration} does.
  */
-export interface GenerationSession {
+export interface BuilderSession {
   /**
-   * Generates or checks the application's files, like {@link generate} with the
+   * Generates or checks the application's files, like {@link runGeneration} with the
    * session's options.
    *
    * @remarks
@@ -90,31 +95,24 @@ export interface GenerationSession {
    * starts clean.
    *
    * @param options - `check`: verify without writing. Defaults to `false`.
-   * @param stopped - Called once just before writing; returning `true` skips writing and
-   * resolves. Defaults to never stopping.
-   * @returns A promise that resolves when generation finishes.
+   * @param stopped - Called once after validation and after the current files were read and
+   * compared, just before writing or, with `check`, reporting drift; returning `true` skips
+   * that step and resolves. Defaults to never stopping.
+   * @returns Each non-source locale's text for every route word when `translateSegments` is
+   * on, and `undefined` otherwise.
    * @throws Rejects when the session is disposed, when another call hasn't settled yet,
-   * and for the same failures as {@link generate}.
+   * and for the same failures as {@link runGeneration}.
    */
-  generate(options?: Pick<GenerationOptions, "check">, stopped?: () => boolean): Promise<void>;
+  generate(
+    options?: Pick<GenerationOptions, "check">,
+    stopped?: () => boolean,
+  ): Promise<LocaleWords | undefined>;
   /**
    * Disposes the session: stops an active call before it writes, waits for it to settle
    * and makes later calls reject.
    *
    * @returns A promise that resolves once any active call has settled.
    */
-  dispose(): Promise<void>;
-}
-
-/**
- * The builders' session: {@link GenerationSession}, with each call resolving to the locale words
- * that `translateSegments` validated, for the locale table.
- */
-export interface BuilderSession {
-  generate(
-    options?: Pick<GenerationOptions, "check">,
-    stopped?: () => boolean,
-  ): Promise<LocaleWords | undefined>;
   dispose(): Promise<void>;
 }
 
@@ -753,12 +751,48 @@ function requireInside(application: string, file: string): void {
 }
 
 /**
- * Generation for the builders: {@link generate}, resolving to each non-source locale's text for
- * every route word when `translateSegments` is on, and undefined otherwise. The run holds its
- * output directory's lock from before discovery until after publication, so a second run into the
- * same output fails with a `GenerationLockedError` instead of publishing from a stale plan.
+ * Generates the router's and Launch's files for an application, or checks them: the
+ * application builder's run, and the work each {@link BuilderSession} call repeats.
  *
+ * @remarks
+ * Internal: the builders are the only way to generate. Generation reads your sources without
+ * running them. It writes the router's files, with each route copy carrying its route's
+ * `.remote()` metadata and the `Remote`, `Context` and, with `tanstackQuery`, `Queries` types,
+ * and `server.generated.ts` in the output directory, which binds every route with a server
+ * step. With `translateSegments`, every locale's translated route tree is validated first,
+ * static segments become `$localize` messages, `server.generated.ts` first imports Launch's
+ * source-text `$localize` for the unlocalized host, and `redirects.generated.ts` holds the word
+ * table an application file must import `provideRedirectTranslation()` from. It deletes a
+ * marked `rpc.generated.ts` or `context.generated.d.ts` an earlier version wrote.
+ *
+ * Everything is validated, including a type check of the generated files with
+ * `skipLibCheck: false`, before anything is written, so a run that fails validation changes
+ * nothing. Files are then written one at a time without rollback; a write error partway through
+ * can leave some files updated, which the next successful run repairs. Generation only
+ * replaces or removes files carrying its ownership marker, and removes stale ones. The run
+ * holds its output directory's lock from before discovery until after publication, so a second
+ * run into the same output fails with a `GenerationLockedError` instead of publishing from a
+ * stale plan.
+ *
+ * @param workspace - The absolute workspace root the builders pass (Architect's
+ * `workspaceRoot`), which contains the application's `package.json`. The tsconfig, scanned
+ * directory, sources and output directory must all be inside it.
+ * @param options - The generation options.
+ * @param stopped - Called once after validation and after the current files were read and
+ * compared, just before writing or, with `check`, reporting drift; returning `true` skips that
+ * step and resolves.
  * @param label - What the run is, for another run's contention error.
+ * @param compiler - Compiler state a {@link BuilderSession} reuses between calls; omitted for
+ * a cold run.
+ * @returns Each non-source locale's text for every route word when `translateSegments` is on,
+ * and `undefined` otherwise.
+ * @throws Rejects when a path escapes the workspace, the tsconfig disables strict
+ * checking or enables `noCheck`, the application's `package.json` has no `name`, the
+ * sources or generated files fail validation, a file to replace lacks the ownership
+ * marker, or, with `check`, a generated file is out of date; with `translateSegments`, also
+ * when `localization` is missing, the build lacks the `@angular/localize/init` polyfill, a
+ * locale's catalog fails the router's checks, or no application file imports
+ * `provideRedirectTranslation`; and when another run holds the output's lock, naming it.
  */
 export async function runGeneration(
   workspace: string,
@@ -927,118 +961,14 @@ async function generateLocked(
   return words;
 }
 
-// The label of runs through the public generation API, in another run's contention error.
-const apiLabel = "Launch generation API";
-
 /**
- * Generates the router's and Launch's files for an application, or checks them.
+ * Creates the serve builder's {@link BuilderSession}.
  *
- * @remarks
- * Node-only. Generation reads your sources without running them. It writes the router's
- * files, with each route copy carrying its route's `.remote()` metadata and the `Remote`,
- * `Context` and, with `tanstackQuery`, `Queries` types, and `server.generated.ts` in the
- * output directory, which binds every route with a server step. With `translateSegments`,
- * every locale's translated route tree is validated first, static segments become `$localize`
- * messages, `server.generated.ts` first imports Launch's source-text `$localize` for the
- * unlocalized host, and `redirects.generated.ts` holds the word table an application file must
- * import `provideRedirectTranslation()` from. It deletes a marked
- * `rpc.generated.ts` or `context.generated.d.ts` an earlier version wrote. Run it before
- * the Angular build.
- *
- * Everything is validated, including a type check of the generated files with
- * `skipLibCheck: false`, before anything is written, so a failed run changes nothing.
- * Files are then written one at a time without rollback; a write error partway through
- * can leave some files updated, which the next successful run repairs. Generation only
- * replaces or removes files carrying its ownership marker, and removes stale ones. A run
- * holds a lock on its output directory from before reading the sources until it has
- * written, so a second run into the same output, from this process or another of the same
- * user, fails without reading or writing instead of publishing from an outdated plan.
- *
- * @example
- * ```js
- * import { generate } from "@loozo/angular-launch/generation";
- *
- * await generate(import.meta.dirname, {
- *   tsconfig: "tsconfig.app.json",
- *   scanDirectories: ["src/routes"],
- *   outDirectory: "generated",
- *   check: process.argv.includes("--check"),
- * });
- * ```
- *
- * @param workspace - The absolute path of the application directory, which contains
- * its `package.json`. The tsconfig, scanned directory, sources and output directory
- * must all be inside it.
- * @param options - The generation options.
- * @param stopped - Called once just before writing; returning `true` skips writing and
- * resolves. Defaults to never stopping.
- * @returns A promise that resolves when generation finishes.
- * @throws Rejects when a path escapes the workspace, the tsconfig disables strict
- * checking or enables `noCheck`, the application's `package.json` has no `name`, the
- * sources or generated files fail validation, a file to replace lacks the ownership
- * marker, or, with `check`, a generated file is out of date; with `translateSegments`, also
- * when `localization` is missing, the build lacks the `@angular/localize/init` polyfill, a
- * locale's catalog fails the router's checks, or no application file imports
- * `provideRedirectTranslation`; and when another run holds the output's lock, naming it.
- */
-export async function generate(
-  workspace: string,
-  options: GenerationOptions,
-  stopped: () => boolean = () => false,
-): Promise<void> {
-  await runGeneration(workspace, options, stopped, apiLabel);
-}
-
-/**
- * Creates a generation session that reuses compiler work between sequential calls.
- *
- * @remarks
- * Node-only. For long-running tools that regenerate repeatedly, such as after file
- * changes. A session doesn't watch files; you decide when to call `generate`. Edits
- * inside the application are picked up by the next call. Create a new session after
- * moving the application directory or changing dependencies. A call made while another
- * run generates into the same output fails, as {@link generate} does.
- *
- * @example
- * ```js
- * const session = createGenerationSession(workspace, {
- *   tsconfig: "tsconfig.app.json",
- *   scanDirectories: ["src/routes"],
- *   outDirectory: "generated",
- * });
- *
- * try {
- *   await session.generate();
- *   await session.generate({ check: true });
- * } finally {
- *   await session.dispose();
- * }
- * ```
- *
- * @param workspace - The absolute path of the application directory, as for
- * {@link generate}.
+ * @param workspace - The absolute workspace root, as for {@link runGeneration}.
  * @param options - The generation options, fixed for the session's lifetime; `check` is
  * passed per call instead.
- * @returns The session. Dispose it when done.
- */
-export function createGenerationSession(
-  workspace: string,
-  options: Omit<GenerationOptions, "check">,
-): GenerationSession {
-  const session = createBuilderSession(workspace, options, apiLabel);
-
-  return {
-    async generate(options, stopped) {
-      await session.generate(options, stopped);
-    },
-    dispose: () => session.dispose(),
-  };
-}
-
-/**
- * {@link createGenerationSession} for the builders, whose calls resolve to the locale words.
- *
  * @param label - What the session's runs are, for another run's contention error.
+ * @returns The session. Dispose it when done.
  */
 export function createBuilderSession(
   workspace: string,

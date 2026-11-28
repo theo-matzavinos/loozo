@@ -3,8 +3,11 @@ import { test } from "node:test";
 import ts from "typescript";
 import { mkdir, writeFile, readFile, readdir, stat, rm, rename, symlink } from "node:fs/promises";
 import { resolve, dirname, join, relative, sep } from "node:path";
-import { generate, createGenerationSession } from "../dist/generation/index.js";
-import { createBuilderSession } from "../dist/generation/run.js";
+import { createBuilderSession, runGeneration } from "../dist/generation/run.js";
+
+// The builders call generation internally; this is the cold run they make.
+const generate = (workspace, generationOptions, stopped = () => false) =>
+  runGeneration(workspace, generationOptions, stopped, "generation test");
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
 const options = {
@@ -1849,7 +1852,7 @@ void namespace; void session; void procedure; void inputKey; void mutationKey; v
   await generate(root, { ...options, tanstackQuery: true });
   await generate(root, { ...options, tanstackQuery: true, check: true });
 
-  const session = createGenerationSession(root, { ...options, tanstackQuery: true });
+  const session = createBuilderSession(root, { ...options, tanstackQuery: true }, "generation test");
 
   try {
     await session.generate({ check: true });

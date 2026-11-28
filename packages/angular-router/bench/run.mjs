@@ -138,13 +138,13 @@ const workloads = {
     built: [
       join(packageDirectory, "node/src/generation/generate.js"),
       join(packageDirectory, "dist/fesm2022/loozo-angular-router.mjs"),
-      join(launchDirectory, "dist/generation/index.js"),
+      join(launchDirectory, "dist/generation/run.js"),
       join(launchDirectory, "dist/builders/application.js"),
       join(launchDirectory, "dist/index.js"),
     ],
     conditions: {
       firstGeneration:
-        "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited public Launch generate() (tanstackQuery on) without persistent compiler state.",
+        "Fresh Node process per sample with generated files removed and route.ts files preauthored; times the awaited internal Launch runGeneration(), the application builder's cold run (tanstackQuery on), without persistent compiler state.",
       build:
         "ng build through the Launch application target (generation preflight included): browser and server builds with SSR (outputMode server), scripts and styles optimization, fonts off, statsJson, no source maps, outputHashing all.",
       runtime: runtimeConditions.launch,

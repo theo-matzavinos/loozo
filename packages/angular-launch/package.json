@@ -40,10 +40,6 @@
       "types": "./dist/node/index.d.ts",
       "default": "./dist/node/index.js"
     },
-    "./generation": {
-      "types": "./dist/generation/index.d.ts",
-      "node": "./dist/generation/index.js"
-    },
     "./tanstack-query": {
       "types": "./dist/tanstack-query/index.d.ts",
       "default": "./dist/tanstack-query/index.js"

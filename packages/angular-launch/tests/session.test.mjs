@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, readFile, readdir, writeFile, stat, rm, rename } from "node:fs/promises";
 import { dirname, resolve, relative, sep } from "node:path";
-import { generate, createGenerationSession } from "../dist/generation/index.js";
+import { createBuilderSession, runGeneration } from "../dist/generation/run.js";
+
+// The builders call generation internally; this is the cold run they make.
+const generate = (workspace, generationOptions, stopped = () => false) =>
+  runGeneration(workspace, generationOptions, stopped, "session test");
 
 const scratch = resolve(import.meta.dirname, "../../../examples/angular-launch/.scratch");
 const options = {
@@ -136,7 +140,7 @@ async function rejectsUnchanged(root, session, expected) {
 test("explicit session has cold parity, unchanged/template/check mtimes, contract edits, removal/addition and move-return-edit", async () => {
   const root = await fixture();
   const fixed = { ...options, scanDirectories: [...options.scanDirectories] };
-  const session = createGenerationSession(root, fixed);
+  const session = createBuilderSession(root, fixed, "session test");
 
   fixed.scanDirectories[0] = "wrong";
   fixed.tsconfig = "wrong.json";
@@ -248,7 +252,7 @@ test("explicit session has cold parity, unchanged/template/check mtimes, contrac
 // old spelling.
 test("a warm session republishes a case-only route directory rename under the new casing, with cold parity", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
 
   try {
     await session.generate();
@@ -283,7 +287,7 @@ test("a warm session republishes a case-only route directory rename under the ne
 
 test("warm transitive schema/context/import edits, invalid diagnostics and declarations remain repairable", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
 
   try {
     await session.generate();
@@ -346,7 +350,7 @@ test("warm transitive schema/context/import edits, invalid diagnostics and decla
 
 test("warm config strict/noCheck/inherited flags and declaration diagnostics preserve last-good outputs", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
   const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
   const flags = [
     "noImplicitAny",
@@ -456,7 +460,7 @@ test("direct-dependency, isolated and verbatim modes still reject errors through
 
     await put(root, "src/context.ts", context.replace("'./value'", "'./context-value'"));
 
-    const session = createGenerationSession(root, options);
+    const session = createBuilderSession(root, options, "session test");
 
     try {
       await session.generate();
@@ -473,7 +477,7 @@ test("direct-dependency, isolated and verbatim modes still reject errors through
 
 test("warm genuine aliases, lookalike/ambient factories, underlying router redirection and fresh suffix resolution", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
   const route = await readFile(resolve(root, "src/routes/left/route.ts"), "utf8");
   const config = JSON.parse(await readFile(resolve(root, "tsconfig.json"), "utf8"));
 
@@ -550,7 +554,7 @@ test("warm genuine aliases, lookalike/ambient factories, underlying router redir
 
 test("metadata-only export swaps block warm/cold generate/check and app-identity publication, then repair", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
   const original = JSON.stringify({
     name: "dependency",
     version: "1.0.0",
@@ -633,7 +637,7 @@ test("metadata-only export swaps block warm/cold generate/check and app-identity
 
 test("disposal inside the final stop predicate returning false suppresses changed-output publication", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
 
   await session.generate();
 
@@ -671,7 +675,7 @@ test("disposal inside the final stop predicate returning false suppresses change
 
 test("session stop/overlap/dispose and independent application registrations do not publish or poison later calls", async () => {
   const root = await fixture();
-  const session = createGenerationSession(root, options);
+  const session = createBuilderSession(root, options, "session test");
 
   await session.generate({}, () => true);
   assert.deepEqual(await snapshot(root), {});
@@ -686,7 +690,7 @@ test("session stop/overlap/dispose and independent application registrations do 
   await Promise.all([work, disposal, session.dispose()]);
   assert.deepEqual(await snapshot(root), {});
 
-  const first = createGenerationSession(root, options);
+  const first = createBuilderSession(root, options, "session test");
   const secondRoot = await fixture();
 
   await put(secondRoot, "src/value.ts", "export const value = 'independent';");
@@ -696,7 +700,7 @@ test("session stop/overlap/dispose and independent application registrations do 
     "import {injectRoute} from './routes/left/route.generated';const result:Promise<{length:number;value:string}>=injectRoute().remote.todos.read('hello');void result;",
   );
 
-  const second = createGenerationSession(secondRoot, options);
+  const second = createBuilderSession(secondRoot, options, "session test");
 
   try {
     await Promise.all([first.generate(), second.generate()]);
@@ -731,7 +735,7 @@ test("session stop/overlap/dispose and independent application registrations do 
     await Promise.all([pending, first.dispose()]);
     assert.deepEqual(await snapshot(root), repaired);
 
-    const invalid = createGenerationSession(root, options);
+    const invalid = createBuilderSession(root, options, "session test");
 
     await put(root, "src/value.ts", "export const value = 'invalid during disposal';");
 
@@ -884,7 +888,7 @@ test("a warm session pass matches a cold pass after each kind of change", async 
   for (const [name, { setup, between, change, fails }] of Object.entries(reuseChanges)) {
     await t.test(name, async () => {
       const root = await fixture();
-      const session = createGenerationSession(root, options);
+      const session = createBuilderSession(root, options, "session test");
 
       try {
         await setup?.(root);
