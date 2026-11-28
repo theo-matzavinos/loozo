@@ -49,9 +49,13 @@ async function manifest(root, packageName) {
 }
 
 // A repository with the given packages released at their versions (each tagged
-// <package>@<version>), Launch pinned to `launchPin`, then one commit per subject
-// touching its package.
-async function fixture(t, { versions, launchPin = "0.1.0", commits = [] }) {
+// <package>@<version> unless listed in `untagged`), Launch pinned to `launchPin` with
+// `launchTanstack` as its @tanstack/angular-query peer range when given, then one commit
+// per subject touching its package.
+async function fixture(
+  t,
+  { versions, launchPin = "0.1.0", launchTanstack, untagged = [], commits = [] },
+) {
   const root = await mkdtemp(join(tmpdir(), "bump-version-"));
 
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -62,6 +66,10 @@ async function fixture(t, { versions, launchPin = "0.1.0", commits = [] }) {
 
     if (packageName === "angular-launch") {
       packageManifest.peerDependencies = { "@loozo/angular-router": launchPin };
+
+      if (launchTanstack) {
+        packageManifest.peerDependencies["@tanstack/angular-query"] = launchTanstack;
+      }
     }
 
     await write(
@@ -85,7 +93,9 @@ async function fixture(t, { versions, launchPin = "0.1.0", commits = [] }) {
   git(root, "commit", "--quiet", "-m", "chore: fixture");
 
   for (const [packageName, version] of Object.entries(versions)) {
-    git(root, "tag", `${packageName}@${version}`);
+    if (!untagged.includes(packageName)) {
+      git(root, "tag", `${packageName}@${version}`);
+    }
   }
 
   for (const [index, [packageName, subject]] of commits.entries()) {
@@ -95,6 +105,19 @@ async function fixture(t, { versions, launchPin = "0.1.0", commits = [] }) {
   }
 
   return root;
+}
+
+// Commits new peer ranges for Launch after its release.
+async function movePeers(root, peers) {
+  const launch = await manifest(root, "angular-launch");
+
+  Object.assign(launch.peerDependencies, peers);
+  await write(root, "packages/angular-launch/package.json", `${JSON.stringify(launch, null, 2)}\n`);
+  git(root, "commit", "--quiet", "-am", "build(angular-launch): move a peer");
+}
+
+function moveTanstack(root, range) {
+  return movePeers(root, { "@tanstack/angular-query": range });
 }
 
 function bump(root, packageName, level) {
@@ -304,4 +327,251 @@ test("a Launch patch refuses moving its router pin across a router major", async
     "patch",
     /its @loozo\/angular-router pin moves from 1\.0\.0 to 2\.0\.0, so release a minor$/m,
   );
+  await assertBumps(root, "angular-launch", "minor", "0.3.0");
+});
+
+test("from Launch 1.0.0 on, a pin moving across a router major refuses a patch and a minor and accepts a major", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "2.0.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+  });
+
+  assertRefuses(
+    root,
+    "angular-launch",
+    "patch",
+    /^Error: Can't release angular-launch 1\.2\.3 as a patch: its @loozo\/angular-router pin moves from 1\.4\.0 to 2\.0\.0, so release a major$/m,
+  );
+  assertRefuses(
+    root,
+    "angular-launch",
+    "minor",
+    /^Error: Can't release angular-launch 1\.2\.3 as a minor: its @loozo\/angular-router pin moves from 1\.4\.0 to 2\.0\.0, so release a major$/m,
+  );
+  await assertBumps(root, "angular-launch", "major", "2.0.0");
+  assert.equal(
+    (await manifest(root, "angular-launch")).peerDependencies["@loozo/angular-router"],
+    "2.0.0",
+  );
+});
+
+test("from Launch 1.0.0 on, a pin moving across a router minor refuses a patch and accepts a minor", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "1.5.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+  });
+
+  assertRefuses(
+    root,
+    "angular-launch",
+    "patch",
+    /^Error: Can't release angular-launch 1\.2\.3 as a patch: its @loozo\/angular-router pin moves from 1\.4\.0 to 1\.5\.0, so release a minor$/m,
+  );
+  await assertBumps(root, "angular-launch", "minor", "1.3.0");
+});
+
+test("from Launch 1.0.0 on, a pin moving by a router patch allows a patch", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "1.4.1", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+  });
+
+  await assertBumps(root, "angular-launch", "patch", "1.2.4");
+  assert.equal(
+    (await manifest(root, "angular-launch")).peerDependencies["@loozo/angular-router"],
+    "1.4.1",
+  );
+});
+
+test("the major that takes Launch to 1.0.0 moves its pin across a router major", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "2.0.0", "angular-launch": "0.3.0" },
+    launchPin: "1.0.0",
+    launchTanstack: "^5.0.0",
+  });
+
+  await moveTanstack(root, "^6.0.0");
+  await assertBumps(root, "angular-launch", "major", "1.0.0");
+  assert.equal(
+    (await manifest(root, "angular-launch")).peerDependencies["@loozo/angular-router"],
+    "2.0.0",
+  );
+});
+
+test("from Launch 1.0.0 on, a TanStack peer range naming a new major refuses a patch and a minor and accepts a major", async (t) => {
+  const moves = [
+    [
+      "^6.0.0",
+      /as a (patch|minor): its @tanstack\/angular-query peer range moves from \^5\.0\.0 to \^6\.0\.0, so release a major$/m,
+    ],
+    [
+      "^5.0.0 || ^6.0.0",
+      /as a (patch|minor): its @tanstack\/angular-query peer range moves from \^5\.0\.0 to \^5\.0\.0 \|\| \^6\.0\.0, so release a major$/m,
+    ],
+  ];
+
+  for (const [range, refusal] of moves) {
+    const root = await fixture(t, {
+      versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+      launchPin: "1.4.0",
+      launchTanstack: "^5.0.0",
+    });
+
+    await moveTanstack(root, range);
+    await write(root, "packages/angular-launch/later.txt", "later");
+    git(root, "add", ".");
+    git(root, "commit", "--quiet", "-m", "docs(angular-launch): a later change");
+    assertRefuses(root, "angular-launch", "patch", refusal);
+    assertRefuses(root, "angular-launch", "minor", refusal);
+    await assertBumps(root, "angular-launch", "major", "2.0.0");
+  }
+});
+
+test("from Launch 1.0.0 on, a TanStack peer range within its major allows a patch", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+    launchTanstack: "^5.0.0",
+  });
+
+  await moveTanstack(root, "~5.20.0 || 5.21.0");
+  await assertBumps(root, "angular-launch", "patch", "1.2.4");
+});
+
+test("while Launch is 0.x, a TanStack peer range naming a new major leaves the level to its commits", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "0.1.0", "angular-launch": "0.2.0" },
+    launchPin: "0.1.0",
+    launchTanstack: "^5.0.0",
+  });
+
+  await moveTanstack(root, "^6.0.0");
+  await assertBumps(root, "angular-launch", "patch", "0.2.1");
+});
+
+test("from Launch 1.0.0 on, prerelease identifiers don't hide or invent a TanStack major move", async (t) => {
+  const moved = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+    launchTanstack: "^5.0.0-rc6",
+  });
+
+  await moveTanstack(moved, "^6.0.0");
+  assertRefuses(
+    moved,
+    "angular-launch",
+    "patch",
+    /peer range moves from \^5\.0\.0-rc6 to \^6\.0\.0, so release a major$/m,
+  );
+
+  const kept = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+    launchTanstack: "^5.0.0",
+  });
+
+  await moveTanstack(kept, "^5.1.0-rc6+build.6");
+  await assertBumps(kept, "angular-launch", "patch", "1.2.4");
+});
+
+test("on the 1.x line, a TanStack peer range other than ^, ~ or exact versions is refused", async (t) => {
+  const unsupported = (range) =>
+    new RegExp(
+      `^Error: Can't bump angular-launch: its @tanstack/angular-query peer range ${range.replaceAll(/[.*+?^$|]/g, "\\$&")} isn't a \\|\\| list of \\^, ~ or exact versions$`,
+      "m",
+    );
+
+  for (const range of [">=5.0.0 <7", "", "5.0.0-rc_", "^5.0.0 || 6.0.0-rc..1"]) {
+    const released = await fixture(t, {
+      versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+      launchPin: "1.4.0",
+      launchTanstack: "^5.0.0",
+    });
+
+    await moveTanstack(released, range);
+    assertRefuses(released, "angular-launch", "major", unsupported(range));
+  }
+
+  const first = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+    launchTanstack: ">=5.0.0 <7",
+    untagged: ["angular-launch"],
+  });
+
+  assertRefuses(first, "angular-launch", "patch", unsupported(">=5.0.0 <7"));
+
+  const entering = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "0.3.0" },
+    launchPin: "1.4.0",
+    launchTanstack: ">=5.0.0 <7",
+  });
+
+  assertRefuses(entering, "angular-launch", "major", unsupported(">=5.0.0 <7"));
+});
+
+test("while Launch is 0.x, its floors read its current pin and accept any TanStack peer range", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "2.0.0", "angular-launch": "0.2.0" },
+    launchPin: "1.4.0",
+    launchTanstack: "^5.0.0",
+  });
+
+  await movePeers(root, {
+    "@loozo/angular-router": "2.0.0",
+    "@tanstack/angular-query": ">=5.0.0 <7",
+  });
+  await assertBumps(root, "angular-launch", "patch", "0.2.1");
+});
+
+test("from Launch 1.0.0 on, a TanStack peer its last release didn't have, or a first release, allows a patch", async (t) => {
+  const added = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+  });
+
+  await moveTanstack(added, "^6.0.0");
+  await assertBumps(added, "angular-launch", "patch", "1.2.4");
+
+  const first = await fixture(t, {
+    versions: { "angular-router": "1.4.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+    launchTanstack: "^6.0.0",
+    untagged: ["angular-launch"],
+  });
+
+  await assertBumps(first, "angular-launch", "patch", "1.2.4");
+});
+
+test("from Launch 1.0.0 on, a router pin edited since Launch's last release still sets the floor", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "2.0.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+  });
+
+  await movePeers(root, { "@loozo/angular-router": "2.0.0" });
+  assertRefuses(
+    root,
+    "angular-launch",
+    "minor",
+    /its @loozo\/angular-router pin moves from 1\.4\.0 to 2\.0\.0, so release a major$/m,
+  );
+});
+
+test("a Launch refusal names the highest level its floors need", async (t) => {
+  const root = await fixture(t, {
+    versions: { "angular-router": "1.5.0", "angular-launch": "1.2.3" },
+    launchPin: "1.4.0",
+    launchTanstack: "^5.0.0",
+    commits: [["angular-launch", "feat(angular-launch): add a recipe"]],
+  });
+
+  await moveTanstack(root, "^6.0.0");
+  assertRefuses(
+    root,
+    "angular-launch",
+    "patch",
+    /^Error: Can't release angular-launch 1\.2\.3 as a patch: its @tanstack\/angular-query peer range moves from \^5\.0\.0 to \^6\.0\.0, so release a major$/m,
+  );
+  await assertBumps(root, "angular-launch", "major", "2.0.0");
 });
