@@ -1,5 +1,8 @@
-// The types of Launch's route extension. Types only: the root entry re-exports them, and a
-// route's inferred type names them, so each one is exported.
+// The types of Launch's route extension. Types only. The root entry re-exports `ChainContext`,
+// `RemoteOf` and `ContextOf`. A route's inferred type names `LaunchSpec`, `LaunchStep` and the
+// step signatures of the steps it still offers, so the `/_route` entry re-exports those for
+// declaration emit (router SPEC §2 "Route extensions"). `LaunchInput` and `ChainNamespaces`
+// stay exported from this module only, which Launch's own declarations reference.
 import type {
   ContributionOf,
   ExtensionSpec,

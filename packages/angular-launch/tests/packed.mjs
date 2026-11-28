@@ -164,10 +164,11 @@ import {RpcError, defineRoute} from '@loozo/angular-launch';
 import * as client from '@loozo/angular-launch';
 import * as server from '@loozo/angular-launch/server';
 import * as generatedServer from '@loozo/angular-launch/_server';
+import * as routeSpec from '@loozo/angular-launch/_route';
 import {bindApplication, createRequestScope, handleRpc} from '@loozo/angular-launch/_server';
 import {discoverLaunchRoutes,createValidationProgram} from '@loozo/angular-router/_generation';
 const require=createRequire(import.meta.url);
-for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-router/_generation']) {
+for (const name of ['@loozo/angular-launch','@loozo/angular-launch/server','@loozo/angular-launch/_server','@loozo/angular-launch/_route','@loozo/angular-router/_generation']) {
  assert.ok(require.resolve(name).startsWith(import.meta.dirname+'/node_modules/.pnpm/'));
 }
 // Nothing generated imports Launch internals besides the server binding's entry.
@@ -188,6 +189,8 @@ assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedire
 // The optional peer isn't installed here: the root and server entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
 assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','readCookies','redirect']);
+// /_route only names LaunchSpec for declaration emit: nothing at runtime.
+assert.deepEqual(Object.keys(routeSpec),[]);
 assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer','runProcedure']);
 const id = 'packed';
 const schema = { '~standard': { version: 1, vendor: 'packed', async validate(value) {
@@ -212,7 +215,7 @@ const refused = await handleRpc(application, new Request('http://test/_rpc/'+id+
 assert.equal(refused.status, 403); assert.equal((await refused.json()).error.code, 'FORBIDDEN');
 assert.equal(stages, 2);
 const scope = createRequestScope(application, new Request('http://test'));
-assert.equal(scope.appId, application.id); assert.equal(stages, 2, 'a scope runs no stage');
+assert.deepEqual(Object.keys(scope),['request'],'a scope exposes only request'); assert.equal(stages, 2, 'a scope runs no stage');
 const launch=JSON.parse(await readFile(require.resolve('@loozo/angular-launch/package.json'),'utf8'));
 const routerGeneration=router.exports['./_generation'];
 assert.equal(typeof routerGeneration.types,'string');assert.equal(typeof routerGeneration.node,'string');assert.equal(routerGeneration.default,undefined);
@@ -378,7 +381,12 @@ export function labelStage({ context }: StageArgs<{ value: number }>) { return {
 export const route = defineRoute('declared', {}).context(() => ({ value: 1 })).use(labelled).remote(({ query }) => ({ declared: { list: query({ handler: ({ context }) => context.value }) } })).resolve({ list: ({ remote }) => remote.declared.list() });
 export const child = defineRoute('child', { parent: route }).context(labelStage).remote(({ query }) => ({ child: { label: query({ handler: ({ context }) => context.label }) } }));
 export function errorsOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors; }
-export function statusOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors.NOT_FOUND.status; }`,
+export function statusOf(procedure: ReturnType<ProcedureBuilder<unknown>['query']>) { return procedure.errors.NOT_FOUND.status; }
+// Routes that still offer steps name LaunchStep and those steps' signatures too.
+export const bare = defineRoute('bare', {});
+export const contextOnly = defineRoute('context-only', {}).context(() => ({ value: 1 }));
+export const useOnly = defineRoute('use-only', {}).use(labelled);
+export const contextChild = defineRoute('context-child', { parent: contextOnly });`,
 );
 await writeFile(
   join(consumer, "tsconfig.declarations.json"),
@@ -404,6 +412,43 @@ await run(
   consumer,
   "types-declarations",
 );
+
+// A route's emitted type names the route-extension types through /_route, the spelling SPEC
+// §Stability keeps stable within a major. published.d.ts stands for declarations a library
+// emitted against an earlier release: moving the path or renaming a type fails it even when
+// /_route re-exports a replacement.
+const emittedDeclarations = await readFile(
+  join(consumer, "declarations/src/declarations.d.ts"),
+  "utf8",
+);
+
+const routeNames = ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"];
+const published = [];
+
+for (const name of routeNames) {
+  assert.ok(emittedDeclarations.includes('import("@loozo/angular-launch/_route").' + name), name);
+  published.push(
+    "export type Published" + name + ' = import("@loozo/angular-launch/_route").' + name + ";",
+  );
+}
+
+await writeFile(join(consumer, "src/published.d.ts"), published.join("\n") + "\n");
+await writeFile(
+  join(consumer, "tsconfig.published.json"),
+  JSON.stringify({
+    compilerOptions: {
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
+      target: "ES2022",
+      types: ["node"],
+      strict: true,
+      skipLibCheck: false,
+      noEmit: true,
+    },
+    files: ["src/published.d.ts"],
+  }),
+);
+await run("pnpm", ["exec", "tsc", "-p", "tsconfig.published.json"], consumer, "types-published");
 
 // A consumer with the optional TanStack peer: the subpaths resolve, generation with
 // tanstackQuery type-checks, and the generated factories type-check under both resolutions.
@@ -531,6 +576,24 @@ await run(
   queriesConsumer,
   "tanstack-query-types-nodenext",
 );
+// QueriesOf names ChainNamespaces package-locally: an exported value typed through it emits.
+await writeFile(
+  join(queriesConsumer, "src/declarations.ts"),
+  `import { injectRoute, route } from './routes/route.generated.js';
+import type { QueriesOf } from '@loozo/angular-launch/tanstack-query';
+export const queries = injectRoute().queries;
+export function same(value: QueriesOf<typeof route>) { return value.packed; }`,
+);
+await writeFile(
+  join(queriesConsumer, "tsconfig.declarations.json"),
+  await readFile(join(consumer, "tsconfig.declarations.json"), "utf8"),
+);
+await run(
+  "pnpm",
+  ["exec", "tsc", "-p", "tsconfig.declarations.json"],
+  queriesConsumer,
+  "tanstack-query-types-declarations",
+);
 
 const lock = await readFile(join(consumer, "pnpm-lock.yaml"), "utf8");
 
@@ -548,6 +611,8 @@ await writeFile(
         "normal private pnpm installation",
         "packed Node runtime exports and actual browser resolver rejection",
         "packed seam declarations",
+        "declaration emit names LaunchSpec and the step types through /_route for full and partial chains, and an earlier emitted spelling still resolves",
+        "a request scope's only own key is request",
         "producer generation with genuine mutation and declared-error metadata",
         "cold/session byte+mtime parity, invalid-edit repair and updated output parity",
         "metadata-only export swap rejects warm/cold generate/check, blocks identity publication and repairs on the same session",
@@ -557,6 +622,7 @@ await writeFile(
         "strict Bundler native routes and strict NodeNext exports/generated mutation/error consumer",
         "root and generated entries without the optional TanStack peer",
         "TanStack Query subpaths, generation and generated factory types with the peer installed",
+        "TanStack Query values typed through QueriesOf emit declarations",
         "the TanStack Query guide ships with relative links that resolve inside the package",
       ],
     },

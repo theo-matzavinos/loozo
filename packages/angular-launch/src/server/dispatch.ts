@@ -16,9 +16,9 @@ import {
 import { createStageRunner, type Stage, type StageRunner } from "./stages.js";
 
 // Shared by every copy of the package, so a scope one copy created runs its stages when
-// another copy dispatches with it. The value holds the scope's stage runner and its
-// rendering-call function.
-const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v3");
+// another copy dispatches with it. The brand holds the binding identity, stage runner
+// and rendering-call function.
+const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v4");
 
 const bindingHeader = "x-loozo-launch-scope";
 
@@ -33,18 +33,17 @@ const bindingHeader = "x-loozo-launch-scope";
  * don't belong together.
  */
 export interface RequestScope {
-  /** The identity of the application the scope was created for. */
-  readonly appId: string;
-  /** A random identifier tying `request` to this scope. */
-  readonly binding: string;
   /** A clone of the original request that carries the scope binding. */
   readonly request: Request;
-  /** Internal: holds the scope's stage runner and rendering calls; not public API. */
+  /** Internal: the scope's binding and state; not public API. */
   readonly [scopeMarker]: object;
 }
 
-// The brand's value, which `isRequestScope` checks has `run` and `render` functions.
+// The brand's value, whose shape `isRequestScope` checks: the binding identity, the stage
+// runner and the rendering-call function.
 interface ScopeState {
+  readonly appId: string;
+  readonly binding: string;
   readonly run: StageRunner;
   readonly render: RenderingCall;
 }
@@ -107,21 +106,21 @@ export function isRequestScope(value: unknown): value is RequestScope {
     return false;
   }
 
-  const runner: unknown = value[scopeMarker];
+  const state: unknown = value[scopeMarker];
 
   return (
-    typeof runner === "object" &&
-    runner !== null &&
-    "run" in runner &&
-    typeof runner.run === "function" &&
-    "render" in runner &&
-    typeof runner.render === "function" &&
+    typeof state === "object" &&
+    state !== null &&
+    "run" in state &&
+    typeof state.run === "function" &&
+    "render" in state &&
+    typeof state.render === "function" &&
     "request" in value &&
     value.request instanceof Request &&
-    "appId" in value &&
-    typeof value.appId === "string" &&
-    "binding" in value &&
-    typeof value.binding === "string"
+    "appId" in state &&
+    typeof state.appId === "string" &&
+    "binding" in state &&
+    typeof state.binding === "string"
   );
 }
 
@@ -154,10 +153,10 @@ export function createRequestScope(
   const boundRequest = new Request(request.clone(), { headers });
   const run = createStageRunner({ request: boundRequest, signal: boundRequest.signal });
   const scope: RequestScope = {
-    appId: application.id,
-    binding,
     request: boundRequest,
     [scopeMarker]: {
+      appId: application.id,
+      binding,
       run,
       render: (path, envelope, pageRequest, signal, effects) =>
         runProcedure(path, envelope, scope, application, pageRequest, "rendering", signal, effects),
@@ -172,15 +171,20 @@ export function assertBoundScope(
   application: ApplicationBinding,
   request: Request,
 ): asserts scope is RequestScope {
-  if (
-    !isRequestScope(scope) ||
-    scope.appId !== application.id ||
-    scope.binding.length === 0 ||
-    scope.request.headers.get(bindingHeader) !== scope.binding ||
-    request.headers.get(bindingHeader) !== scope.binding
-  ) {
-    throw new Error("Launch request/application scope binding mismatch");
+  if (isRequestScope(scope)) {
+    const { appId, binding } = scope[scopeMarker] as ScopeState;
+
+    if (
+      appId === application.id &&
+      binding.length > 0 &&
+      scope.request.headers.get(bindingHeader) === binding &&
+      request.headers.get(bindingHeader) === binding
+    ) {
+      return;
+    }
   }
+
+  throw new Error("Launch request/application scope binding mismatch");
 }
 
 /**

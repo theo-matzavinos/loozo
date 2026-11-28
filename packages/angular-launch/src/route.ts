@@ -6,7 +6,7 @@ import {
 } from "@loozo/angular-router/_core";
 import { launchQueries, type QueriesMethod } from "./launch-queries.js";
 import { injectClient, type ClientMethod } from "./remote-client.js";
-import type { LaunchSpec } from "./route-types.js";
+import type { LaunchSpec } from "./route-spec.js";
 
 type Namespaces = Record<string, { readonly methods: readonly ClientMethod[] }>;
 

@@ -29,6 +29,7 @@ import {
   runProcedure,
 } from "../dist/server/generated.js";
 import { RPC_CALL } from "../dist/remote-client.js";
+import { assertBoundScope, isRequestScope } from "../dist/server/dispatch.js";
 import { defineRoute } from "../dist/index.js";
 import { application as bind } from "./fixtures/application.mjs";
 import {
@@ -55,6 +56,7 @@ const { sanitizeRequestHeaders } = await import(
 );
 const id = "test";
 const path = `/_rpc/${id}/read`;
+const scopeMarker = Symbol.for("@loozo/angular-launch/private-request-scope/v4");
 
 const prerenderedPage = "http://localhost:4200/about";
 
@@ -812,7 +814,7 @@ test("scope matches native request and generated application across Angular sani
   assert.equal(native.headers.has("forwarded"), false);
   assert.equal(native.headers.has("x-forwarded-host"), false);
   assert.equal(native.headers.has("x-forwarded-proto"), false);
-  assert.equal(native.headers.get("x-loozo-launch-scope"), scope.binding);
+  assert.equal(native.headers.get("x-loozo-launch-scope"), scope[scopeMarker].binding);
   assert.equal(warnings.length, 3);
 
   let fallbackCalls = 0;
@@ -864,7 +866,7 @@ test("scope matches native request and generated application across Angular sani
           assert.deepEqual(error.error, {
             error: { code: "INTERNAL", message: "Internal server error", data: null },
           });
-          assert.ok(!JSON.stringify(error.error).includes(candidate.binding));
+          assert.ok(!JSON.stringify(error.error).includes(candidate[scopeMarker].binding));
 
           return true;
         });
@@ -884,6 +886,109 @@ test("scope matches native request and generated application across Angular sani
   assert.deepEqual(calls, ["middleware", "handler"]);
   assert.equal(fallbackCalls, 0);
   assert.equal(logs.length, 7);
+});
+
+// The scope's identity and binding token live in its private brand state; each structural
+// predicate isRequestScope checks rejects its own malformed member.
+test("isRequestScope rejects a scope with any one malformed member, null ones included", () => {
+  const app = bind("app-shape-v1", { context: () => ({}) });
+  const scope = createRequestScope(app, new Request("http://127.0.0.1/todos"));
+  const state = scope[scopeMarker];
+
+  assert.deepEqual(Object.keys(scope), ["request"], "only request is an own string key");
+  assert.equal(isRequestScope(scope), true);
+
+  const malformed = {
+    "null scope": null,
+    "no brand": { request: scope.request },
+    "null brand": { request: scope.request, [scopeMarker]: null },
+    "primitive brand": { request: scope.request, [scopeMarker]: "state" },
+    "run not a function": { request: scope.request, [scopeMarker]: { ...state, run: {} } },
+    "render not a function": { request: scope.request, [scopeMarker]: { ...state, render: {} } },
+    "request not a Request": { request: {}, [scopeMarker]: state },
+    "appId not a string": { request: scope.request, [scopeMarker]: { ...state, appId: 1 } },
+    "binding not a string": { request: scope.request, [scopeMarker]: { ...state, binding: 1 } },
+  };
+
+  for (const [name, value] of Object.entries(malformed)) {
+    assert.equal(isRequestScope(value), false, name);
+  }
+});
+
+test("assertBoundScope refuses an empty token and a scope request whose stamp differs, each on its own", () => {
+  const app = bind("app-token-v1", { context: () => ({}) });
+  const scope = createRequestScope(app, new Request("http://127.0.0.1/todos"));
+  const state = scope[scopeMarker];
+  const stamped = new Request(scope.request);
+
+  assert.doesNotThrow(() => assertBoundScope(scope, app, stamped));
+
+  // Both stamps present and empty, so they equal the empty token: only the non-empty-token
+  // check refuses it.
+  const emptyStamp = new Request("http://127.0.0.1/todos", {
+    headers: { "x-loozo-launch-scope": "" },
+  });
+  const emptyToken = { request: emptyStamp, [scopeMarker]: { ...state, binding: "" } };
+
+  assert.equal(isRequestScope(emptyToken), true);
+  assert.throws(
+    () => assertBoundScope(emptyToken, app, new Request(emptyStamp)),
+    /scope binding mismatch/,
+  );
+
+  const headers = new Headers(scope.request.headers);
+
+  headers.set("x-loozo-launch-scope", "another-token");
+
+  const restamped = { request: new Request(scope.request, { headers }), [scopeMarker]: state };
+
+  assert.throws(() => assertBoundScope(restamped, app, stamped), /scope binding mismatch/);
+});
+
+test("a malformed scope as the request context fails a rendering call with INTERNAL before its stage", async () => {
+  let stages = 0;
+  const app = bind("app-malformed-v1", {
+    context: () => {
+      stages += 1;
+
+      return {};
+    },
+    namespaces: { test: { build: ({ query }) => ({ read: query({ handler: () => "read" }) }) } },
+  });
+  const scope = createRequestScope(app, new Request("http://127.0.0.1/todos"));
+  const withoutIdentity = { ...scope[scopeMarker] };
+
+  delete withoutIdentity.appId;
+
+  const malformed = { request: scope.request, [scopeMarker]: withoutIdentity };
+  const fallback = () => {
+    throw new Error("RPC must not fall back");
+  };
+  const previousError = console.error;
+
+  console.error = () => {};
+
+  try {
+    const rendering = backend(app, malformed, new Request(scope.request), fallback);
+
+    await assert.rejects(
+      firstValueFrom(rendering.value.handle(new HttpRequest("POST", path, { input: null }))),
+      (error) => {
+        assert.ok(error instanceof HttpErrorResponse);
+        assert.equal(error.status, 500);
+        assert.deepEqual(error.error, {
+          error: { code: "INTERNAL", message: "Internal server error", data: null },
+        });
+
+        return true;
+      },
+    );
+    rendering.destroy();
+  } finally {
+    console.error = previousError;
+  }
+
+  assert.equal(stages, 0);
 });
 
 // Angular bundles the server entry, which creates scopes and answers RPCs, apart from the

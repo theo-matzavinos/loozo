@@ -15,14 +15,12 @@ export type {
   OutputOf,
   Procedure,
   ProcedureBuilder,
-  ProcedureDefinition,
   ProcedureKind,
   ProcedureOptions,
   StageArgs,
   StreamOptions,
   Schema,
 } from "./definitions.js";
-export type { DeclaredFailure } from "./errors.js";
 export type { CookieOptions } from "../cookies.js";
 export type { ResponseControl } from "./response-effects.js";
 export type { JsonShape } from "../json.js";

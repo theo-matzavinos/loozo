@@ -19,6 +19,26 @@ for (const [entry, target] of Object.entries(manifest.exports)) {
   entries.push(fileURLToPath(new URL(`../${target.types}`, import.meta.url)));
 }
 
+// `/_route` exports the route-extension types a route's inferred type names (`LaunchSpec`,
+// `LaunchStep` and the step signatures), so declarations an application emits for an exported
+// route can name them (SPEC §Stability).
+const routeEntry = fileURLToPath(
+  new URL(`../${manifest.exports["./_route"].types}`, import.meta.url),
+);
+
+// Types Launch's own declarations reference package-locally: inside `LaunchSpec` (the input
+// contribution), `Procedure` (`DeclaredFailure`), `RemoteStep` (`ProcedureDefinition`), and
+// `RemoteOf` and `QueriesOf` (`ChainNamespaces`). Consumers name only those outer types, so these
+// stay unexported; packed.mjs's declaration emit proves that on an installed consumer.
+const packageLocal = new Set([
+  "LaunchInput",
+  "ChainNamespaces",
+  "ProcedureDefinition",
+  "DeclaredFailure",
+]);
+
+const routeNames = ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"];
+
 const namedTypes =
   ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Class | ts.SymbolFlags.Enum;
 
@@ -65,8 +85,8 @@ function location(root, node) {
 //
 // `problems` lists anything that would make that check pass without looking: compiler errors
 // (such as a missing module), a public entry with no exports, and exports or references that
-// don't resolve to a declaration.
-function checkDeclarations(directory, files) {
+// don't resolve to a declaration. A type named in `unexported` passes unexported.
+function checkDeclarations(directory, files, unexportedNames = new Set()) {
   // With / separators, as TypeScript names its source files on every platform.
   const root = directory.split(sep).join("/");
   const program = ts.createProgram(files, {
@@ -208,7 +228,7 @@ function checkDeclarations(directory, files) {
           }
         }
 
-        if (!isInlined && !isPublic) {
+        if (!isInlined && !isPublic && !unexportedNames.has(symbol.name)) {
           const key = `${symbol.name} (${relative(root, declarations[0].getSourceFile().fileName)})`;
           const sites = unexported.get(key) ?? new Set();
 
@@ -247,11 +267,46 @@ function checkDeclarations(directory, files) {
   return { problems, offenders };
 }
 
-await test("published declarations only reference types exported from public entries", () => {
-  const { problems, offenders } = checkDeclarations(dist, entries);
+await test("published declarations only reference types exported from public entries or /_route, or package-local ones", () => {
+  const { problems, offenders } = checkDeclarations(dist, [...entries, routeEntry], packageLocal);
 
   assert.deepEqual(problems, [], "Published declarations must resolve completely");
   assert.deepEqual(offenders, [], "Referenced types must be exported from a public entry");
+});
+
+await test("the package-local and route-extension types stay off the public entries, and /_route exports exactly the route-extension ones", () => {
+  const program = ts.createProgram([...entries, routeEntry], {
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    target: ts.ScriptTarget.ES2022,
+    strict: true,
+    noEmit: true,
+  });
+  const checker = program.getTypeChecker();
+
+  function exportedNames(file) {
+    const module = checker.getSymbolAtLocation(program.getSourceFile(file));
+    const names = [];
+
+    for (const symbol of checker.getExportsOfModule(module)) {
+      names.push(symbol.name);
+    }
+
+    return names;
+  }
+
+  const leaked = [];
+
+  for (const file of entries) {
+    for (const name of exportedNames(file)) {
+      if (packageLocal.has(name) || routeNames.includes(name)) {
+        leaked.push(`${name} (${relative(dist, file)})`);
+      }
+    }
+  }
+
+  assert.deepEqual(leaked, []);
+  assert.deepEqual(exportedNames(routeEntry).sort(), routeNames);
 });
 
 await test("a type alias exported through an export list counts as exported", () => {
@@ -744,6 +799,44 @@ await test("redirect() takes a destination and values typed exactly as createUrl
 
 await test("callProcedure types its options from the route's root stage and its result from the procedure", () => {
   const { messages } = program({ "call.ts": callProcedureProof });
+
+  assert.deepEqual(messages, []);
+});
+
+await test("the route-seam and bookkeeping types aren't importable, and a request scope exposes only request", () => {
+  const rootNames = [
+    "LaunchSpec",
+    "LaunchStep",
+    "ContextStep",
+    "UseStep",
+    "RemoteStep",
+    "LaunchInput",
+    "ChainNamespaces",
+  ];
+  const lines = [];
+
+  for (const name of rootNames) {
+    lines.push(`// @ts-expect-error not exported from the root`);
+    lines.push(`import type { ${name} } from "@loozo/angular-launch";`);
+  }
+
+  for (const name of ["ProcedureDefinition", "DeclaredFailure"]) {
+    lines.push(`// @ts-expect-error not exported from /server`);
+    lines.push(`import type { ${name} } from "@loozo/angular-launch/server";`);
+  }
+
+  lines.push(
+    `import type { RequestScope } from "@loozo/angular-launch/server";`,
+    `declare const scope: RequestScope;`,
+    `const request: Request = scope.request;`,
+    `// @ts-expect-error the app identity is private`,
+    `scope.appId;`,
+    `// @ts-expect-error the binding token is private`,
+    `scope.binding;`,
+    `void request;`,
+  );
+
+  const { messages } = program({ "removed.ts": lines.join("\n") });
 
   assert.deepEqual(messages, []);
 });
