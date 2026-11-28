@@ -189,7 +189,7 @@ assert.deepEqual(Object.keys(client).sort(),['RpcError','RpcNotFound','RpcRedire
 // The optional peer isn't installed here: the root and server entries must not need it.
 assert.throws(()=>require.resolve('@tanstack/angular-query'),/Cannot find module/);
 assert.deepEqual(Object.keys(server).sort(),['finishLaunchRendering','forbidden','middleware','notFound','readCookies','redirect']);
-// /_route only names LaunchSpec for declaration emit: nothing at runtime.
+// /_route only names route types for declaration emit: nothing at runtime.
 assert.deepEqual(Object.keys(routeSpec),[]);
 assert.deepEqual(Object.keys(generatedServer).sort(),['bindApplication','createRequestScope','handleChannelUpgrade','handleRpc','provideLaunchServer','runProcedure']);
 const id = 'packed';
@@ -413,42 +413,16 @@ await run(
   "types-declarations",
 );
 
-// A route's emitted type names the route-extension types through /_route, the spelling SPEC
-// §Stability keeps stable within a major. published.d.ts stands for declarations a library
-// emitted against an earlier release: moving the path or renaming a type fails it even when
-// /_route re-exports a replacement.
+// A route's emitted type names the route-extension types through /_route, full and partial
+// chains alike; the declarations aren't published API (SPEC §Stability), but emitting them works.
 const emittedDeclarations = await readFile(
   join(consumer, "declarations/src/declarations.d.ts"),
   "utf8",
 );
 
-const routeNames = ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"];
-const published = [];
-
-for (const name of routeNames) {
+for (const name of ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"]) {
   assert.ok(emittedDeclarations.includes('import("@loozo/angular-launch/_route").' + name), name);
-  published.push(
-    "export type Published" + name + ' = import("@loozo/angular-launch/_route").' + name + ";",
-  );
 }
-
-await writeFile(join(consumer, "src/published.d.ts"), published.join("\n") + "\n");
-await writeFile(
-  join(consumer, "tsconfig.published.json"),
-  JSON.stringify({
-    compilerOptions: {
-      module: "NodeNext",
-      moduleResolution: "NodeNext",
-      target: "ES2022",
-      types: ["node"],
-      strict: true,
-      skipLibCheck: false,
-      noEmit: true,
-    },
-    files: ["src/published.d.ts"],
-  }),
-);
-await run("pnpm", ["exec", "tsc", "-p", "tsconfig.published.json"], consumer, "types-published");
 
 // A consumer with the optional TanStack peer: the subpaths resolve, generation with
 // tanstackQuery type-checks, and the generated factories type-check under both resolutions.
@@ -611,7 +585,7 @@ await writeFile(
         "normal private pnpm installation",
         "packed Node runtime exports and actual browser resolver rejection",
         "packed seam declarations",
-        "declaration emit names LaunchSpec and the step types through /_route for full and partial chains, and an earlier emitted spelling still resolves",
+        "declaration emit names LaunchSpec and the step types through /_route for full and partial chains",
         "a request scope's only own key is request",
         "producer generation with genuine mutation and declared-error metadata",
         "cold/session byte+mtime parity, invalid-edit repair and updated output parity",

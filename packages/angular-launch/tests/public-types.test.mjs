@@ -21,7 +21,7 @@ for (const [entry, target] of Object.entries(manifest.exports)) {
 
 // `/_route` exports the route-extension types a route's inferred type names (`LaunchSpec`,
 // `LaunchStep` and the step signatures), so declarations an application emits for an exported
-// route can name them (SPEC §Stability).
+// route can name them. The entry is private (SPEC §Stability "Emitted declarations").
 const routeEntry = fileURLToPath(
   new URL(`../${manifest.exports["./_route"].types}`, import.meta.url),
 );
