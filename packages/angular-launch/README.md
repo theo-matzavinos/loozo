@@ -156,7 +156,7 @@ Generation runs inside two Angular builders that replace your project's `build` 
 }
 ```
 
-`ng build` and `ng serve` then generate first, and `ng serve` regenerates as you edit. `ng run my-app:build:check` verifies the generated files without writing them, for CI. `tsconfig` is the TypeScript config generation reads; `tsConfig` is Angular's own compilation config. They can be the same file.
+`ng build` and `ng serve` then generate first, and `ng serve` regenerates as you edit. `ng run my-app:build:check` verifies the generated files without writing them, then runs the build as usual, for CI. `tsconfig` is the TypeScript config generation reads; `tsConfig` is Angular's own compilation config. They can be the same file.
 
 Include the generated files in your app tsconfig: `"include": ["src/**/*.ts", "generated/**/*.ts"]`. See [Builders](#builders) for the builder options and [Generation](#generation) for what gets written.
 
