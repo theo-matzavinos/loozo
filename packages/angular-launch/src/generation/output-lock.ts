@@ -211,7 +211,8 @@ function heldBy(output: string, holder: Holder, path: string): GenerationLockedE
 
   return new GenerationLockedError(
     `Launch generation is already running for ${output}${where}: ${holder.label}, pid ` +
-      `${holder.pid}, started ${holder.startedAt}. Wait for it to finish, then run again.`,
+      `${holder.pid}, started ${holder.startedAt}. Wait for it to finish, then run again. If no ` +
+      `Launch generation is running for this app (a stopped run's pid can be reused), delete ${path}.`,
   );
 }
 
@@ -258,7 +259,8 @@ async function reclaim(
     if (!isStopped(gateHolder.pid)) {
       throw new GenerationLockedError(
         `Launch generation for ${output} is being recovered by pid ${gateHolder.pid}. Run again ` +
-          "shortly.",
+          "shortly. If no Launch generation is running for this app (a stopped run's pid can be " +
+          `reused), delete ${gate}.`,
       );
     }
 

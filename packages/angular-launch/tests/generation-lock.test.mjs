@@ -246,6 +246,20 @@ test("a run, check included, refused while another process holds the output writ
   }
 
   assert.deepEqual(await snapshot(root), before);
+
+  const lock = outputLockPath(outputOf(root));
+
+  // The recorded pid may belong to another process by now, so the lock to delete is named.
+  await assert.rejects(generate(root), (error) => {
+    assert.ok(
+      error.message.endsWith(
+        `If no Launch generation is running for this app (a stopped run's pid can be reused), delete ${lock}.`,
+      ),
+      error.message,
+    );
+
+    return true;
+  });
   assert.deepEqual(await held.release(), { code: 0, signal: null });
   await generate(root);
   assert.deepEqual(lockFiles(outputLockPath(outputOf(root))), [false, false]);
@@ -384,7 +398,12 @@ test("a recovery gate held, left or unreadable refuses with what's known, touchi
   const gate = gateOf(lock);
   const main = JSON.stringify(record(deadPid()));
   const cases = [
-    [JSON.stringify(record(process.pid)), new RegExp(`being recovered by pid ${process.pid}`)],
+    [
+      JSON.stringify(record(process.pid)),
+      new RegExp(
+        `being recovered by pid ${process.pid}\\. Run again shortly\\. If no Launch generation is running for this app \\(a stopped run's pid can be reused\\), delete .*\\.reclaim\\.$`,
+      ),
+    ],
     [
       JSON.stringify(record(deadPid())),
       /recovery file left by a stopped process: .*\.reclaim\. If no Launch generation is running for this app, delete it\./,
