@@ -27,8 +27,9 @@ const routeEntry = fileURLToPath(
 );
 
 // The only references to unexported types Launch's declarations may make, each from its named
-// owners: types the owners' declarations name package-locally, which consumers never spell, as
-// packed.mjs's declaration emit proves on an installed consumer. A new owner, or a same-named type
+// owners: types the owners' declarations name package-locally, which consumers never spell.
+// packed.mjs's declaration emit proves that for route exports on an installed consumer; a
+// QueriesOf-typed export has no installed-consumer emit check. A new owner, or a same-named type
 // declared elsewhere, fails the check. Line numbers are dropped so edits elsewhere don't matter.
 const packageLocal = [
   "ChainNamespaces (route-types.d.ts) referenced by RemoteFor at route-types.d.ts, QueriesOf at tanstack-query/queries.d.ts",
@@ -315,6 +316,13 @@ await test("the package-local and route-extension types stay off the public entr
 
         if (target.name !== symbol.name) {
           names.push(target.name);
+        }
+
+        // A namespace re-export (`export type * as X from …`) exposes its module's members.
+        if (target.flags & ts.SymbolFlags.ValueModule) {
+          for (const member of checker.getExportsOfModule(target)) {
+            names.push(member.name);
+          }
         }
       }
     }
