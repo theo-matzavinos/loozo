@@ -388,7 +388,10 @@ export function statusOf(procedure: ReturnType<ProcedureBuilder<unknown>['query'
 export const bare = defineRoute('bare', {});
 export const contextOnly = defineRoute('context-only', {}).context(() => ({ value: 1 }));
 export const useOnly = defineRoute('use-only', {}).use(labelled);
-export const contextChild = defineRoute('context-child', { parent: contextOnly });`,
+export const contextChild = defineRoute('context-child', { parent: contextOnly });
+// A helper typed from a route's .remote parameter infers its ProcedureDefinition namespace map.
+type RemoteFactory = Parameters<typeof bare.remote>[0];
+export const buildNamespaces = (build: RemoteFactory, builder: ProcedureBuilder<{}>) => build(builder);`,
 );
 await writeFile(
   join(consumer, "tsconfig.declarations.json"),
@@ -422,7 +425,14 @@ const emittedDeclarations = await readFile(
   "utf8",
 );
 
-for (const name of ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"]) {
+for (const name of [
+  "ContextStep",
+  "LaunchSpec",
+  "LaunchStep",
+  "ProcedureDefinition",
+  "RemoteStep",
+  "UseStep",
+]) {
   assert.ok(emittedDeclarations.includes('import("@loozo/angular-launch/_route").' + name), name);
 }
 

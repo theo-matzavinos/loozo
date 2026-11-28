@@ -10,3 +10,6 @@
 // `route.ts` imports `LaunchSpec` through this file so TypeScript loads the entry whenever it
 // loads `defineRoute`.
 export type { ContextStep, LaunchSpec, LaunchStep, RemoteStep, UseStep } from "./route-types.js";
+// `RemoteStep`'s callback returns a namespace map of `ProcedureDefinition`, which an exported
+// helper typed from a route's `.remote` parameter can infer.
+export type { ProcedureDefinition } from "./server/definitions.js";

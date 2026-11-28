@@ -23,7 +23,7 @@ Angular owns rendering, hydration, the HTTP pipeline, the transfer cache and the
 | `redirects.generated.ts`               | In `<outDirectory>`, with `translateSegments` only: `provideRedirectTranslation` (§Outcomes "Translated redirects")                                                                                                                                            |
 | `@loozo/angular-launch/package.json`   | Package metadata subpath                                                                                                                                                                                                                                       |
 
-`@loozo/angular-launch/_server`, `/_source-text` and `/_redirects` serve generated code only: they aren't application API and can change in any release. `/_route` exports the route-extension types a route's inferred type names (`LaunchSpec`, `LaunchStep`, `ContextStep`, `UseStep`, `RemoteStep`) so declaration emit can name them; it isn't application API either and can change in any release (§Stability "Emitted declarations").
+`@loozo/angular-launch/_server`, `/_source-text` and `/_redirects` serve generated code only: they aren't application API and can change in any release. `/_route` exports the route-extension types a route's inferred type names (`LaunchSpec`, `LaunchStep`, `ContextStep`, `UseStep`, `RemoteStep`, and the `ProcedureDefinition` a `.remote()` callback's namespace map holds) so declaration emit can name them; it isn't application API either and can change in any release (§Stability "Emitted declarations").
 
 ### Runtimes
 

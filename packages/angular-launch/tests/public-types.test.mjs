@@ -35,16 +35,17 @@ const packageLocal = [
   "ChainNamespaces (route-types.d.ts) referenced by RemoteFor at route-types.d.ts, QueriesOf at tanstack-query/queries.d.ts",
   "DeclaredFailure (server/errors.d.ts) referenced by Procedure at server/definitions.d.ts",
   "LaunchInput (route-types.d.ts) referenced by LaunchSpec at route-types.d.ts",
-  "ProcedureDefinition (server/definitions.d.ts) referenced by RemoteStep at route-types.d.ts",
 ];
-const packageLocalNames = [
-  "ChainNamespaces",
-  "DeclaredFailure",
-  "LaunchInput",
-  "ProcedureDefinition",
-];
+const packageLocalNames = ["ChainNamespaces", "DeclaredFailure", "LaunchInput"];
 
-const routeNames = ["ContextStep", "LaunchSpec", "LaunchStep", "RemoteStep", "UseStep"];
+const routeNames = [
+  "ContextStep",
+  "LaunchSpec",
+  "LaunchStep",
+  "ProcedureDefinition",
+  "RemoteStep",
+  "UseStep",
+];
 
 const namedTypes =
   ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Class | ts.SymbolFlags.Enum;
