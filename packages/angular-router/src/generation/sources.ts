@@ -10,7 +10,7 @@ import {
   walk,
   workspacePaths,
   markers,
-  ownedBy,
+  ownedOrRetired,
   colocatedFiles,
 } from "./files.js";
 import { overlayDirectory, overlayHost } from "./overlay.js";
@@ -867,7 +867,9 @@ export async function discover(
       throw new Error(`Cannot read admitted TypeScript source: ${file}`);
     }
 
-    if (colocatedFiles.has(basename(file)) && ownedBy(basename(file), bytes, markers)) {
+    const name = basename(file);
+
+    if (colocatedFiles.has(name) && ownedOrRetired(name, bytes, markers)) {
       continue;
     }
 

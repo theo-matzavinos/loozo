@@ -9,6 +9,12 @@ export const markers = {
   "children.generated.ts": "// @loozo/angular-router routegen: owned children.generated.ts",
 } as const;
 
+// A shared output 0.0.x wrote beside routes.generated.ts and no generation emits any more, kept so
+// a marked leftover in the output directory is found and deleted as stale.
+const retiredMarkers = {
+  "destinations.generated.ts": "// @loozo/angular-router routegen: owned destinations.generated.ts",
+} as const;
+
 // The per-route copies are line-aligned with their declaration, so their marker is the last
 // line; every other generated file carries it on the first line.
 export const routeFiles: ReadonlySet<string> = new Set([
@@ -65,6 +71,23 @@ export function ownedBy(
   }
 
   return marked(bytes, marker, "first");
+}
+
+/**
+ * Like `ownedBy`, and also true for the route facade 0.0.x wrote beside each declaration, which
+ * carries the current marker on its first line. Discovery and output planning use it so such a
+ * facade is skipped and then replaced or deleted; the serve watcher keeps `ownedBy`.
+ */
+export function ownedOrRetired(
+  name: string,
+  bytes: string,
+  ownership: Readonly<Record<string, string>>,
+): boolean {
+  if (ownedBy(name, bytes, ownership)) {
+    return true;
+  }
+
+  return name === "route.generated.ts" && marked(bytes, markers["route.generated.ts"], "first");
 }
 
 function current(bytes: string, expected: string): boolean {
@@ -262,7 +285,21 @@ export async function planOutputs(
   const changed: string[] = [];
   const missing: string[] = [];
   const stale: string[] = [];
-  const possible = new Set([...desired.keys(), ...globals]);
+  const outputDirectories = [...new Set(globals.map((path) => dirname(path)))];
+  const retired = new Set<string>();
+
+  for (const directory of outputDirectories) {
+    for (const name of Object.keys(retiredMarkers)) {
+      retired.add(resolve(directory, name));
+    }
+  }
+
+  const possible = new Set([...desired.keys(), ...globals, ...retired]);
+  const ownership: Record<string, string> = { ...markers, ...retiredMarkers };
+
+  if (mode === "router-and-launch") {
+    Object.assign(ownership, launchMarkers);
+  }
 
   for (const path of encountered) {
     if (
@@ -288,19 +325,27 @@ export async function planOutputs(
       continue;
     }
 
+    // Nothing is expected at a retired location, so a directory there is unrelated content.
+    if (retired.has(path) && info.isDirectory()) {
+      continue;
+    }
+
     if (!info.isFile()) {
       throw new Error(`Generated output is not a regular file: ${path}`);
     }
 
     const bytes = await readFile(path, "utf8");
-    const ownership: Record<string, string> = { ...markers };
-
-    if (mode === "router-and-launch") {
-      Object.assign(ownership, launchMarkers);
-    }
-
     const name = path.slice(path.lastIndexOf(sep) + 1);
-    const owned = ownedBy(name, bytes, ownership);
+    // 0.0.x wrote its route facades beside declarations only. Launch also passes its output
+    // directory's inventory here, where such a facade is someone else's file.
+    const inOutputDirectory = outputDirectories.some((directory) => contains(directory, path));
+    let owned: boolean;
+
+    if (inOutputDirectory) {
+      owned = ownedBy(name, bytes, ownership);
+    } else {
+      owned = ownedOrRetired(name, bytes, ownership);
+    }
 
     if (!owned) {
       if (expected !== undefined) {

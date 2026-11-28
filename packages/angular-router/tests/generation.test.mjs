@@ -21,6 +21,7 @@ import {
   CompilerState,
   createValidationProgram,
   emitLaunchRoutes,
+  planOutputs,
   validateRoutes,
 } from "../node/src/generation/index.js";
 import { generate } from "../node/src/generation/generate.js";
@@ -4438,11 +4439,11 @@ test("route copies: ownership of the per-route pair", async () => {
   assert.equal(await exists("src/routes/b/destination.generated.ts"), false);
   assert.equal(await exists("src/routes/b/route.generated.ts"), false);
 
-  // An unmarked file in the pair's place, or one marked on its first line (the old facade
-  // shape), is not owned.
+  // An unmarked file in the pair's place, or one with the marker on neither its first nor its
+  // last line, is not owned. (A first-line marker is the 0.0.x facade: see "0.0.x leftovers".)
   for (const [name, bytes] of [
     ["destination.generated.ts", "export const destination = {};\n"],
-    ["route.generated.ts", `${markerOf.route}\nexport const route = {};\n`],
+    ["route.generated.ts", `export const route = {};\n${markerOf.route}\nexport {};\n`],
   ]) {
     await project.author(routes, { files: { [`src/routes/b/${name}`]: bytes } });
     await assert.rejects(
@@ -4469,6 +4470,237 @@ test("route copies: ownership of the per-route pair", async () => {
     pruned.desired.get(resolve(project.root, "generated/routes.generated.ts")),
     /src\/routes\/p\/route\.ts|destination_p_route\b/,
   );
+});
+
+// ---------------------------------------------------------------------------------------------
+// 0.0.x leftovers: 0.0.1–0.0.9 wrote a facade route.generated.ts beside each declaration, with
+// the marker on its first line, and a shared <out>/destinations.generated.ts. Generation treats
+// both as its own stale output (SPEC §11 "Ownership and filesystem effects").
+
+const legacyMarker = {
+  route: "// @loozo/angular-router routegen: owned route.generated.ts",
+  destinations: "// @loozo/angular-router routegen: owned destinations.generated.ts",
+};
+// Trimmed from router 0.0.6's output (angular-router@0.0.6 src/generation/emit.ts:262–270,351).
+const legacyFacade = (directory) =>
+  `${legacyMarker.route}
+import { createDestination, injectGeneratedRoute } from '@loozo/angular-router/_generated';
+import { getRouteSet, type Destination, type Handle } from "../../../generated/destinations.generated.js";
+export { defineRoute } from '@loozo/angular-router';
+export const destination: Destination<"src/routes/${directory}/route.ts"> = createDestination(() => getRouteSet(), "src/routes/${directory}/route.ts");
+export function injectRoute(): Handle<"src/routes/${directory}/route.ts"> { return injectGeneratedRoute(getRouteSet(), "src/routes/${directory}/route.ts"); }
+`;
+const legacyDestinations = (...directories) =>
+  [
+    legacyMarker.destinations,
+    "import type { RouteSet } from '@loozo/angular-router/_generated';",
+    ...directories.map(
+      (directory, index) => `import definition${index} from "../src/routes/${directory}/route.js";`,
+    ),
+    "export declare function getRouteSet(): RouteSet;",
+    "",
+  ].join("\n");
+
+// The upgrader's tree: current authored routes, 0.0.x's generated files, and a tsconfig that
+// includes generated/ as 0.0.x's README set it up, so the program reads the old shared file.
+async function legacyProject(files) {
+  const project = await copyProject();
+  const header = 'import { defineRoute } from "@loozo/angular-router";\n';
+
+  await project.author(
+    {
+      a: `${header}\nexport default defineRoute("a", {});\n`,
+      b: `${header}\nexport default defineRoute("b", {});\n`,
+    },
+    { files },
+  );
+
+  const tsconfig = JSON.parse(await project.read("tsconfig.json"));
+
+  tsconfig.include = ["src/**/*.ts", "generated/**/*.ts"];
+  await project.write("tsconfig.json", JSON.stringify(tsconfig));
+
+  return project;
+}
+
+// Every file under the fixture except dependencies, with its bytes and mtime.
+async function treeState(root) {
+  const state = new Map();
+
+  async function visit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+
+      if (entry.name === "node_modules") {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        state.set(relative(root, path), "directory");
+        await visit(path);
+      } else {
+        const [bytes, info] = await Promise.all([readFile(path, "utf8"), stat(path)]);
+
+        state.set(relative(root, path), `${info.mtimeMs} ${bytes}`);
+      }
+    }
+  }
+
+  await visit(root);
+
+  return state;
+}
+
+const exists = (path) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
+test("0.0.x leftovers: a facade at a current route's path is changed output, and replaced", async () => {
+  const project = await legacyProject({});
+
+  // Everything else is current, so the facade is the only drift.
+  await project.generate();
+  await project.write("src/routes/a/route.generated.ts", legacyFacade("a"));
+
+  const before = await treeState(project.root);
+
+  await assert.rejects(
+    project.generate({ check: true }),
+    /^Error: Generated artifacts changed:\n.*a[\\/]route\.generated\.ts\n/,
+  );
+  assert.deepEqual(await treeState(project.root), before);
+
+  await project.generate();
+
+  const copy = await project.read("src/routes/a/route.generated.ts");
+
+  assert.equal(copy.trimEnd().split("\n").at(-1), markerOf.route);
+  assert.equal(copy.startsWith(legacyMarker.route), false);
+});
+
+test("0.0.x leftovers: a facade whose route is gone is stale, and deleted", async () => {
+  const project = await legacyProject({});
+
+  await project.generate();
+  await project.write("src/routes/gone/route.generated.ts", legacyFacade("gone"));
+
+  const before = await treeState(project.root);
+
+  await assert.rejects(
+    project.generate({ check: true }),
+    /^Error: Generated artifacts stale:\n.*gone[\\/]route\.generated\.ts\n/,
+  );
+  assert.deepEqual(await treeState(project.root), before);
+
+  await project.generate();
+  assert.equal(await exists(resolve(project.root, "src/routes/gone/route.generated.ts")), false);
+});
+
+test("0.0.x leftovers: the shared destinations file is stale, never validated, and deleted", async () => {
+  const project = await legacyProject({});
+
+  await project.generate();
+  // Its imports of route.ts would fail the import rule if validation read it.
+  await project.write("generated/destinations.generated.ts", legacyDestinations("a", "b"));
+
+  const before = await treeState(project.root);
+
+  await assert.rejects(
+    project.generate({ check: true }),
+    /^Error: Generated artifacts stale:\n.*generated[\\/]destinations\.generated\.ts\n/,
+  );
+  assert.deepEqual(await treeState(project.root), before);
+
+  await project.generate();
+  assert.equal(await exists(resolve(project.root, "generated/destinations.generated.ts")), false);
+
+  // The full 0.0.x tree: check mode reports the changed facades first (SPEC §11 priority), and
+  // one normal pass cleans everything.
+  await project.write("src/routes/a/route.generated.ts", legacyFacade("a"));
+  await project.write("src/routes/b/route.generated.ts", legacyFacade("b"));
+  await project.write("generated/destinations.generated.ts", legacyDestinations("a", "b"));
+  await assert.rejects(project.generate({ check: true }), (error) => {
+    assert.match(
+      error.message,
+      /^Generated artifacts changed:\n[^\n]*a[\\/]route\.generated\.ts\n[^\n]*b[\\/]route\.generated\.ts\nRun ng build/,
+    );
+    assert.doesNotMatch(error.message, /destinations\.generated\.ts/);
+
+    return true;
+  });
+  await project.generate();
+  await project.generate({ check: true });
+  assert.equal(await exists(resolve(project.root, "generated/destinations.generated.ts")), false);
+});
+
+test("0.0.x leftovers: an unmarked file or a directory at the shared file's path is left alone", async () => {
+  const project = await legacyProject({});
+
+  await project.generate();
+  await project.write("generated/destinations.generated.ts", "// mine\nexport {};\n");
+  await project.generate({ check: true });
+  await project.generate();
+  assert.equal(await project.read("generated/destinations.generated.ts"), "// mine\nexport {};\n");
+
+  await rm(resolve(project.root, "generated/destinations.generated.ts"));
+  await mkdir(resolve(project.root, "generated/destinations.generated.ts"));
+  await project.generate({ check: true });
+  await project.generate();
+  assert.equal(
+    (await stat(resolve(project.root, "generated/destinations.generated.ts"))).isDirectory(),
+    true,
+  );
+});
+
+test("0.0.x leftovers: discovery skips a facade it couldn't parse, and generation replaces it", async () => {
+  // A merge left conflict markers below the facade's first-line marker.
+  const broken = `${legacyMarker.route}\n<<<<<<< ours\nexport const destination = ;\n>>>>>>> theirs\n`;
+  const project = await legacyProject({ "src/routes/a/route.generated.ts": broken });
+
+  await project.generate();
+
+  const copy = await project.read("src/routes/a/route.generated.ts");
+
+  assert.equal(copy.trimEnd().split("\n").at(-1), markerOf.route);
+});
+
+test("0.0.x leftovers: in Launch's call, the shared file is stale and an output-inventory facade is left alone", async () => {
+  const project = await legacyProject({});
+  const output = resolve(project.root, "generated");
+  const inOutput = resolve(output, "fixtures/route.generated.ts");
+  const inScan = resolve(project.root, "src/routes/gone/route.generated.ts");
+  const shared = resolve(output, "destinations.generated.ts");
+  const nestedShared = resolve(output, "fixtures/destinations.generated.ts");
+
+  await project.generate();
+  await project.write("generated/fixtures/route.generated.ts", legacyFacade("gone"));
+  await project.write("src/routes/gone/route.generated.ts", legacyFacade("gone"));
+  await project.write("generated/destinations.generated.ts", legacyDestinations("a", "b"));
+  await project.write("generated/fixtures/destinations.generated.ts", legacyDestinations("a"));
+
+  // Launch's call (angular-launch src/generation/run.ts): its four globals in the output
+  // directory, and the output inventory among the encountered files.
+  const globals = [
+    "routes.generated.ts",
+    "server.generated.ts",
+    "redirects.generated.ts",
+    "context.generated.d.ts",
+  ].map((name) => resolve(output, name));
+  const plan = await planOutputs(
+    new Map(),
+    [inScan, inOutput, shared, nestedShared],
+    globals,
+    "router-and-launch",
+  );
+
+  assert.equal(plan.stale.includes(inScan), true);
+  assert.equal(plan.stale.includes(shared), true);
+  assert.equal(plan.stale.includes(inOutput), false);
+  assert.equal(plan.changed.includes(inOutput), false);
+  // The shared file is retired only beside the global outputs, not elsewhere in the inventory.
+  assert.equal(plan.stale.includes(nestedShared), false);
 });
 
 // Route children tables: every route with a retained child loads their records lazily.
