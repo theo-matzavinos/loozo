@@ -10,12 +10,12 @@ Use it when you want typed reads and writes between an Angular SSR app and its o
 
 ## Requirements
 
-- Angular 22 with SSR: `@angular/core`, `@angular/common` and `@angular/router` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/ssr` and `@angular/platform-server` as in the example. Tested with Angular 22.3.0.
+- Angular 22 with SSR: `@angular/core`, `@angular/common` and `@angular/router` `^22.0.0` and `rxjs` `^7.8.2` (the peer dependencies), plus `@angular/ssr` and `@angular/platform-server` as in the example. Supports Angular 22.3, patches included; tested with Angular 22.3.0.
 - `@angular/build` `~22.3.0`, for the builders. The range is narrow on purpose: the application builder's options schema is Angular's own at the version Launch was built against, so an option added in a later Angular minor is rejected until Launch is rebuilt against that minor. Launch follows the router's [Angular version policy](../angular-router/README.md#angular-versions) and releases in lockstep with it.
 - `@loozo/angular-router` at exactly the version Launch pins in its `peerDependencies`, as a dependency of your app. Launch generation writes the router's files too, through an internal router entry point, so the two must match; the exact peer dependency enforces that.
 - TypeScript 6 with strict checking. Generation rejects a tsconfig where any of `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `strictBuiltinIteratorReturn`, `noImplicitThis` or `useUnknownInCatchVariables` is off, or where `noCheck` is on. `"strict": true` is enough unless a flag is explicitly turned off, including in an extended config. Generation never edits your tsconfig.
 - A `package.json` with a `name` in the application directory. The name is part of the generated app identity.
-- Optionally, `@tanstack/angular-query` `^5.0.0` for the [TanStack Query integration](tanstack-query/README.md), and `@angular/localize` for [translated URLs](#translated-urls).
+- Optionally, `@tanstack/angular-query` `^5.0.0` for the [TanStack Query integration](tanstack-query/README.md) (supported as tested, with 5.108.4), and `@angular/localize` for [translated URLs](#translated-urls).
 
 Install both packages:
 
@@ -25,9 +25,20 @@ pnpm add @loozo/angular-launch @loozo/angular-router@0.1.0
 
 ## Versions
 
-Launch releases are numbered `0.MINOR.PATCH` until its own 1.0: a patch doesn't break the contract and a minor may. It supports the Angular minor of the router it pins (the router's [Angular versions](../angular-router/README.md#angular-versions)), so every move to a new Angular minor is a Launch minor. Generated files aren't part of the contract byte for byte, only their names, locations and what your code uses from them, so any release, a patch included, may change their contents, and a release supports only the generated files it writes itself. Launch's generation writes the router's files too, so after upgrading both, run `ng build` (or `ng serve`) once and commit what it regenerates. Until you do, if the release changed them, the check (`ng run my-app:build:check`) fails and says to regenerate, and `ng test` and your editor read the old ones, which the new release doesn't support. Launch's contract is its [`SPEC.md`](SPEC.md): the entry points and their types, the builder names and options, the generated files it lists and what they export, and the behavior it specifies. It doesn't cover `@loozo/angular-launch/_server`, `/_source-text` or `/_redirects`, which only generated code imports, or the wire format between client and server, so deploy the browser and server builds of one release together.
+From 1.0.0, releases follow [semantic versioning](https://semver.org) over the contract in [`SPEC.md`](SPEC.md): the entry points and their types, the builder names and options, the generated file names and what they export, and the behavior it specifies. Its [Stability](SPEC.md#stability) section lists what's public and what isn't. Before 1.0.0, releases are numbered `0.MINOR.PATCH`: a patch doesn't break the contract and a minor may.
 
-What's different for Launch is the router pin. Launch releases in lockstep with the router and pins it exactly, so every router release comes with a Launch release that pins it. A router patch brings a Launch patch, or a minor when Launch's own changes since its last release break the contract. While Launch is on `0.x`, a router minor or major always brings a Launch minor. Upgrade the two together, the router to the version Launch's `peerDependencies` names.
+- A patch (1.0.0 → 1.0.1) fixes bugs or improves the docs.
+- A minor (1.0.x → 1.1.0) adds something without breaking the contract, such as an export, an option or a procedure option. A move to a new Angular minor is a minor too.
+- A major (1.x → 2.0.0) breaks the contract. A move to a new Angular major, or to a new major of the optional `@tanstack/angular-query`, is a major too.
+- Error and log messages explain a failure; their wording may improve in any release. When and how something fails is part of the contract, other than which requests the wire format admits. So are the codes, statuses and messages of `frameworkFailures` and of the errors you declare.
+- Generated files aren't part of the contract byte for byte, only their names, locations and what your code uses from them, so any release, a patch included, may change their contents, and a release supports only the generated files it writes itself. Launch's generation writes the router's files too, so after upgrading, run `ng build` (or `ng serve`) once and commit what it regenerates. Until you do, if the release changed them, the check (`ng run my-app:build:check`) fails and says to regenerate, and `ng test` and your editor read the old ones, which the new release doesn't support.
+- The wire format between client and server isn't part of the contract, and neither are `@loozo/angular-launch/_server`, `/_source-text` and `/_redirects`, which only generated code imports. Deploy the browser and server builds of one release together.
+
+Launch supports the Angular minor of the router it pins: see the router's [Angular versions](../angular-router/README.md#angular-versions), whose policy Launch follows. From 1.0.0, a Launch release for a new Angular minor is a Launch minor, and one for a new Angular major is a Launch major.
+
+### The router pin
+
+Launch pins `@loozo/angular-router` exactly and releases in lockstep with it: every router release is followed by a Launch release that pins it. Since you upgrade the two together, the Launch release is at least the level of the router's: from 1.0.0, a router patch brings a Launch patch, a router minor a Launch minor, and a router major a Launch major. Launch's own changes since its last release can raise that, such as a Launch major that pins a router patch. While Launch is on `0.x`, a router minor or major brings a Launch minor. Upgrade the two together, the router to the version Launch's `peerDependencies` names.
 
 Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-launch&expanded=true).
 
@@ -722,7 +733,7 @@ export default defineRoute("todos", { parent })
 
 A route copy exports its client's type as `Remote`, for example to type a result: `Awaited<ReturnType<Remote["todos"]["list"]>>` with `import type { Remote } from "./route.generated"`. It names the server's types through the route's declaration, erased, so no server code reaches the browser bundle.
 
-A narrowed [active route](../angular-router/README.md) handle carries the same `remote`, so a shell can call the active page's procedures. Its client is built with the injector of the `injectActiveRoute()` caller, not the route's: providers a route adds, such as an `HttpClient` interceptor, reach only that route's own `injectRoute()`.
+A narrowed [active route](../angular-router/README.md) handle carries the same `remote`, so a shell can call the active page's procedures. Its client is built with the injector of the `injectActiveRoute()` call, not the route's: a shell outside the route doesn't see providers the route adds, such as an `HttpClient` interceptor, while the route's own page does.
 
 ### Navigating on outcomes
 
@@ -1082,7 +1093,7 @@ Answer a call with what the server would send:
 | `redirect()`    | `{ redirect: { to } }`, plus `words` with [translated URLs](#translated-urls)          | 303              |
 | `notFound()`    | `{ notFound: null }`                                                                   | 404              |
 
-Pass the status as `flush(body, { status, statusText })`. The client recognizes an error only when its code, status and message all match, the procedure's declaration for a declared error and the table for Launch's own codes, and its data has the shape shown. A failing status whose body is neither a recognized error nor an outcome rejects with Angular's `HttpErrorResponse`, so a mistyped message makes `isError` false without any other sign. A body flushed with a success status is a result, whatever it contains.
+The table is the wire format of the Launch release you test against, which isn't part of the [contract](#versions), so a test that answers with it may need updating after an upgrade. Pass the status as `flush(body, { status, statusText })`. The client recognizes an error only when its code, status and message all match, the procedure's declaration for a declared error and the table for Launch's own codes, and its data has the shape shown. A failing status whose body is neither a recognized error nor an outcome rejects with Angular's `HttpErrorResponse`, so a mistyped message makes `isError` false without any other sign. A body flushed with a success status is a result, whatever it contains.
 
 A resolver calls its procedure while Angular navigates. Navigate through the generated routes with `RouterTestingHarness`, as the [router's guide](../angular-router/README.md#testing-pages) shows, and answer the call while the navigation waits for it:
 
@@ -1096,14 +1107,14 @@ To test a procedure, call it with `callProcedure` from `@loozo/angular-launch/te
 
 [src/routes/todos/procedures.spec.ts](snippets/src/routes/todos/procedures.spec.ts)
 
-- The call settles to what the browser would get, the bodies in the table above with their status: `{ status: 200, result }`, `{ status, error: { code, message, data } }`, `{ status: 303, redirect: { to } }` (never with `words`, even in a [translated](#translated-urls) app: `to` is whatever `createUrl` gives in the graph the test imports) or `{ status: 404, notFound: null }`. It also has `cookies`, the `Set-Cookie` values the call set, and `headers`, the headers it set. Narrow with `"error" in call`, then by `call.error.code`, to reach a declared error's typed data. An unexpected failure is `INTERNAL`, and Launch logs it with `console.error` as the server does.
+- The call settles to one of these shapes, which are `callProcedure`'s own and part of the contract even where they match the wire table above: `{ status: 200, result }`, `{ status, error: { code, message, data } }`, `{ status: 303, redirect: { to } }` (never with `words`, even in a [translated](#translated-urls) app: `to` is whatever `createUrl` gives in the graph the test imports) or `{ status: 404, notFound: null }`. It also has `cookies`, the `Set-Cookie` values the call set, and `headers`, the headers it set. Narrow with `"error" in call`, then by `call.error.code`, to reach a declared error's typed data. An unexpected failure is `INTERNAL`, and Launch logs it with `console.error` as the server does.
 - `context`, `input` and the result are typed from the route: `context` as the root route's stage returns it (`{}` without one), so input the schema refuses needs a cast.
 - Stages, middleware and the handler receive a `POST` to `http://localhost/_rpc/<namespace>/<procedure>` as their `request`. Pass `request` to give them your own, with headers or an abort signal.
 - A namespace belongs to the route whose `.remote()` declares it: call an ancestor's namespace through the ancestor's route. Streams and channels can't be called this way.
 - The root route is the topmost route that uses `.context()`, `.use()` or `.remote()`, normally `src/routes/route.ts`.
 - Specs import `route.ts`, which application code mustn't. That's fine because the application tsconfig excludes them, as above.
 
-`callProcedure` skips what only an HTTP request goes through: the host, origin and method checks, and the root stage. To test those too, call the generated `handleRequest` with a web `Request`, as your server does, and assert on the status and body the browser would get:
+`callProcedure` skips what only an HTTP request goes through: the host, origin and method checks, and the root stage. To test those too, call the generated `handleRequest` with a web `Request`, as your server does, and assert on the status and body the browser would get. The body is the wire format of the release you test against, which can change in any release:
 
 [src/routes/todos/http.spec.ts](snippets/src/routes/todos/http.spec.ts)
 
@@ -1179,7 +1190,7 @@ createUpgradeHandler((request) => handleUpgrade(request, { allowedHosts }), {
 });
 ```
 
-Under `ng serve`, `listen` doesn't run, so your code never attaches the listener. Launch's serve builder forwards channel upgrades to it instead: on the dev server's first request it adds one `upgrade` listener to the dev server, which passes `/_rpc/` upgrades to the latest listener `createUpgradeHandler` created and leaves every other upgrade, such as Vite's live-reload socket, to the dev server. The dev server loads your server module with the first request that reaches your server, such as a page, and again with the first such request after you edit server code; each load creates a new listener, which takes over. Rebuilding alone doesn't load it. With live reload, the default, the reload that follows a server edit is that request, so the reloaded page's channels reach the new code. With `--live-reload=false`, or for an upgrade sent before any page request since the rebuild, the previously loaded module keeps answering until a page request loads the new one. Channels already open stay on the code they started with. A channel upgrade that arrives while no listener exists, because the module hasn't loaded yet or creates none, is answered with a plain-text 503, and the dev server logs one warning naming `createUpgradeHandler`; the client sees a `TypeError`. An upgrade that arrives before the dev server has answered any request isn't forwarded, which doesn't happen in a browser, since the page loads first.
+Under `ng serve`, `listen` doesn't run, so your code never attaches the listener. Launch's serve builder forwards channel upgrades to it instead, through an experimental Angular dev-server API, so this forwarding isn't part of Launch's [contract](SPEC.md#stability) and may change with Angular: on the dev server's first request it adds one `upgrade` listener to the dev server, which passes `/_rpc/` upgrades to the latest listener `createUpgradeHandler` created and leaves every other upgrade, such as Vite's live-reload socket, to the dev server. The dev server loads your server module with the first request that reaches your server, such as a page, and again with the first such request after you edit server code; each load creates a new listener, which takes over. Rebuilding alone doesn't load it. With live reload, the default, the reload that follows a server edit is that request, so the reloaded page's channels reach the new code. With `--live-reload=false`, or for an upgrade sent before any page request since the rebuild, the previously loaded module keeps answering until a page request loads the new one. Channels already open stay on the code they started with. A channel upgrade that arrives while no listener exists, because the module hasn't loaded yet or creates none, is answered with a plain-text 503, and the dev server logs one warning naming `createUpgradeHandler`; the client sees a `TypeError`. An upgrade that arrives before the dev server has answered any request isn't forwarded, which doesn't happen in a browser, since the page loads first.
 
 - **Memory:** an open channel holds about 1 MiB of unsent frames plus one value of any size, and 32 unread messages of up to `maxPayload` each. To keep to that, while the socket buffers 1 MiB or more the listener answers only a caller's latest ping, once the buffer drains; browsers don't ping. The final frame isn't held back, so keep the values and error data your procedures send to a size you're happy to buffer. How many channels may be open at once, and how large an upgrade request may be, is up to your host or proxy.
 - **Leaving early:** a client that leaves while the context or middleware still run ends the call before its handler starts when its browser closes the connection (Chromium and WebKit do); Firefox's leaving isn't noticed until the upgrade is accepted, when the socket closes at once.
@@ -1466,7 +1477,7 @@ Generated browser code contains only names, kinds and error metadata, never your
 
 `server.generated.ts` binds Launch's internal `bindApplication`, `createRequestScope`, `handleRpc`, `handleChannelUpgrade` and `provideLaunchServer` to your app. It imports them from `@loozo/angular-launch/_server`, an entry point for generated code only that isn't public API and can change in any release; use the generated functions instead. The app identity comes from the `package.json` name and the generation tsconfig's and output directory's paths within the app, so neither route edits nor moving the whole app directory change it.
 
-RPC URLs are `/_rpc/<namespace>/<procedure>`, so they change only when you rename a namespace or procedure. Moving a route or the generation tsconfig doesn't change them. The example doesn't commit generated files: every build regenerates them, and its `check` configuration (`ng run todos:build:check`) verifies them without writing.
+In this release, RPC URLs are `/_rpc/<namespace>/<procedure>`, so moving a route or the generation tsconfig doesn't change them. Everything below `/_rpc/` is wire format, which a release may change, so don't point health checks or other tools at a procedure's URL. The example doesn't commit generated files: every build regenerates them, and its `check` configuration (`ng run todos:build:check`) verifies them without writing.
 
 `@loozo/angular-launch/generation` is Node-only.
 
@@ -1520,7 +1531,7 @@ The options are fixed when the session is created. Edits inside the app, includi
 
 ## Limitations
 
-- On Cloudflare Workers, a handler waiting on a timer or I/O when its caller leaves may never resume; see [Cloudflare Workers](#cloudflare-workers).
+- On Cloudflare Workers, a handler waiting on a timer or I/O when its caller leaves may never resume. Passing the request's `waitUntil`, as [Cloudflare Workers](#cloudflare-workers) shows, holds an RPC's or channel's work for up to 30 seconds after its caller leaves; calls made while rendering aren't held.
 - Streams and channels don't reconnect or resume on their own (`connect()` reconnects when asked or when its input changes), and HTTP interceptors don't see them. Channels carry strict JSON text only, one call per socket, with no acknowledgements.
 - Beyond hydration, the only query cache is TanStack Query's, through the optional [integration](tanstack-query/README.md#limitations), which has its own limitations. Optimistic updates and invalidation are TanStack's too, as its guide [shows](tanstack-query/README.md#optimistic-updates); Launch adds no helpers for them. Without it, nothing is invalidated for you.
 - No server-side storage adapters; persistence is your handler's job. Remembered search keys use browser cookies through [`searchCookies()`](#remembered-search-keys).
@@ -1529,9 +1540,9 @@ The options are fixed when the session is created. Edits inside the app, includi
 - Aborting is advisory: handlers get a `signal`, but work that ignores it finishes, a write may already have committed, and nothing is rolled back.
 - Middleware is server-side only: there's no client middleware (use an Angular HTTP interceptor), and no dedupe of middleware listed twice.
 - Redirects go to declared destinations only: an external destination, such as an OAuth provider, is data your page acts on, and a redirect target's search keys must be declared on its route. Outcomes act only in navigation, through `rpcNavigationErrors`, and nothing maps `FORBIDDEN` to a page: a stage that guards a page's reads throws `redirect()` or `notFound()` instead.
-- A route can't opt out of its ancestors' stages, and a stage's failure fails every later call in the same request scope, such as the rest of a server render.
-- An active-route handle's `remote` and `queries` use the `injectActiveRoute()` caller's injector, so providers a route adds reach only its own `injectRoute()`.
-- Middleware written inline in `.use()` doesn't infer the route's context type; give it the keys it reads.
+- A route can't opt out of its ancestors' stages, and a stage's failure fails every later call in the same request scope that needs that stage, such as the rest of a server render's calls below it.
+- An active-route handle's `remote` and `queries` use the injector of the `injectActiveRoute()` call, so a caller outside the route, such as a shell, doesn't see providers the route adds.
+- A `middleware()` definition written inline in `.use()` doesn't infer the route's context type; write inline middleware as a bare function, which does, or give `middleware()` the keys it reads.
 
 ## Further reading
 
