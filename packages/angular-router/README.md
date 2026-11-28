@@ -35,6 +35,7 @@ From 1.0.0, releases follow [semantic versioning](https://semver.org) over the c
 - A major (1.x → 2.0.0) breaks the contract. A move to a new Angular major is a major too.
 - Error messages explain a failure; their wording may improve in any release. When and how something fails is part of the contract.
 - Generated files aren't part of the contract byte for byte, only their names, locations and what your code uses from them, so any release, a patch included, may change their contents, and a release supports only the generated files it writes itself. After upgrading, run `ng build` (or `ng serve`) once and commit the regenerated files. Until then, the CI check (`ng build --configuration ci`) fails on them, and `ng test`, `ng extract-i18n` and your editor read the old ones, which the new release doesn't support.
+- Type declarations (`.d.ts`) emitted from your route declarations can name the package's private types, so they aren't part of the contract either: routes are application code. Rebuild them with the router release you run.
 
 Each release's breaking changes, features and fixes are listed in its [GitHub release](https://github.com/theo-matzavinos/loozo/releases?q=angular-router&expanded=true).
 
