@@ -25,17 +25,15 @@ A pager for a paged list: numbered page controls with gaps, and First, Previous,
   <button ogPaginationFirst aria-label="First page">«</button>
   <button ogPaginationPrevious aria-label="Previous page">‹</button>
   <ul>
-    @for (item of pager.state.range(); track item.key) {
+    @for (item of pager.state.range(); track item.key) { @if (item.type === "page") {
     <li>
-      @if (item.type === "page") {
       <button ogPaginationItem [page]="item.page" [attr.aria-label]="'Page ' + item.page">
         {{ item.page }}
       </button>
-      } @else {
-      <span aria-hidden="true">…</span>
-      }
     </li>
-    }
+    } @else {
+    <li aria-hidden="true">…</li>
+    } }
   </ul>
   <button ogPaginationNext aria-label="Next page">›</button>
   <button ogPaginationLast aria-label="Last page">»</button>
@@ -117,7 +115,7 @@ With data loaded per route, the mark moves as soon as the route does, while rows
 | 7     | 1 / 1                     | any      | `1 2 3 4 5 6 7`                        |
 | 0     | 1 / 1                     | 1        | (empty)                                |
 
-Mark the gap `aria-hidden`: it isn't a control and a reader gains nothing from "…". The range costs as many controls as you ask for: absurd `siblings` or `boundaries` render that many buttons.
+Mark the gap `aria-hidden`: it isn't a control and a reader gains nothing from "…". In a list, put it on the gap's `<li>`, not on an element inside it, so the list announces only its pages. The range costs as many controls as you ask for: absurd `siblings` or `boundaries` render that many buttons.
 
 ## Values
 

@@ -383,8 +383,8 @@ const resultsWrites: readonly ResultsWrite[] = [
         </button>
         <ul>
           @for (item of results.state.range(); track item.key) {
-            <li>
-              @if (item.type === "page") {
+            @if (item.type === "page") {
+              <li>
                 <button
                   ogPaginationItem
                   [page]="item.page"
@@ -393,10 +393,10 @@ const resultsWrites: readonly ResultsWrite[] = [
                 >
                   {{ item.page }}
                 </button>
-              } @else {
-                <span aria-hidden="true" [attr.data-testid]="'results-' + item.key">…</span>
-              }
-            </li>
+              </li>
+            } @else {
+              <li aria-hidden="true" [attr.data-testid]="'results-' + item.key">…</li>
+            }
           }
         </ul>
         <button ogPaginationNext data-testid="results-next" aria-label="Next page">›</button>

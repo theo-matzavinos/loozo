@@ -36,15 +36,15 @@ import {
       <button ogPaginationPrevious aria-label="Previous page">‹</button>
       <ul>
         @for (item of pager.state.range(); track item.key) {
-          <li>
-            @if (item.type === "page") {
+          @if (item.type === "page") {
+            <li>
               <button ogPaginationItem [page]="item.page" [attr.aria-label]="'Page ' + item.page">
                 {{ item.page }}
               </button>
-            } @else {
-              <span class="gap" aria-hidden="true">…</span>
-            }
-          </li>
+            </li>
+          } @else {
+            <li class="gap" aria-hidden="true">…</li>
+          }
         }
       </ul>
       <button ogPaginationNext aria-label="Next page">›</button>

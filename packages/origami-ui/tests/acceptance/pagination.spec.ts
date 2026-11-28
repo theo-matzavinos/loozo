@@ -245,6 +245,8 @@ test("PG3 State derives the page, the page count, the requested page's item boun
   await expect(out(page, "results").locator("li button")).toHaveText(["1", "4", "5", "6", "10"]);
   await expect(out(page, "results-ellipsis-start")).toHaveAttribute("aria-hidden", "true");
   await expect(out(page, "results-ellipsis-end")).toHaveAttribute("aria-hidden", "true");
+  // The gaps' list items are hidden too, so the exposed list has only the five page entries.
+  await expect(out(page, "results").getByRole("listitem")).toHaveCount(5);
   await expect(out(page, "results-summary")).toHaveText("Showing 41–50 of 100");
 
   // A stale page reports no items; with no items the consumer's own text shows.
