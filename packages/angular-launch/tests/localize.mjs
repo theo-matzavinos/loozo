@@ -17,6 +17,7 @@ import { cp, mkdir, readdir, readFile, rename, rmdir, symlink, writeFile } from 
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import "@angular/compiler";
 import { DefaultUrlSerializer } from "@angular/router";
 
@@ -217,24 +218,29 @@ function localeLinks(document) {
 
 // A page in both locales: the switcher links to [en, de] document URLs with this locale's marked,
 // and the snippet adds en, de and x-default → en, absolute on the public origin, and no other.
-function expectLocaleLinks({ switcher, alternates, alternateLinks }, en, de, current, label) {
+function expectedLocaleLinks(en, de, current) {
   const marks = { en: null, de: null };
 
   marks[current] = "page";
+
+  return {
+    switcher: [
+      ["en", en, marks.en],
+      ["de", de, marks.de],
+    ],
+    alternates: [
+      ["en", new URL(en, site).href],
+      ["de", new URL(de, site).href],
+      ["x-default", new URL(en, site).href],
+    ],
+    alternateLinks: 3,
+  };
+}
+
+function expectLocaleLinks({ switcher, alternates, alternateLinks }, en, de, current, label) {
   assert.deepEqual(
     { switcher, alternates, alternateLinks },
-    {
-      switcher: [
-        ["en", en, marks.en],
-        ["de", de, marks.de],
-      ],
-      alternates: [
-        ["en", new URL(en, site).href],
-        ["de", new URL(de, site).href],
-        ["x-default", new URL(en, site).href],
-      ],
-      alternateLinks: 3,
-    },
+    expectedLocaleLinks(en, de, current),
     label,
   );
 }
@@ -886,41 +892,59 @@ try {
   // The switcher and alternates after hydration follow client navigation, and the English link
   // is a document navigation into the English build.
   await flow("de-switcher", async (page) => {
-    const links = () => page.evaluate(`(${localeLinks.toString()})(document)`);
-    const switchedTo = (href) =>
-      page.waitForFunction(
-        (expected) =>
-          document
-            .querySelector("nav[aria-label='Language'] a[hreflang='en']")
-            ?.getAttribute("href") === expected,
-        href,
-      );
+    // Reads the links until they're the expected ones, then asserts the last read. On a new
+    // document the active route is undefined from hydration until the first navigation
+    // completes, so the snippet removes the server's alternates and adds them back then (the
+    // router README's "Hydrated pages"): a read in between sees none.
+    async function expectPageLocaleLinks(en, de, current, label) {
+      const expected = expectedLocaleLinks(en, de, current);
+      const deadline = Date.now() + 10000;
+
+      for (;;) {
+        const links = await page.evaluate(`(${localeLinks.toString()})(document)`);
+        const isExpected = isDeepStrictEqual(links, expected);
+
+        if (isExpected || Date.now() > deadline) {
+          expectLocaleLinks(links, en, de, current, label);
+
+          return links;
+        }
+
+        await new Promise((done) => setTimeout(done, 100));
+      }
+    }
 
     await page.goto(`${origin}/de/anmelden`);
     await settled(page);
     await page.waitForTimeout(400);
 
-    const hydrated = await links();
+    const hydrated = await expectPageLocaleLinks("/en/sign-in", "/de/anmelden", "de", "hydrated");
 
-    expectLocaleLinks(hydrated, "/en/sign-in", "/de/anmelden", "de", "hydrated");
     await page.click("#manuals-start");
     await page.waitForURL("**/de/handbuecher/anfang");
-    await switchedTo("/en/manuals/start");
 
-    const navigated = await links();
+    const navigated = await expectPageLocaleLinks(
+      "/en/manuals/start",
+      "/de/handbuecher/anfang",
+      "de",
+      "navigated",
+    );
     const navigatedPage = await marker(page);
 
-    expectLocaleLinks(navigated, "/en/manuals/start", "/de/handbuecher/anfang", "de", "navigated");
     assert.equal(navigatedPage.document, "same");
 
     await page.click("nav[aria-label='Language'] a[hreflang='en']");
     await page.waitForURL("**/en/manuals/start");
     await page.waitForSelector("#page[data-id='manuals/start']");
 
-    const switched = await links();
+    const switched = await expectPageLocaleLinks(
+      "/en/manuals/start",
+      "/de/handbuecher/anfang",
+      "en",
+      "switched",
+    );
     const switchedPage = await marker(page);
 
-    expectLocaleLinks(switched, "/en/manuals/start", "/de/handbuecher/anfang", "en", "switched");
     // A new document: the token the German one set is gone.
     assert.equal(switchedPage.document, undefined);
 
