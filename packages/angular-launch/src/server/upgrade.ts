@@ -98,7 +98,8 @@ function refusedUpgrade(effects: ResponseEffects, reply: Reply, channel: Channel
  * request is refused with an HTTP response, as `handleRequest` refuses RPCs: a plain-text 400
  * `Host not allowed` when its hostname isn't in `allowedHosts`; `INVALID_INPUT` with no issues
  * unless it's a `GET` with `Upgrade: websocket` and a query of exactly `input` holding JSON;
- * and `FORBIDDEN` unless it's proven same-origin by `handleRequest`'s rules.
+ * and `FORBIDDEN` unless `handleRequest`'s rules prove it comes from the app's own origin or
+ * one listed in `allowedOrigins`.
  *
  * A fresh request scope is then created and the call run: `RPC_NOT_FOUND` for a path that
  * isn't a channel, then the owning route's stages and `.use()` middleware, input

@@ -735,8 +735,8 @@ export function crossSiteReason(
  * be in `allowedHosts`, otherwise the reply is a plain-text 400 `Host not allowed`. It
  * must then be a `POST` with an `application/json` content type and no query string,
  * otherwise the reply is `INVALID_INPUT` with no issues. It must then come from the
- * app's own origin, otherwise the reply is `FORBIDDEN`: an `Origin` listed in `allowedOrigins`
- * passes; otherwise `Sec-Fetch-Site`, when sent, must be `same-origin`; otherwise
+ * app's own origin or one listed in `allowedOrigins`, otherwise the reply is `FORBIDDEN`: an
+ * `Origin` listed in `allowedOrigins` passes; otherwise `Sec-Fetch-Site`, when sent, must be `same-origin`; otherwise
  * `Origin`, when sent, must equal the request URL's origin; a request with neither
  * header is refused. No stage runs for any of these refusals. A fresh request scope is
  * then created, which runs nothing, and a body that isn't JSON gives `INVALID_INPUT` with
