@@ -29,6 +29,11 @@ export const directButtonParts = new Set([
   "OrigamiMenuRadioItem",
   "OrigamiNumberFieldDecrement",
   "OrigamiNumberFieldIncrement",
+  "OrigamiPaginationFirst",
+  "OrigamiPaginationItem",
+  "OrigamiPaginationLast",
+  "OrigamiPaginationNext",
+  "OrigamiPaginationPrevious",
   "OrigamiPopoverTrigger",
   "OrigamiRadioGroupItem",
   "OrigamiSwitch",
@@ -132,6 +137,26 @@ const directPartFixes = new Map([
   [
     "OrigamiNumberFieldIncrement",
     "Don't bind {{attribute}}. For OrigamiNumberFieldIncrement alone, add this condition both to its click handler and to the OrigamiButtonOptions it provides. To stop stepping from both buttons and the Input's ArrowUp and ArrowDown while typing stays on, make OrigamiNumberFieldOptions.step non-positive under it: NumberFieldContext.canStep and .step both read it. To stop typing too, use OrigamiNumberFieldOptions.disabled or .readonly.",
+  ],
+  [
+    "OrigamiPaginationFirst",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationFirst provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding {{attribute}}.",
+  ],
+  [
+    "OrigamiPaginationItem",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationItem provides, which disable an item whose page isn't one of the pages, and to its click, which writes through PaginationContext.write under the write rule (pagination-math.ts writes), instead of binding {{attribute}}.",
+  ],
+  [
+    "OrigamiPaginationLast",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationLast provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding {{attribute}}.",
+  ],
+  [
+    "OrigamiPaginationNext",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationNext provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding {{attribute}}.",
+  ],
+  [
+    "OrigamiPaginationPrevious",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationPrevious provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding {{attribute}}.",
   ],
   [
     "OrigamiToolbarItem",

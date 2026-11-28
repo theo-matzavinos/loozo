@@ -89,6 +89,26 @@ const directFixes = [
     "Don't bind data-disabled. For OrigamiNumberFieldIncrement alone, add this condition both to its click handler and to the OrigamiButtonOptions it provides. To stop stepping from both buttons and the Input's ArrowUp and ArrowDown while typing stays on, make OrigamiNumberFieldOptions.step non-positive under it: NumberFieldContext.canStep and .step both read it. To stop typing too, use OrigamiNumberFieldOptions.disabled or .readonly.",
   ],
   [
+    "OrigamiPaginationFirst",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationFirst provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding data-disabled.",
+  ],
+  [
+    "OrigamiPaginationItem",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationItem provides, which disable an item whose page isn't one of the pages, and to its click, which writes through PaginationContext.write under the write rule (pagination-math.ts writes), instead of binding data-disabled.",
+  ],
+  [
+    "OrigamiPaginationLast",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationLast provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding data-disabled.",
+  ],
+  [
+    "OrigamiPaginationNext",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationNext provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding data-disabled.",
+  ],
+  [
+    "OrigamiPaginationPrevious",
+    "Add this condition both to the OrigamiButtonOptions OrigamiPaginationPrevious provides, which follow the write rule (pagination-math.ts writes), and to its click, which writes through PaginationContext.write under the same rule, instead of binding data-disabled.",
+  ],
+  [
     "OrigamiToolbarItem",
     "Add this condition to the OrigamiButtonOptions OrigamiToolbarItem provides, which Button and the Toolbar's roving focus read, instead of binding data-disabled. Toolbar Item doesn't guard activation: while the item stays focusable, the consumer's own click handlers must check it too.",
   ],
