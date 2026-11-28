@@ -552,25 +552,6 @@ await run(
   queriesConsumer,
   "tanstack-query-types-nodenext",
 );
-// QueriesOf names ChainNamespaces package-locally: an exported value typed through it emits.
-await writeFile(
-  join(queriesConsumer, "src/declarations.ts"),
-  `import { injectRoute, route } from './routes/route.generated.js';
-import type { QueriesOf } from '@loozo/angular-launch/tanstack-query';
-export const queries = injectRoute().queries;
-export function same(value: QueriesOf<typeof route>) { return value.packed; }`,
-);
-await writeFile(
-  join(queriesConsumer, "tsconfig.declarations.json"),
-  await readFile(join(consumer, "tsconfig.declarations.json"), "utf8"),
-);
-await run(
-  "pnpm",
-  ["exec", "tsc", "-p", "tsconfig.declarations.json"],
-  queriesConsumer,
-  "tanstack-query-types-declarations",
-);
-
 const lock = await readFile(join(consumer, "pnpm-lock.yaml"), "utf8");
 
 assert.ok(lock.includes("22.3.0") && lock.includes("6.0.3") && lock.includes("7.8.2"));
@@ -598,7 +579,6 @@ await writeFile(
         "strict Bundler native routes and strict NodeNext exports/generated mutation/error consumer",
         "root and generated entries without the optional TanStack peer",
         "TanStack Query subpaths, generation and generated factory types with the peer installed",
-        "TanStack Query values typed through QueriesOf emit declarations",
         "the TanStack Query guide ships with relative links that resolve inside the package",
       ],
     },

@@ -84,7 +84,8 @@ function location(root, node) {
 
 // An application's exported value whose inferred type mentions one of this package's types
 // emits a reference to it. A type its module exports is then named by a deep path the exports
-// map blocks (TS2883, or a non-portable import), so a public entry must export it. A module's
+// map blocks (TS2883, or a non-portable import), so an entry must export it: a public one, or
+// /_route for a route-extension type only declaration emit needs. A module's
 // unexported interface, class or enum can't be named at all (TS4058); only an unexported type
 // alias is safe, because TypeScript writes out its definition instead. "Exports" means the
 // module's export table, so `type X = …; export { X };` counts as exported.
@@ -278,7 +279,8 @@ await test("published declarations only reference types exported from public ent
   const withoutLines = [];
 
   for (const offender of offenders) {
-    withoutLines.push(offender.replace(/:\d+/g, ""));
+    // With / separators on every platform, as the expected list spells them.
+    withoutLines.push(offender.replace(/:\d+/g, "").replaceAll("\\", "/"));
   }
 
   assert.deepEqual(problems, [], "Published declarations must resolve completely");
