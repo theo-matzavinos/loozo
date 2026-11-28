@@ -40,7 +40,7 @@ Each release's breaking changes, features and fixes are listed in its [GitHub re
 
 ## Angular versions
 
-Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.3 and is tested against 22.3.0. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
+Each release supports one Angular minor: the latest stable one when it was published, named by the `@angular/build` range. This release supports Angular 22.3, patches included, and is tested against 22.3.0. One release can't serve two minors: the application builder's options schema is Angular's own application schema at the version the package was built against, so an option added in a later Angular minor is rejected until the package is rebuilt against that minor.
 
 When Angular ships a new minor or major, a release built against it follows within a week. Earlier minors stay on the release that supported them; fixes aren't backported. [`@loozo/angular-launch`](../angular-launch/README.md) pins the router exactly and releases in lockstep: each router release is followed by a Launch release that pins it.
 
